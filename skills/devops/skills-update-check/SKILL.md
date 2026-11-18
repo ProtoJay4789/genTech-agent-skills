@@ -54,7 +54,7 @@ missing half.
    `Bad credentials` token and correctly printed *"9 upstream(s) could NOT be checked (this is
    NOT 'up to date')"*. A watcher that launders an auth failure into a clean bill of health is
    worse than no watcher.
-2. **A present-but-dead token is worse than no token.** `/root/.hermes/.env` carries a
+2. **A present-but-dead token is worse than no token.** `/opt/data/profiles/gentech/.env` carries a
    `GITHUB_TOKEN` that GitHub rejects. A single-source reader takes it, every call fails, and
    the naive report says everything is fine. The checker **collects candidates, PROBES each,
    and uses the first that actually authenticates** (`gh auth token` is the live one here).

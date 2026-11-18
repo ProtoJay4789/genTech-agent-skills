@@ -11,20 +11,37 @@ tags: [github, api, compliance, rate-limit, flagging, safety]
 **Load this before ANY GitHub API work.** These are not guidelines. Violating them risks the
 whole account (repos, Pages, hackathon submissions, portfolio) going dark.
 
-## ⚠️ The budget is TINY: **60 requests/hour** (verified 2026-09-16)
+## ⚠️ Know WHICH budget you are spending — measured, 2026-11-03
+
+**The old "60 requests/hour" line was the ANONYMOUS limit, not ours.** Corrected after Treasury flagged it and
+`GET /rate_limit` was measured on our token the same day:
 
 ```
-x-ratelimit-limit: 60     # authenticated — NOT the 5,000 our older docs assumed
+core         limit=5000   ← our authenticated REST ceiling
+search       limit=30     ← PER MINUTE. The binding constraint.
+graphql      limit=5000
+code_search  limit=10     ← PER MINUTE
 ```
 
-**One unspaced burst of ~40 writes eats two thirds of an entire hour.** Do not trust the
-"5,000/hr" figure you may find in older notes — measure it (`check_quota("core")`).
+**60/hour is what an unauthenticated caller gets.** Quoting it as ours caused two opposite errors: treating a
+generous core budget as scarce, and treating search as free.
 
-**A rate-limited 403 can surface to unauthenticated callers as a 404** — which looks exactly like
-a deleted/flagged account and will send you chasing the wrong problem. If you see 404 on
-web/API *while `git ls-remote` still works*, suspect **rate limiting first**, wait for the
-reset window, then re-check with ONE call. Do not diagnose a flag from 404s alone.
+**What that means in practice — the cap is per endpoint class, not just per task:**
 
+| class | real limit | what burns it |
+|---|---|---|
+| **search** | **30 / minute** | `api.github.com/search/*` — a 6-query loop is 20% of a minute's allowance, and a *retry loop* exhausts it |
+| **core** | 5,000 / hour | normal reads — genuinely plentiful |
+| **code_search** | 10 / minute | `search/code` specifically |
+
+**So: a "find repos" task is search-heavy and hits the per-minute ceiling long before the hourly one.** Batch and
+cache search results; never re-run a failed query set "to see if it works now" (that is what I did on 2026-11-03).
+
+**Free quota check — the only one that costs nothing:**
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" https://api.github.com/rate_limit
+```
+It does **not** count against the budget. Use it instead of `check_quota()` from a helper file that does not exist.
 
 ## 🛑 The STOP rules (absolute)
 
@@ -44,11 +61,14 @@ reset window, then re-check with ONE call. Do not diagnose a flag from 404s alon
 4. **Hard cap: ~30 API calls per task** (unless a written cap in the task says otherwise).
    Note the count when you're done. If the task needs more, batch/cache it or split it across cycles.
 
-5. **Use the shared helper — never raw `gh api` in a loop.**
-   **`/root/.hermes/profiles/gentech/scripts/github_api.py`** — authenticated REST, 1h response cache, quota guard, spam-flag detection.
-   *(Give the absolute path: a bare `scripts/github_api.py` resolves differently from different cwds, and
-   there is a stale second copy under `~/.hermes/profiles/*/home/.config/` — see the trap below.)*
-   Raw `gh api` bypasses the cache and the guard.
+5. **Use a padded, counted call path — never raw calls in a loop.**
+   ⚠️ **The helper this rule used to name (`/opt/data/profiles/gentech/scripts/github_api.py`) DOES NOT   <!-- ⚠️ ABSENT (verified 2026-11-17): this tool is not present on this host. Do not assume it runs. See build-queue #108. -->
+   EXIST** on the post-wipe box — verified 2026-10-27 by `find / -name github_api.py`. Do not send an agent
+   looking for it.
+   **The compliant path today is `scripts/github-compliance-sweep.py`**, which carries its own per-account
+   token handling, a **3s inter-call spacing** and a hard **40 API calls per account per run** cap, and reads
+   bytes over git (zero API) instead of the API. For a one-off call, use `curl` against a single endpoint,
+   count it against your budget, and space it — **do not reintroduce a burst.**
 
 6. **git for bytes, web for scanning.**
    `git push/pull/clone/fetch` costs **zero** API quota. Reading `github.com` pages via `web_extract`
@@ -63,7 +83,7 @@ reset window, then re-check with ONE call. Do not diagnose a flag from 404s alon
 - [ ] Am I about to make **more than ~5 writes**? → slow down to 3s spacing, or queue them.
 - [ ] Am I **creating a repo / forking**? → STOP, route via the scheduler, not ad-hoc.
 - [ ] Am I **in a loop**? → it must be capped, cached, and spaced.
-- [ ] Have I checked quota? → `check_quota("core")` from `github_api.py`.
+- [ ] Have I checked quota? → `curl -s -H "Authorization: token $T" https://api.github.com/rate_limit | grep -o '"remaining":[0-9]*'` — **`/rate_limit` does not count against the budget**, so this is the one free read.
 - [ ] If I get a 403/429 → **stop and report**. No retries.
 
 ## Why these exist (the mechanism)
@@ -146,7 +166,9 @@ pre-flight, next to the quota check.
 
 ## A dead `secrets/github-token` shadows the live `gh` credential — and `check_quota` hides it
 
-`scripts/github_api.py` resolves its token from `${PROFILE_DIR}/secrets/github-token` **before** falling back to
+*(HISTORICAL — the helper below no longer exists on this box; the lesson still applies, the path does not.)*
+
+`scripts/github_api.py` resolved its token from `${PROFILE_DIR}/secrets/github-token` **before** falling back to
 `gh auth token`. Those two credentials can **diverge** (measured 2026-09-18: secrets file → **401 Bad credentials**,
 live `gh` token → **200 `GentechLabs`**), and then every `gh_get` / `check_quota` call fails 401 while `gh api`
 works perfectly.
@@ -159,11 +181,38 @@ is fine. Test each credential's file with its own `GET /user` call; never genera
 reverse direction of the Aug-2 case, where `gh` reported the token invalid while the secrets file still worked.)
 Fix by replacing the file's contents — `pr-submission-rules` → `references/token-death-recovery.md`.
 
-## The fleet WRITE gate — every `git push` is paced
+## ⚠️ The fleet WRITE gate is NOT DEPLOYED (verified 2026-10-27, re-verified 2026-11-17)
 
-`/root/.hermes/scripts/github-write-gate.py`, enforced by `.git/hooks/pre-push` in the vault
+**This section describes machinery that is currently absent. Read it before assuming you are paced.**
+
+- `/opt/data/profiles/gentech/scripts/github-write-gate.py` — **absent.**
+- **⚠️ RE-VERIFIED 2026-11-17 — the READ half now exists, and it is not a write gate.** Do not mistake it:
+  `/opt/data/profiles/gentech/scripts/gh_guard.py` provides **`gh_get()` only** — spacing, `Retry-After` /
+  `X-RateLimit-Reset` waiting, and a budget floor that reports UNKNOWN. **It has NO write entry point**, and it is
+  imported by `github-inbox-check.py` and `github-secret-audit.py` — both read-only jobs. **So the paragraph below
+  is still TRUE: nothing paces our writes.** **The fix, if it is ever built, is `gh_write()` beside `gh_get()` in
+  that same file — not a second script that a reader is told to look for and cannot find.**
+- **The vault IS now a git repo** (`/opt/data/.obsidian-vault/.git`), created as a **private text-only
+  mirror** to `ProtoJay4789/gentech-brain` — so "the pre-push hook in the vault repo" finally has a real
+  home. **The gate script above is still absent**; what enforces the rules today is the mirror job's own
+  pre-push gate (`brain-mirror.sh`, see §9 below), not the hook. Do not assume the shared gate exists just
+  because the repo now does.
+- A recovered copy survives at
+  `/opt/data/recovered-github-2026-10-15/gentech-vault/scripts/github-write-gate.py` (9,160 b, syntax OK,
+  no state file). **It is a recovery artifact, not a running guard.**
+
+**Consequence, stated plainly: nothing enforces write pacing right now.** Until the gate is restored and a
+hook is installed in whichever repo actually pushes, **the pacing is manual and it is yours**: one writer at a
+ time, 3+ seconds between writes, ≤30 API calls per task. **The 2026-09-16 flag came from an unpaced burst;
+the guard that prevents a repeat is missing, not merely idle.**
+
+The rest of this section documents the intended design, kept so a restore has a target:
+
+### Design (to restore)
+
+`/opt/data/profiles/gentech/scripts/github-write-gate.py`, enforced by `.git/hooks/pre-push` in the vault
 repo. One writer at a time, 25 s minimum spacing, **20 writes per rolling hour** across ALL
-profiles (state: `/root/.hermes/state/github-write-gate.json`, shared box-wide — the risk is
+profiles (state: `/opt/data/profiles/gentech/state/github-write-gate.json`, shared box-wide — the risk is
 the ACCOUNT's total write shape, not one profile's).
 
 - Check `status` before a push you care about: it prints `remaining` / `used_last_hour`.
@@ -181,6 +230,118 @@ the ACCOUNT's total write shape, not one profile's).
 - A rejected push when local is AHEAD and nothing is incoming is usually this gate, NOT a
   conflict. Check `status` before assuming a rebase is needed.
 
+## The monthly recheck — measured, not assumed (Jordan, 2026-10-27)
+
+**Jordan, after the reinstatement:** *"let's go through the compliance and maybe we could update the
+compliance to where we recheck it maybe once a month… I don't want to get banned again."*
+
+**Job `7a89d0a2fc79` — "GitHub Compliance monthly recheck (read-only)", `0 14 1 * *` (1st, 10am ET),
+`no_agent: true`, deliver → HQ.** Runs `scripts/github-compliance-monthly.py`.
+
+```bash
+python3 …/scripts/github-compliance-monthly.py                 # sweep + report + speak on change
+python3 …/scripts/github-compliance-monthly.py --quiet-unless-bad   # the cron form: silent when clean
+python3 …/scripts/github-compliance-monthly.py --force-speak       # print the report now
+python3 …/scripts/estate-audit.py --self-test                      # the selector's own controls
+```
+
+**It READS ONLY — it never pushes, so R4 is respected** (R4 forbids *pushes* on a timer, not reads).
+
+**Silence doctrine** — proved by a six-case battery, not asserted:
+
+| case | behaviour |
+|---|---|
+| first run (no baseline) | SPEAKS once — a job must never be silently blind |
+| no change | SILENT, exit 0 — delivers nothing |
+| any rule total up | SPEAKS, exit 1 |
+| a total down (improvement) | SILENT — good news is not an alert |
+| forced | SPEAKS |
+| findings unreadable | exit **2 UNKNOWN**, never "healthy" |
+
+**Baselines:** `backups/github-sweep/monthly-baseline.json` (previous run) · `findings.json` (per repo) ·
+`COMPLIANCE-REPORT.md` (human-readable, per-rule totals + change column + repos to inspect).
+
+**First measured run, 2026-10-27:** 227 repos — **R1 media in git: 1,458 across 82 repos** ·
+**R2 git-as-backup: 101 across 17** · **R3 vendored: 16,324 across 32** · **R1/R5 secret-named files: 301
+across 17** · 2 unmeasurable. **The account was reinstated one day earlier.**
+
+**Known defect, fixed:** `github-compliance-sweep.py:236` unpacked 5 values from a `classify()` that returns
+6, so **every `scan`/`all` run crashed** and `findings.json` was never regenerated after 2026-10-14.
+**A measurement that crashes and is never scheduled is indistinguishable from a clean bill of health.**
+When you touch a function's return arity, grep every call site — an unpack error at one caller broke the
+whole sweep silently while `inventory` kept working.
+
+## §9 MIRROR REPOS — the shape that got us suspended, and the four rules that prevent a repeat
+
+**This account was suspended once for AUP §9 Excessive Bandwidth Use**: a 1.8 GB repository with 299 tracked
+media files (872 MB), pushed automatically as "the fleet's backup". GitHub's own docs name that as the wrong
+tool: *"Git is not designed to serve as a backup tool."* **Any repo that mirrors a working tree on a timer
+re-creates that shape unless the rules below are enforced by code.**
+
+**R1 · TEXT ONLY, enforced by a gate, not by `.gitignore` alone.**
+`.gitignore` is a filter, and `git add -f` walks straight past it. Put a **pre-push check over the STAGED
+set** that refuses the whole push if any media extension is present:
+
+```bash
+git add -A
+media=$(git diff --cached --name-only | grep -icE '\.(png|jpe?g|gif|webp|bmp|tiff?|psd|mp4|mov|webm|mkv|mp3|wav|pdf|zip|tar\.gz|7z)$')
+[ "$media" -gt 0 ] && { git diff --cached --name-only | grep -iE '\.(png|mp4|mp3|pdf)$' | head -5; git reset -q; exit 0; }
+```
+
+**Prove the gate by the failing direction** — force-stage a junk media file past `.gitignore`
+(`printf 'x' > tree/should-not-sync.png; git add -f tree/should-not-sync.png`) and confirm the push is
+**refused**. A guard only ever run on the happy path is a wish.
+
+**R2 · SMALL, refused in code before it becomes a finding.** Refuse any staged file over ~40 MB and any
+repo whose `.git` passes ~200 MB — both well inside GitHub's 50 MiB warn line, 100 MiB block, and 1 GB
+guidance, so the refusal happens while it is still cheap to investigate. **Growth is the alarm**: a mirror
+whose size climbs means binaries are being tracked, and the answer is to find them, not to raise the ceiling.
+
+**R3 · NOT BULK.** Commit and push **at most once an hour**, and **commit nothing when nothing changed** —
+`git diff --cached --quiet && exit 0`. A timer that pushes every ten minutes with empty commits is precisely
+"excessive automated bulk activity" (§4). **Silence with no commit is the correct normal output**, not a
+dead job.
+
+**R4 · PRIVATE.** These are working trees, vaults and notes. Private is not a preference.
+
+### Scan CONTENT before the first push — filename matches are noise
+
+A filename grep for `*secret*` / `*token*` / `*.pem` returns mostly **notes ABOUT secrets**, and treating that
+list as a blocker strands the push forever. **Scan the staged files' CONTENT for provider shapes instead:**
+
+```bash
+grep -lE 'sk-[A-Za-z0-9]{32,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|xoxb-[0-9]{8,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----' <each staged file>
+```
+
+**Expect and read the false positives rather than suppressing them** — a documentation repo legitimately
+quotes AWS's own published example key, and an EVM note legitimately contains 64-hex **storage slots and
+transaction hashes** (not private keys). Both are safe. What must never ship is a live credential, and the
+way to tell is to **read the line in context**, not to count matches.
+
+Also: a 12-word run of lowercase words is almost always English prose. **Do not "fix" a heuristic hit by
+deleting the note.**
+
+### Verify the push from the API, never from git's exit code
+
+```bash
+curl -s -H "Authorization: Bearer $T" "https://api.github.com/repos/<owner>/<repo>/git/trees/main?recursive=1"
+```
+
+Read back the blob list and assert the things that matter: **count, no media, no credential file, and any
+probe file actually gone.** `git push` reporting success is a claim; the tree read is evidence.
+
+**⚠️ `size: 0 KB` on the repo API is not a failure** — GitHub's size field is an **asynchronous** counter
+that lags the push. The **tree read** is the truth about what is in the repo; do not report a mirror as
+empty because an eventually-consistent byte counter has not caught up.
+
+### Reuse the existing `.gitignore` — it probably already encodes the suspension
+
+A tree that was once pushed to GitHub usually still carries the hardened ignore file written after the
+suspension (media extensions, `node_modules`, `*.jsonl`, machine output). **Read it before writing a new one.**
+Append only the gaps — credentials and local state (`.env`, `*.pem`, `*.key`, `*.db`, probes) — and mark the
+addition so a later reader knows which rules are original and which were appended.
+
 ## See also
 - `devops/github-rate-limit-scheduler` — the budget-aware scheduler that owns repo_create/fork/PR ops
 - `github/github-api-helper` — the helper's API surface and wiring pattern
+- `software-development/open-code-review-cli` — `ocr`, the second-opinion reviewer (gated, cost-aware)

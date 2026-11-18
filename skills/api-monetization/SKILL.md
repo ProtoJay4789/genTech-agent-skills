@@ -91,7 +91,7 @@ paid-api/
 
 **For MCP transport** (tools): payment flows through `_meta["x402/payment"]` on retry, with settlement in `_meta["x402/payment-response"]`.
 
-**Production facilitators** (9 listed at docs.x402.org/dev-tools/facilitators): CDP/Coinbase (KYT/OFAC), Corbits, Dexter, HPP, PayAI, Polygon, etc. Or self-host the reference facilitator Docker image. See `references/x402-market-data.md` under `strategic-resource-integration` skill for the full facilitator + version reference.
+**Production facilitators** (9 listed at docs.x402.org/dev-tools/facilitators): CDP/Coinbase (KYT/OFAC), Corbits, Dexter, HPP, PayAI, Polygon, etc. Or self-host the reference facilitator Docker image. See `references/x402-market-data.md` under `strategic-resource-integration` skill for the full facilitator + version reference.   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `strategic-resource-integration` exists on this seat -->
 
 ### Facilitator-Based Payment Verification
 
@@ -331,7 +331,64 @@ async def paid_endpoint(
     # ... process request
 ```
 
+### Zero revenue? Segment the traffic BEFORE touching the price
+
+**A 402 is a quote, not a decline.** Before concluding the price is wrong, classify every request in the
+traffic log by the caller's **User-Agent self-declaration**: uptime probes, directories/crawlers and
+conformance testers can never buy, and many say so in the header. Measured on a live catalogue: **72% of
+requests came from self-declared non-payers, and 50,185 quotes produced 15 paid-route calls.**
+
+- **If the CHEAPEST route converts at zero, price is not the gate** — discounting cannot fix an empty room.
+- **Never report door knocks as demand.** That flattering number is what hides the gap.
+- **Look for buyers with budgets, not more listings** — a facilitator seen in your own traffic is the lead,
+  because facilitators settle for others and therefore see who actually pays.
+
+Full method, classification table and the three questions that move it:
+`references/demand-first-monetization.md` → *Diagnosing zero conversion*.
+
 ## Pricing Strategy
+
+> **Commodity → the market floor. Synthesis or verdict → premium.** Price against what buyers pay for
+> the *same job*, read from a competitor's machine-readable catalogue — never against build cost, and
+> never above the floor on a job anyone can do. The market is bimodal: a crowded commodity floor and a
+> thin expensive tier where **everything is a report, and nothing is a lookup.** Check whether an
+> existing "input task → return analysis/text" endpoint already IS that report shape before building a
+> new product — raising one price is free. And verify the **live** price surface after any edit: the
+> gateway reads its manifest from a host path at import, so editing the vault copy changes nothing
+> until it is copied over and the service restarted.
+> **Depth, the survey method, and the deploy procedure:** `references/price-positioning-survey.md`.
+
+**A price is only sellable at a settlement scheme that can carry it.** `exact` settles one authorization per
+request, so a sub-cent price costs the buyer more in chain fees than the item is worth — the catalogue is
+compliant, discoverable and economically impossible to buy, and the log shows heavy 402 traffic with almost
+no settles. **Rule the scheme out before reporting a demand problem**, and move the $-mill routes to
+`batch-settlement` (escrow + per-call vouchers, redeemed in batches) while cents-priced routes stay on
+`exact`. Scheme table, migration order and pitfalls: `x402-api-compliance` →
+`references/settlement-scheme-selection.md`.
+
+**⚠️ Never set a price on a route whose backend you have not confirmed serves.** A price is a claim
+that something is purchasable. A competitor survey tells you what a product *shape* is worth; it says
+nothing about whether **yours** exists, and a blocked or unbuilt backend inherits whatever number you
+assign it. Measure the backend first — `/status`, a direct call, the manifest's own withhold reason —
+**then** price. When a route is already known to be unservable, either price it or withhold it, but
+never leave it priced and advertised: the only thing standing between that and a charge for nothing is
+the gateway happening to refuse, which is luck rather than design. **A price edited on a vault copy is
+also not live** until the host copy is replaced and the process restarted — see the deploy note above.
+
+### Jordan's Philosophy: Adapt What Works, Then Add the Spin
+
+> **"We don't necessarily have to reinvent the wheel. We could do what works, but because we're
+> GenTech, we could put our own spin on it."**
+
+**Default to a product shape the market has already proven buys, then differentiate on execution —
+not on category invention.** Before proposing a novel product, find who is already selling the same
+shape and what they charge; inventing a category is the expensive path and the market has no budget
+line for it. The spin is what makes it ours: better data, a verdict instead of raw fields, a faster
+answer, a chain nobody else covers.
+
+**Consequence for scoping:** when the user says "just go ahead", do not return a menu of options —
+pick the sequence, start on the first item, and report measured progress. A ranked list of choices is
+a question in disguise, and he has already answered it.
 
 ### Jordan's Philosophy: Accessible First, Premium Second
 
@@ -693,7 +750,7 @@ When you need the gateway to settle on a NEW chain (e.g. Celo for a grant/hackat
 3. **Add tests** to `test_networks.py` following the existing per-rail pattern: registry has the rail, enabled-when-payto-set, dropped-without-payto, proof-accepted-when-enabled, proof-rejected-when-not-enabled. Run `python3 -m pytest test_networks.py -k <rail>`.
 4. **Generate + store a dedicated rail wallet** (per wallet rule: auto-gen + store keys, never funded+keyless). Store the key in `human-keys/<rail>-rail-key` (chmod 600), then **verify key-derivation** (derive address from the stored key and assert it matches — never trust the generated address blindly).
 5. **Register the wallet** in `00-System/wallet-architecture.md` (Tier 3 agentic rails) with address, key path, role.
-6. **Set `X402_PAYTO_<NETWORK>`** in the profile `.env`. The `.env` is a protected file — the `patch` tool denies writes; use `echo "KEY=value" >> .env` or `sed -i` via terminal (see `env-key-propagation` skill).
+6. **Set `X402_PAYTO_<NETWORK>`** in the profile `.env`. The `.env` is a protected file — the `patch` tool denies writes; use `echo "KEY=value" >> .env` or `sed -i` via terminal (see `env-key-propagation` skill).   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `env-key-propagation` exists on this seat -->
 7. **Do NOT enable the rail in `X402_NETWORKS` until the wallet is funded.** The gateway's own fail-safe is "never advertise a rail we can't settle" — `enabled_networks()` drops any network without a configured payTo. Enabling an unfunded rail advertises a settlement path that will fail. Fund the wallet (small stablecoin + native gas) first, then add the rail to `X402_NETWORKS`, restart `x402-api.service`, and verify the rail advertises in the 402 `accepts[]`.
 
 **Pre-existing test failures are not yours:** when adding a rail, run the full suite once to establish the baseline. If unrelated tests fail (e.g. default-network or asset-address assertions that drifted), confirm they fail on a clean `git stash` too before touching them — don't chase failures your change didn't cause.

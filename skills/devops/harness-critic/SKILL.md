@@ -5,11 +5,35 @@ version: 1.8.0
 created: 2026-07-28
 updated: 2026-08-07
 status: active
+
+related_skills:
+  - ../harness-self-evolution/SKILL.md
+  - ../self-evolution-harness/SKILL.md
 ---
 
 # Harness Critic v1.2
 
 **Purpose:** Audit another agent's output (recommendation.md + execution-log + state files) for stagnation, degradation, data corruption, and action-type monoculture. Produce evidence-based diagnosis + actionable counter-recommendation. The audited agent MUST read the critique before its next cycle — either implement it or show evidence for rejecting it.
+
+## This skill is ONE of three — the harness family
+
+**They describe a single system: one runtime, two agents (Evolution + Critic) and a constitution.**
+
+| skill | role |
+|---|---|
+| `harness-self-evolution` | how to RUN a cycle correctly — the gate, the metrics, the audit trail |
+| `harness-critic` | the adversary — audits the Evolver for stagnation, self-dealing, monoculture |
+| `self-evolution-harness` | the design — constitution, witness log, bootstrap |
+
+⚠️ **Loading one without the others gets you half the machine.** The Critic's counter-recommendations
+are binding on the Evolver (INVARIANT), and the Evolver's cycle is meaningless without the Critic's
+audit. **Start here → `harness-self-evolution/SKILL.md`.**
+
+⚠️ **The three carry independent version numbers (1.5.0 / 1.8.0 / 2.0.0) for one runtime.** Treat the
+version as *document* version, not system version — they are not in lockstep.
+
+⚠️ **The runtime was lost in the Oct 2026 wipe** (`/root` → gone). The doctrine is intact; the code is
+not. See `00-HQ/harness-audit-2026-10-31.md` before citing any behavioural claim as verified.
 
 ## Architecture
 
@@ -53,7 +77,7 @@ under the harness workdir (there is no `harness/skills/devops/`), so use the
 
     python3 "$HERMES_HOME/skills/devops/harness-critic/scripts/check-prediction-outcomes.py"
 
-(`$HERMES_HOME` = the profile dir, e.g. `/root/.hermes/profiles/gentech`. A bare
+(`$HERMES_HOME` = the profile dir, e.g. `/opt/data/profiles/gentech`. A bare
 `skills/devops/...` relative path resolves against the harness workdir and fails.)
 
 Record the `parsed:` / `graded:` / `LIVE corpus:` lines and the exit code in the entry.
@@ -195,7 +219,7 @@ Without a `.git` directory, measurement #1 (recommendation stagnation via git di
 
 ### Harness path ambiguity (FIXED Jul 29, 2026)
 
-**CORRECTED 2026-07-31:** the LIVE harness is `${PROFILE_DIR}/harness/` — that is the `Workdir` of all four harness crons (verify with `hermes cron list | grep -A6 Harness`). `/root/.hermes/harness/` is an ORPHAN tree (own git, own facts/, last written 2026-07-30 08:00Z by a stray `0 8 * * *` trigger). Never audit the orphan. Ground-truth the path from the cron `Workdir` field, not from any skill file.
+**CORRECTED 2026-07-31:** the LIVE harness is `${PROFILE_DIR}/harness/` — that is the `Workdir` of all four harness crons (verify with `hermes cron list | grep -A6 Harness`). `${HERMES_HOME}/harness/` is an ORPHAN tree (own git, own facts/, last written 2026-07-30 08:00Z by a stray `0 8 * * *` trigger). Never audit the orphan. Ground-truth the path from the cron `Workdir` field, not from any skill file.
 
 ### Stale state files
 State files like `harness-state.md` and `prediction-outcomes.md` can fall behind the actual cycle. The Critic should check mtime vs last cycle timestamp and flag any file that hasn't been updated in >1 cycle.
@@ -324,7 +348,7 @@ publish.
 
 **Corollary — write fixes to the SYNC SOURCE, not the profile copy.** Profile-local edits
 under `skills/` are overwritten nightly: `30 4 * * *` runs `cp -r
-/root/vaults/gentech/10-Labs/skills-distribution/* skills/`. A repair written only to
+/opt/data/.obsidian-vault/10-Labs/skills-distribution/* skills/`. A repair written only to
 `~/.hermes/profiles/<p>/skills/…` survives at most a day, and its own "verified" claim decays
 with it.
 
@@ -418,7 +442,7 @@ timestamp, and check the fix's own output for the same class before publishing i
 
 ### A trigger outside `cron/jobs.json` is invisible to every store-scoped census
 `cron/jobs.json` is not the whole scheduler. Live (2026-09-29, Critic entry 89): a **root
-crontab** line fired `0 8 * * * cd /root/.hermes/harness && bash execution-loop.sh evolve` daily
+crontab** line fired `0 8 * * * cd ${HERMES_HOME}/harness && bash execution-loop.sh evolve` daily
 at a directory deleted 2026-07-31 — still executing (kernel CRON journal), failing silently, and
 recorded in **no** fact file, because `harness-state.md`'s computed census, the Verifier's
 job-health scan and the Critic's own step 1b all read the Hermes store. The trigger becomes
@@ -666,7 +690,7 @@ cell on 4/4 rows from the CORRECT `opencode-go` (already present at `7a79891`) t
 verified by plain string equality, no regex)". `grep -n 'provider'
 scripts/refresh-next-events.sh scripts/refresh-harness-state.sh scripts/harness-gardener.sh`
 returns **0** — nothing ever read that cell. Sweep EVERY store before accepting the claim:
-`/root/.hermes/profiles/*/cron/jobs.json` plus `/root/.hermes/cron/jobs.json`. Here the four
+`/opt/data/profiles/*/cron/jobs.json` plus `/opt/data/profiles/gentech/cron/jobs.json`. Here the four
 harness job ids exist in exactly one store, all four reading `opencode-go`, and
 `ollama-cloud` is the `provider` of zero jobs in it (it appears once, inside another job's
 `prompt` text) — so the value was not read from anywhere. Distinguish the store's
@@ -786,7 +810,7 @@ with the refreshers stubbed and require a non-zero rc. A class with no falsifica
 control is not covered, whatever the message says.
 
 **Corollary — a near-miss fix is a finding, not a private correction.** The first edit here
-landed in `/root/.hermes/scripts/provider-auto-switch.py`; the runtime executes
+landed in `/opt/data/profiles/gentech/scripts/provider-auto-switch.py`; the runtime executes   <!-- ⚠️ ABSENT (verified 2026-11-17): this tool is not present on this host. Do not assume it runs. See build-queue #108. -->
 `$HERMES_HOME/scripts/provider-auto-switch.py`
 (`hermes_cli/cron.py:562-565` `_scripts_dir_for_cron() → CRON_DIR.parent/"scripts"`;
 `tools/cronjob_job_args.py:365-384` `_validate_cron_script_path`). Same filename, same

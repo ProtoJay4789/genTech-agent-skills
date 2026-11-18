@@ -69,6 +69,66 @@ That's it.
 
 **Reference:** `message-length-discipline` skill has the full split-point rules. This skill enforces the cap; that skill guides *how* to split.
 
+## 🔴 Language — English only, and it is a PER-SEAT rule
+
+**Every reply, handoff, report and status line is English.** Our models can be Chinese-origin (Kimi, GLM, Qwen,
+MiniMax on opencode-go), and one drifting back to Chinese is **a bug in the turn, not a preference** — rewrite the
+line in English before it is sent. Never mirror the model's native language. Jordan reads English only.
+
+**When a seat drifts, do not blame the model before you read its SOUL.md.** Measured cause: three seats carried the
+rule and one carried **zero** mentions of it — the model did what an unconstrained model does. *"The model drifted"*
+and *"nobody told it"* look identical in the transcript, and only one of them is a one-line fix.
+
+Procedure when any seat answers in a non-English language:
+
+1. **Count the rule across every seat** — `grep -ic english profiles/<seat>/SOUL.md`. The seats missing it are the
+   finding; a single seat drifting while its neighbours do not is almost always this, not sampling luck.
+2. **Add the block to the deficient `SOUL.md`** — heading `## 🔴 Language — non-negotiable`, the sentence
+   **Always write in English**, the bug-not-preference line above, and one clause extending it past prose: a figure
+   or a token emitted in the model's native script is the same bug, and a report that half-arrives in another
+   language is an unread report.
+3. **Push it into the LIVE session — a SOUL edit does not reach a running session by itself:**
+   `hermes sessions refresh-prompts -p <seat> --session <sid>`. History is kept, the cost is one prompt-cache
+   miss, and Jordan does not have to `/new` anything.
+4. **Gate it so it cannot be lost again** — a checker over all seat SOULs that is silent when clean and names any
+   seat missing the rule, on a daily cron, plus the rule added to new-seat provisioning. A constraint that exists
+   only in the seats that already had it is not fleet policy.
+
+**Read the inserted block back verbatim before moving on.** A rule file is prompt input and it is obeyed
+literally, so a garbled clause in it is worse than no clause at all.
+
+### A verified rule can still lose to the model — measure MIRRORING before rewriting prose
+
+**A rule present in the live prompt is not the same as a rule obeyed.** Measured: the block was added, the file was
+correct, the refreshed prompt carried five mentions of it — and the seat answered in Chinese anyway, to a message
+*about* the Chinese. Adding more prose then is wasted work.
+
+**Step one is to prove the rule reached the RUNNING prompt, not the file.** The prompt is stored per hash, and the
+refresh is requested-then-applied, so the file and the prompt can disagree indefinitely:
+
+1. `sessions.system_prompt_hash` for the live session (in `profiles/<seat>/state.db`).
+2. The matching row in `system_prompts(hash, prompt)` — read it and count the rule's phrase.
+3. A hash that changed after a turn is proof it rebuilt; the `refresh-prompts` success line is not.
+
+**Step two is to classify the drift from the transcript, not from impressions.** Pair every assistant reply with the
+message it answers and count four cells — EN→EN, CN→CN, CN→EN, **EN→CN**:
+
+- **CN→CN is mirroring.** The model follows the language of its input. Annoying, not a defect.
+- **EN→CN is the damaging case** — the user asked in English and got another language, and no amount of rule text
+  fixes it if the model itself mirrors context.
+
+**If the rule is verified present and EN→CN persists, the remaining variable is the MODEL, not the prompt.** A
+Chinese-origin model can mirror its context past an explicit prohibition. Change the model (set `model.default` with
+`hermes config set`), keep the rule as the backstop, and say plainly which of the two did the work — *"the rule
+catches the symptom, a model that does not drift catches the cause"*.
+
+**Never swap a seat's model out from under it mid-conversation.** It is actively running; a concurrent config write
+is how a different surprise arrives. Queue the instruction with the evidence and let the seat change its own model,
+and give the user the two commands as the fallback if it does not.
+
+**A seat that reports its own diagnosis is data, not authority.** One drifting seat tested the model itself and
+concluded correctly that the fault was model-mirroring — it still had to be told to apply the change.
+
 ### ⚠️ Five Hard Rules (enforce every session)
 
 1. **2-3 sentences max per thought** — tight, deliberate chunks. Not 4, not 5. Exception: code blocks or structured data get their own separate message.

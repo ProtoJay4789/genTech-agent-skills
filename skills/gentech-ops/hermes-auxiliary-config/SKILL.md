@@ -247,6 +247,90 @@ auxiliary:
 
 **Pitfall**: The config file is **protected from direct `patch`/`write_file` edits** — the agent gets `Refusing to write to Hermes config file`. You MUST use `hermes config set`/`unset` (or `hermes config`), never patch the YAML directly. And always verify the section after setting, because `hermes config set` won't tell you if you hit the wrong parent.
 
+### ❌ `hermes config set` edits ONE profile — `HERMES_PROFILE` is not the selector
+
+A multi-profile host (a seat per Telegram group, all sharing one container) needs the profile chosen
+explicitly. **`HERMES_PROFILE` does nothing here.** Four invocations each naming a different seat echo
+their own intended name back and all four write the *same* file — success messages, one write.
+
+**`HERMES_HOME` is the variable.** Its value is the profile *root*, not the name:
+
+```bash
+HERMES_HOME=/opt/data/profiles/<seat> hermes config set <key> '<value>'   # a seat
+HERMES_HOME=/opt/data                 hermes config set <key> '<value>'   # the default profile
+```
+
+**Confirm by the path the command prints, never by the variable you exported.** `config set` reports
+`✓ Set … in /opt/data/profiles/<seat>/config.yaml` — read that path into your verification. A
+per-profile check that trusts its own loop variable instead of the tool's output is measuring one
+file N times and will certify a fleet that was never touched.
+
+**This silently invalidates a whole class of verification.** Any "every config now has X / every
+config parses" result is void if the selector was wrong: the check returns the same answer N times
+because it is the same file N times. Before reporting a per-seat result, prove the selector reaches
+two different files and show different content from each.
+
+### ❌ A config key owned by a running process will be written back over your edit
+
+Some keys are not inert YAML — the running agent holds them, normalises them, and re-persists its own
+copy. **A text edit to such a key loses the race by design, not by timing.**
+
+The tell is a **`config.yaml.bak-<key>-<timestamp>`** sitting beside the config, and a file whose size
+changed minutes after the edit with no command of yours having run. Measured shape: a key removed
+from five configs and verified absent on all five came back **armed, with one extra entry appended**,
+each file carrying a fresh `.bak-<key>-<timestamp>` — while `DEFAULT_CONFIG` for that key is an empty
+list, so no schema merge could explain it.
+
+**Rule: before editing a key by text, ask whether a command owns it.** If there is a
+`hermes <thing> list|add|remove|clear`, the text edit is the wrong instrument and losing is guaranteed.
+Use the owning command:
+
+```bash
+hermes fallback list        # read the chain through the owner
+hermes fallback clear       # owned removal (also: remove / add; add and remove are picker-driven)
+hermes config set fallback_providers '[{"provider":"…","model":"…:free"}]'   # scriptable set
+```
+
+**Then verify through the owner AND after a restart.** Until the gateway reloads, the config file and
+the running fleet disagree — a check run at that moment grades the file while the fleet still runs the
+old values. Say "staged, not applied" rather than reporting a fix that is on disk and nowhere else.
+
+**Grade the model, not the provider name, when judging a fallback's cost.** A metered provider
+carrying a `:free` model cannot bill. Flagging it anyway produces a permanently red check, which gets
+ignored exactly like a permanently green one — the same keyword-as-fact error this file keeps meeting.
+
+### Image and video generation are NOT schema-keyed tool blocks
+
+`image_gen` and `video_gen` do **not** appear as top-level keys in `config_defaults.py`. A
+`provider:` line written under them is **inert** — it resolves to nothing and nobody reads it, so the
+block looks configured and the tool has no lane at all.
+
+**What actually selects an image provider: the credential plus which `plugins/image_gen/<name>/`
+plugin is present.** Available plugins here: `fal`, `krea`, `openai`, `openai-codex`, `deepinfra`,
+`openrouter`, `xai`, `meta-ai`.
+
+**Diagnose correctly, in this order:**
+
+```bash
+# 1. does the block even load? None means it is not in the schema, so it is not read
+/opt/hermes/.venv/bin/python -c "import sys;sys.path.insert(0,'/opt/hermes');\
+from hermes_cli.config import load_config;print(load_config().get('image_gen'))"
+
+# 2. is there a LIVE key for any image plugin — uncommented, non-empty, in a file that is read
+grep -q '^FAL_KEY=' /opt/data/profiles/<seat>/.env && echo LIVE || echo "absent/commented"
+ls /opt/hermes/plugins/image_gen/
+```
+
+⚠️ **`grep NAME .env` matches the commented line.** `# FAL_KEY=…` reads as present to a naive grep, so
+a dead lane reports healthy — and the session then hand-writes provider scripts, papering over it.
+**A commented key and a live key in the same file style is exactly why the probe must test the
+credential with a real call, not read the file.**
+
+**Prefer the lane already paid for.** On this fleet the declared default media lane is an external
+provider (BlockRun), funded and with terms that already match the house likeness rule. Adding a second
+image account to "fix" the tool means a second bill and a second policy to check — wiring the tool to
+the existing lane is the smaller change and the one that survives audit.
+
 ### ❌ Using sed/patch for complex YAML changes
 
 YAML is whitespace-sensitive and structure matters. Use `execute_code` with `yaml.safe_load()`/`yaml.dump()` for any changes involving:
@@ -381,6 +465,14 @@ fallback_providers:
   - provider: opencode-go
     model: deepseek-v4-flash
 ```
+
+**🚨 CRITICAL: an ABSENT `auxiliary:` section is the SAME failure as `auto` — every service wanders.**
+The batch fix below assumes the section exists. **Check that it does, first.** If `auxiliary:` is missing from
+`config.yaml` entirely, nothing is pinned, auto-detect decides per call, and **the chosen provider varies
+between calls in the same session.** Measured: one vision service routed `96×` to the main provider, `22×` to
+the metered fallback on one model, and `18×` to the metered fallback on a different model — **same task, three
+models, three bills.** Symptoms: inconsistent auxiliary output quality, and a fallback rail draining with
+nothing visibly scheduled against it. **Pin all nine; never rely on auto-detect being stable.**
 
 **🚨 CRITICAL: `auto` can silently drain Nous Portal subscription credits.** When `auxiliary.*.provider: auto` is set and a Nous Portal OAuth provider is configured, auxiliary services route through Nous for every call — consuming subscription credits without any visible indicator. This was the root cause of Jordan's Nous subscription slowly draining: 9 auxiliary services (vision, web_extract, compression, skills_hub, approval, mcp, triage_specifier, curator, session_search) were all on `auto`, silently routing every auxiliary operation through Nous.
 
@@ -626,6 +718,39 @@ print(data["choices"][0]["message"]["content"])
 
 **WRONG final choice** (text-only, will fail on restart): `opencode-go` + `deepseek-v4-flash`. deepseek-v4-flash is text-only (see existing pitfall). Never leave vision set to this.
 
+### ❌ A model that PASSES a direct-API vision test can still fail the vision TOOL — validate through the tool
+
+**The tool is the test, not the API.** A model can answer a direct `curl` vision request correctly and still
+return `400` from `vision_analyze`. Config that looks verified will break images the moment a real one arrives.
+
+```bash
+# NOT sufficient on its own — proves the model, not the tool path
+curl -s -X POST "$BASE/chat/completions" -H "Authorization: Bearer $KEY" \
+  -d '{"model":"<m>","max_tokens":512,"messages":[{"role":"user","content":[
+      {"type":"text","text":"What color is this pixel?"},
+      {"type":"image_url","image_url":{"url":"data:image/png;base64,<b64>"}}]}]}'
+# SUFFICIENT — pin it, then send an ACTUAL image through vision_analyze before believing it works.
+```
+
+**Mechanism — why the tool can fail where the API succeeds:** `tools/vision_tools.py` builds its request in
+`_aux_call_kwargs()` as `{task, messages, temperature, timeout, model}` — **it sends NO `max_tokens`.**
+On a **reasoning model** (one that emits into a separate `reasoning` field before `content`), the provider's
+own default cap applies, the model spends the budget reasoning, produces no `content`, and the call can fail
+outright. **The tool's `extract_content_or_reasoning()` fallback never runs — it needs a response that never
+arrived.**
+
+**Corollary — probing with a small `max_tokens` makes a WORKING model look broken.** A reasoning model tested
+at `max_tokens: 20` returns `HTTP 200` with **empty `content`** and `finish_reason: length`. That is a flawed
+instrument, not a failing model. **Always probe at `max_tokens: 512`+ and inspect BOTH `message.content` AND
+`message.reasoning` / `reasoning_content` before judging.** *(Same rule as `model-configuration-management`.)*
+
+**Unresolved as of last test — do NOT adopt without re-testing:** `opencode-go` + `glm-5.3-flash` is
+**vision-capable via direct API** (it read a test pixel and answered correctly) **but returned `400` through
+`vision_analyze`**, consistent with the no-`max_tokens` mechanism above. It is the tempting choice because it
+would keep vision on the primary rail at zero metered cost — **but pinning it broke vision in-session.**
+Either raise the token floor (a host-side change to `/opt/hermes`, not an agent action) or leave vision on the
+documented default. **Never leave vision pinned to a model you have not driven a real image through.**
+
 ### ❌ `provider: nous` with non-Nous base_url + direct API key causes 404 on every image
 
 **Symptom**: `vision_analyze` fails with `Error code: 404` for EVERY image — local cached files, fresh URLs, generated FAL images. Image download succeeds externally (curl returns 200) but the Hermes vision tool returns 404 consistently.
@@ -694,6 +819,120 @@ print(resp['candidates'][0]['content']['parts'][0]['text'])
 **Symptom**: You set `auxiliary.vision.api_key: ${GOOGLE_API_KEY}` but vision still fails. The running session's environment doesn't have `GOOGLE_API_KEY` exported — only the wakeup script sources `.env`, and the auxiliary client may run without it.
 
 **Fix**: Either (a) hardcode the literal key in config (acceptable here — key already lives in `.env`), or (b) `source ${PROFILE_DIR}/.env` in the terminal before the direct-API workaround. For `hermes config set auxiliary.vision.api_key`, prefer the literal key over the `${VAR}` form to avoid resolution gaps.
+
+## STT (voice-note transcription) — the other silent auxiliary failure
+
+**Symptom:** every Telegram voice note arrives as *"voice message could not be transcribed
+automatically"*, the audio file lands on disk intact, and nothing else errors. The user keeps talking and
+you keep not hearing them.
+
+**`stt.enabled: true` is NOT evidence of a working transcriber.** The switch can be on, `echo_transcripts:
+true`, `local.model: base` — and zero engine behind it, because the `local` provider needs
+`faster-whisper` installed **into the interpreter that runs the gateway** (`/opt/hermes/.venv/bin/python`),
+not into a profile or user site. **Verify the engine, not the flag:**
+
+```bash
+/opt/hermes/.venv/bin/python -c "import importlib.util as u; print([m for m in ('faster_whisper','av') if not u.find_spec(m)])"
+# [] means installed; a non-empty list is the failure
+```
+
+**Two config traps, both already familiar from the vision section:**
+
+- **`stt.provider` accepts values it does not implement.** `hermes config set` writes any dotted key and
+  warns *"not a recognized config key — saved anyway"*. **That warning is the whole signal — read it.** The
+  provider set is whatever the `stt:` block enumerates; a name from a blog post about a different version
+  (`local_command`) is silently inert.
+
+  **Neither `hermes config get` nor a successful `set` tells you the valid set — and both look like they do.**
+  `set` accepts a name that was never a choice and prints `✓ Set`, including `nous` (a real *LLM* provider
+  name, which is exactly why it looks plausible as an STT one). `get stt` prints only the sub-blocks that are
+  **configured**, so a provider you never wrote is *absent* rather than *listed* — and absence reads as "not
+  supported" when it means "not set". **The authoritative list is one comment in the image source:**
+
+  ```bash
+  grep -n -A3 '"stt": {' /opt/hermes/hermes_cli/config_defaults.py | grep -i provider
+  # provider: local | groq | openai | mistral | elevenlabs | deepinfra | xai
+  ```
+- **The image venv has no `pip`.** `/opt/hermes/.venv` is root-owned and ships without pip, and `uv` is not
+  on `PATH` — it lives at `/opt/hermes/tools/uv-*/uv`. Any install there needs `uv pip install --python
+  /opt/hermes/.venv/bin/python <pkg>` **and root**. When you are uid 10000, that path is closed to you.
+
+### The fix that needs no root: a hosted STT provider
+
+No package install, no venv write — a provider that is a plain HTTPS call:
+
+```bash
+hermes config set stt.provider elevenlabs
+hermes config set stt.enabled true
+# key goes in the PROFILE .env (mode 600, agent-writable): ELEVENLABS_API_KEY=...
+# model_id defaults to scribe_v2; provider blocks exist for groq/openai/mistral/xai/deepinfra too
+```
+
+**Prove the credential before believing the config** — an HTTP 200 with the transcript is the receipt:
+
+```bash
+curl -s -X POST https://api.elevenlabs.io/v1/speech-to-text \
+  -H "xi-api-key: $KEY" -F "model_id=scribe_v2" -F "file=@/path/note.ogg"
+# {"text": "...", "language_code": "eng"}
+```
+
+**⚠️ A gateway started BEFORE the `.env` was written will not have the key.** Compare the gateway's start
+ time to the `.env` mtime; if the key was added later, the running process may still be keyless. You often
+ cannot read `/proc/<pid>/environ` to confirm, so **that is UNKNOWN, not "probably fine"** — the cheapest
+ proof is asking the user to send one more voice note and seeing whether it arrives as text.
+
+### Every seat needs its OWN `stt:` block — seats INHERIT the default profile's
+
+**A seat with no `stt:` block of its own is not "unconfigured", it is "inherits".** So one invalid provider
+in the default profile breaks every seat at once, silently, while each seat's own config file looks innocent.
+Measure all seats before touching any:
+
+```bash
+for p in /opt/data/profiles/*/; do
+  S=$(basename "$p"); printf "%-18s " "$S"
+  python3 - "$p/config.yaml" <<'PY'
+import re,sys
+try: s=open(sys.argv[1],encoding="utf8").read()
+except: print("no config"); raise SystemExit
+m=re.search(r"(?m)^stt:\n((?:[ \t]+.*\n)*)", s)
+if not m: print("NO stt BLOCK (inherits default)"); raise SystemExit
+pr=re.search(r"(?m)^\s+provider:\s*(\S+)", m.group(1))
+print("provider =", pr.group(1) if pr else "(unset -> autodetect)")
+PY
+  grep -q '^ELEVENLABS_API_KEY=' "$p/.env" 2>/dev/null && echo "    key present" || echo "    key MISSING"
+done
+```
+
+**Fix both layers:** correct the default file AND write an explicit `stt:` block into each seat. Do not rely
+on inheritance for a value that can be wrong — an explicit block is what makes one seat's failure visible
+instead of global.
+
+**The credential is per profile too.** Each seat's own `.env` needs `ELEVENLABS_API_KEY` (mode 600). Never
+print it into the transcript — read from the source file, append, `chmod 600`. **Then prove each seat's own
+key**, because one working key says nothing about the others:
+
+```bash
+for S in <seat> <seat>; do
+  K=$(grep '^ELEVENLABS_API_KEY=' /opt/data/profiles/$S/.env | cut -d= -f2-)
+  printf "  %-16s " "$S"
+  curl -s -o /dev/null -w "%{http_code}\n" -H "xi-api-key: $K" https://api.elevenlabs.io/v1/user
+done
+# then ONE real transcription using a NON-default seat's key — 200 + correct text is the receipt
+```
+
+**Each seat's gateway must restart to read its own new config and key.** Same restart wall as any gateway
+change; batch it with the other pending restarts and say plainly which seats are still silent until then.
+
+### Hotfix: transcribe the notes yourself, now
+
+Don't leave the user retyping while a config question settles. `scripts/transcribe-voice-note.py` reads the
+cached audio directly — usable the moment a note lands, and it is how you answer messages that arrived
+before the provider was fixed (the files persist; nothing is lost).
+
+**The one non-obvious part:** `faster-whisper`'s `decode_audio` calls `av.open(..., metadata_errors=...)`,
+which raises `TypeError` on some `av` builds. **Decode with ffmpeg yourself and hand the model a numpy
+array** — `model.transcribe(np_array)` is accepted and sidesteps the bundled decoder entirely. This is more
+robust than pinning versions.
 
 ## Verification Steps
 
@@ -813,3 +1052,4 @@ This skill was created from a session where vision_analyze repeatedly failed wit
 
 - **references/vision-troubleshooting-session.md** - Detailed session transcript with error patterns, debugging attempts, and successful resolution path. Use as reference when encountering similar issues.
 - **references/direct-gemini-vision.py** - Session-hotfix script: calls Gemini vision API directly when vision_analyze is stuck on a broken provider (no restart needed). Usage: `source ${PROFILE_DIR}/.env && python3 references/direct-gemini-vision.py <image> [question]`.
+- **scripts/transcribe-voice-note.py** - Session-hotfix for STT: transcribes cached voice notes with faster-whisper, decoding via ffmpeg so the bundled `av` decoder mismatch cannot bite. Use the moment a voice note arrives untranscribed — the audio files persist, so nothing needs re-recording. Usage: `python3 scripts/transcribe-voice-note.py <audio> [<audio> ...]` (`WHISPER_MODEL` overrides the default `base.en`).

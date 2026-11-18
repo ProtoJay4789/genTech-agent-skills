@@ -64,8 +64,8 @@ Expected output: `{"status":"ok","db":"ok","ts":"2026-07-05T14:25:38.529Z"}`
 Auto-generated credentials stored in `.next/standalone/.data/.auto-generated`:
 
 ```bash
-AUTH_SECRET=378c7e958dfe7ff214a7af429e4f9f2d9f18bfe2b2569bb755ebd642aafede5c
-API_KEY=61472633547acc929fc18a5cacc760c979ec799ae10ae960489719aa9ee742d9
+AUTH_SECRET=<REDACTED-2026-11-18: credential removed from a published-bound skill; was never live at scan time>
+API_KEY=<REDACTED-2026-11-18: credential removed from a published-bound skill; was never live at scan time>
 ```
 
 Setup URL: `http://localhost:3000/setup`

@@ -713,6 +713,39 @@ GenTech Labs
 
 **Source this session (Jul 24, 2026):** Researched US livestock blockchain companies (Cowmed, CattleProof, BlockTrust), found BlockTrust's Solidity hire + partnership signal, built a cold email around the gap. Draft saved at `vault/09-Green Room/drafts/blocktrust-outreach.md`.
 
+### Pattern 14: Answering a stranger's bug thread — evidence first, seller disclosed
+
+**Context:** Someone else's repo has an open issue where their integration is broken — a dead hostname, a rejected
+signature, a price off by orders of magnitude, a settlement with no receipt. This is the highest-trust outreach
+available: they are already in pain, they asked in public, and a correct answer is worth more than any pitch.
+
+**The procedure**
+
+1. **Read the whole issue, including what it recommends.** Half the value is noticing that the thread's own
+   proposed remedy is wrong — a hostname that no longer resolves, a default that would break another path.
+2. **Measure before you answer, in the same session.** Every claim in the reply should be a command you ran
+   minutes earlier: a status code, a DNS lookup result, a line of their code, a transaction hash. Speculation
+   stated plainly is fine (*"prediction: this will 401"*) as long as it is labelled.
+3. **Verify the proposed fix, not just the problem.** If you cannot reproduce the fix working, say the problem is
+   real and the remedy is unconfirmed — never endorse a remedy you have not exercised.
+4. **Give the generalisation, not only the patch.** A guard they can adopt (*read `decimals()` from the token, never
+   hardcode it*; *compare the configured domain against the contract's own `DOMAIN_SEPARATOR()`*) is reusable and
+   gets quoted. A one-line fix dies with the thread.
+5. **Add the failure mode nobody asked about, if you have measured it.** That is what makes a comment a
+   contribution rather than an answer.
+6. **Disclose the commercial interest in one closing line** and drop no links: *"we run a seller on this rail; no
+   pitch here, this is the failure we already paid for."* An anonymous vendor answer reads as marketing.
+7. **Read the comment back.** A `201` from the comments API is a claim; re-fetch the thread, confirm the id and the
+   character count, and record the id in the vault so the public trail is auditable later.
+
+**Conduct (non-negotiable)**
+
+- **One substantive comment per issue.** No cross-posting the same text, no bulk commenting across a tracker, no
+  link-dropping to a pricing page. A handful of real answers builds a name; a campaign gets the account actioned.
+- **Answer zero-comment threads first.** Being the first substantive voice on an unanswered issue is worth more
+  than a better answer on a crowded one — the first reply becomes the reference answer others link to.
+- **Never trade a correction for a sale.** If their stack is genuinely fine, say so and move on.
+
 ## Quick Reference
 
 **Before sending outreach:**

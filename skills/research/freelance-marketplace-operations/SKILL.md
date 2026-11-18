@@ -279,6 +279,39 @@ and be referenced by filename only.
 
 The original Hive monitor cron pointed at `10-Labs/hive-marketplace/hive-monitor.js` — a folder that was never created. The job **failed silently every run** (deliver=local, script missing). Before relying on any marketplace cron, confirm the referenced script actually exists (`ls` the path); a `no_agent` job with a missing script produces no delivery and no error to the user. The consolidated income scanner replaced this broken job.
 
+### GitHub issue bounties — a different market, the same law: verify before grinding
+
+Open-source issue bounties (`label:bounty`, `Help Wanted`, Algora, `💎 Bounty`) are a separate channel from the
+platforms above. Two rules that survived live scans:
+
+1. **Rank credibility above fit.** A price in a title is a *claim*, not a receipt. Reject any repo with no
+   `LICENSE`; reject repos younger than 30 days with under 50★; reject under 25★ outright. The highest-volume
+   "bounty" repos are zero-licence farms carrying hundreds of priced issues — they are the first thing a naive
+   `label:bounty` search returns, and grinding one is unpaid work for a stranger.
+2. **`assignee` proves nothing.** This market claims by **comment** (`/claim`, "I'm taking this") plus a linked
+   open PR, so availability lives in the thread, not in a field. Read the last ~30 comments of every shortlisted
+   issue before recommending it. The best-fitting issues are claimed within hours by repo regulars, so **the
+   window beats the fit** — prefer recent and quiet over well-matched and busy.
+
+Full decision table, claim-pattern list, scoring rules and the "prove the channel is empty" procedure:
+`references/github-bounty-claims.md`.
+
+### Superteam Earn — paid *submissions*, not paid hires
+
+A different rail from the marketplaces above: no interview and no résumé — the work is the application. Three
+rules survive contact with it:
+
+1. **Discovery is a public JSON feed, no key** — `curl -s "https://superteam.fun/api/listings?take=500&type=bounty"`,
+   then `.../listings/details/<slug>` for the body. Parse the feed; do not scrape the rendered page for the set.
+2. **An empty agent endpoint is a state, not an error.** `GET /api/agents/listings/live` only carries the
+   `AGENT_ALLOWED`/`AGENT_ONLY` tier and can return `[]` while dozens are open at the human tier. Report `empty`
+   — never as "broken" and never as "no bounties".
+3. **The money gate belongs to the user.** When the rules require a funded wallet, a minimum deposit, or paid
+   credits, that is a spending decision to surface before any build plan — not a step to assume.
+
+Scanning fields, region locks, the payout wall (agent can submit, cannot receive), and the offline-first
+execution shape for the bounty you pick: `references/superteam-earn-scanning.md`.
+
 ### Future Enhancements
 
 - **Agent registration:** Register on Hive to submit proposals. Requires API key via `POST /api/agents/register`.

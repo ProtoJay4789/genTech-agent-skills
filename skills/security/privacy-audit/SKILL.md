@@ -120,7 +120,18 @@ When the question is "what has actually been revealed" about a deployed box — 
 4. **Check the systemd journal for secret echo.** An unparseable line in an `EnvironmentFile` makes systemd log that assignment *with its value* on every service start. Count it: `journalctl -u UNIT | grep VAR_NAME | wc -l`. Any hit = confirmed leak: rotate the key first, fix the `.env` syntax second (EnvironmentFiles must be parseable: no `export ` prefixes, no digit-leading variable names — those two defects are the usual culprits; pre-validate by starting the unit once and grepping the journal for `Ignoring invalid environment assignment`), then purge history (`journalctl --rotate && journalctl --vacuum-time=1d`).
 5. **Check edge caching of sensitive paths.** `curl -s -D - -o /dev/null URL | grep -i cf-cache-status` — `DYNAMIC` is fine; `HIT` on anything sensitive means cached copies persist at the edge even after origin removal.
 6. **PII in intentionally-public files** (resumes, landing pages): extract text (`pdftotext`), report which FIELDS are present (email/phone/street/zip/socials/employer) without printing values, and get an explicit keep-public-or-gate decision — cached copies outlive origin removal.
-7. **State the scope honestly.** Name what was NOT covered; git history is the most common place a "removed" secret still lives, so a complete audit needs a history pass over every repo (gitleaks or `git log -p`).
+7. **Sweep the agent's own SESSION STATE, not just the served surfaces.** A secret that was pasted or echoed in
+   a conversation persists in the profile's session store, and removing the remote copy removes none of it:
+   ```bash
+   grep -rl "<the value>" /opt/data/profiles/*/state.db /opt/data/profiles/*/state.db-wal 2>/dev/null
+   ```
+   Measured: one leaked key sat in **two live `state.db` files** (plus a `-wal`) and half a dozen scratch
+   copies at once, each a separate door — while the only actions taken were the remote deletion and a curl.
+   Deleting the published artifact is a fraction of the remediation; **enumerate the local copies in the same
+   pass**, and treat a `-wal` file as its own hit (it can hold the value while the main DB no longer does).
+   The same sweep belongs on any request to "remove" a credential: the chat copy, the message-history copy,
+   and the session-state copy are three different stores with three different removal paths.
+8. **State the scope honestly.** Name what was NOT covered; git history is the most common place a "removed" secret still lives, so a complete audit needs a history pass over every repo (gitleaks or `git log -p`).
 
 **Report hygiene:** identify secrets by variable name, file, and line number only — never reproduce the value, not even truncated.
 
@@ -148,6 +159,61 @@ not a post-check:
 ```bash
 gh repo view "OWNER/REPO" --json visibility -q '.visibility'
 ```
+
+## Whole-FILE exposure in a public repo
+
+A pattern sweep asks "does a secret appear inside these files?" The worse case is **an entire credential
+file committed to a public repo** — where the file's NAME is the finding, and an owner-side grep with your
+own token answers the wrong question. Enumerate the tree **anonymously**, sweep filenames as well as
+content, make the repo private before deleting anything, verify removal with a cache-busted anonymous 404,
+and report the history count rather than calling it closed.
+
+**A repo that mirrors a private tree is one critical finding about the repo, not N findings about N files.**
+
+**And the audit artifact is itself a leak vector** — a scanner that writes the value it found into its own
+report has recreated the exposure somewhere new.
+
+Full procedure, exact commands, and the public-window rule:
+`references/public-repo-credential-remediation.md`
+
+## Pattern precision: a key needs BOTH halves, and the scope is the FILE not the repo
+
+A key pattern that tests only one property produces false positives and false negatives in the same
+sweep. **Require the assignment AND the value together:**
+
+> **A hex string is not a key until it is ASSIGNED — and an assignment is not a key until the value is
+> 64 hex.**
+
+- **Name-only is wrong in the direction that flags your own fix.** A bare `PRIVATE_KEY` grep matches the
+  redaction notice that *documents* the removal — so a clean file reports as dirty, and the sweep that
+  caught a real leak then buries it in noise. A name is not a value.
+- **Value-only is wrong in the other direction.** A 64-hex string is a transaction hash as often as it is
+  a key; a sweep for bare 64-hex will flag every tx hash on the page. A value is not a key until a
+  variable name assigns it.
+- **So the matcher is a conjunction** — an assignment context (`PRIVATE_KEY=`, `const x =`, a YAML/JSON
+  key) **and** a 64-hex payload in the same statement. Write both halves into the pattern and the
+  redaction notice passes clean while the live key still fails.
+- **A name match is not a value match; verify with the VALUE.** When a sweep reports clean because it
+  matched a variable *name*, that is not an acquittal about the secret — re-run against the actual value
+  (see *Cross-Check Tracked Files Against LIVE env Values*) before calling it clean.
+
+**And scope the sweep to the FILE, not the repo.** An exposed artifact is a property of a file, and the
+same file can exist in more than one place — a mirror account, a fork, a second namespace.
+
+- **Sweep every public repo on every account**, not "the org." A repo-scoped audit that clears the org
+  says nothing about the personal account holding the same file with the same value.
+- **Report distinct SECRETS, not occurrences.** One key present in two locations is **one finding with
+  two locations** — counting it twice inflates the report, and counting it once per repo lets the second
+  location look clean.
+- **A repo-scoped clearance is not a value-scoped clearance.** State which account(s) and which repos
+  the sweep covered; an unstated boundary reads as "everywhere" to the next reader.
+- **A 404 is three different verdicts — deleted, no-access, or wrong namespace.** GitHub answers 404 (not
+  403) for a repo you lack admin on, so a 404 proves *this credential cannot see it*, never that it is gone.
+  Before writing "deleted" or "hidden", run the four-step ladder in
+  `references/github-repo-existence-verification.md` — including `GET /orgs/<owner>`, because an org spelling
+  and a personal-user spelling of the same name are two different owners and a README can link to the wrong
+  one. Approval is not access: a `403` on `DELETE` means the hand is the blocker, and the exposure stays open
+  until a fresh anonymous fetch of the file itself returns 404.
 
 ## Scope of an Exposure Audit
 

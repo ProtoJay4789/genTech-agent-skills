@@ -1083,7 +1083,7 @@ blockrun_image(action="edit", image="<local-path>",
 
 ### Character Bio Cards
 
-When Vanito asks to add character biographies to the hub, use the format in `gentech-hub` skill's `references/vanito-hub-customizations.md`:
+When Vanito asks to add character biographies to the hub, use the format in `gentech-hub` skill's `references/vanito-hub-customizations.md`:   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `gentech-hub` exists on this seat -->
 - Origin story, defining moment, personality, voice style
 - Accompanying artwork (text-free versions)
 - Style/genre tags with colored badges (.char-tag classes)

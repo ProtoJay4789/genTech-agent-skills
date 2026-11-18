@@ -62,11 +62,77 @@ We run on **two rails, and we switch between them by circumstance** — not by e
 makes verification genuinely cross-provider. Never hardcode the auditor to one provider — a
 hardcoded rail is exactly the bug fixed on Sep 21 (see below).
 
+### ⚠️ INTENT is the constant; MODEL NAMES are the variable (Jordan, 2026-10-31)
+
+> *"As models get upgraded or they launch new models, there are models that get deprecated, or
+> maybe the provider just has a limited-time thing. So we can't have a definitive model — but
+> **we always provide intent, and that's our basis for the audit, and that's how we choose the
+> model based on the intent.**"*
+
+**A hardcoded ladder of model names is a guess about the future, and it rots.** Models are added,
+renamed, quietly retired, or put behind a limited-time allowance. Any list we write in a skill
+file is **wrong within a quarter** and gives no signal when it goes wrong — it just starts
+silently picking a worse auditor, or a dead one.
+
+**Intent does not rot.** *"Find what would make this print a confident wrong answer"* is a valid
+instruction on every model that will ever exist. So:
+
+**1 · WRITE THE INTENT FIRST — it is the audit, not a preamble to it.** The intent is
+**one question + the number that answers it** (§The AUDIT INTENT below). No number, no audit.
+The prompt is *evidence + intent*; the model is a substitutable executor of that intent.
+
+**2 · CHOOSE THE MODEL *BY* THE INTENT, not by a name list.** Ask what the intent demands:
+does it need long-context source reading, deep reasoning, cheap volume, or a specific modality?
+Then pick the strongest **currently-offered** model that satisfies it. **The requirement is
+derived at call time; only the requirement is durable.**
+
+**3 · DISCOVER THE CANDIDATES FROM THE RAIL AT CALL TIME** — never from this file. Ask the
+endpoint what it offers (`GET /v1/models`) and choose from *that* answer. A model named in a
+doc is a hint about tier, not a fact about availability.
+
+**4 · RANK BY CAPABILITY TIER, NOT BY PRODUCT NAME.** Tier is the durable property: *frontier
+reasoner · strong code model · cheap worker flash*. A new frontier model should slot into the
+ladder automatically, without an edit here. This is why the resolver's ladder is a *tier
+preference with named examples*, not a canon.
+
+**5 · FALL THROUGH ON FAILURE, AND SAY WHICH MODEL ANSWERED.** Timeout, 0-char response, or
+HTTP error → try the next. **Record the model that produced the audit in the report** — an
+audit whose provenance is unrecorded cannot be re-run or trusted later.
+
+### When a second provider does not exist — SEARCH THE SAME PROVIDER (Jordan, 2026-10-31)
+
+**A single rail is a real constraint, not permission to skip the audit.** When only one provider
+key exists on the host, the rule is:
+
+> **Exhaust the same-provider Sr ladder before declaring a downgrade.** *"Different provider" is
+> the ideal, not the only bar.*
+
+**Same-provider-but-different-model is a genuine verification step** — it removes the
+**shared-model** blind spot even though the shared-rail blind spot remains. Declaring that
+honestly is strictly better than refusing to audit.
+
+**The ladder, strongest first** (`kimi-k3.1-pro` → `kimi-k3` → **`glm-5.3`** →
+**`kimi-k2.7-code`** → `qwen3.8-max` → `grok-4.7`). `glm-5.3` and `kimi-k2.7-code` are the
+named same-provider alternatives — `kimi-k2.7-code` is the fleet's established Sr auditor,
+`glm-5.3` is a different model family and therefore a genuinely independent read.
+
+**Two requirements, or the search is theatre:**
+
+1. **SHOW THE LADDER AND ITS VERDICT** — every candidate printed with why it was or was not
+   chosen (`CHOSEN` / `available (fallback)` / `not offered` / `excluded — worker tier`).
+   The difference between *"we could not find one"* and *"we did not look"* is the printout.
+2. **STILL DECLARE THE DOWNGRADE.** Same-provider must never be reported as cross-provider.
+   Say **"cross-model on one rail"**, and name the missing key. An undeclared same-rail auditor
+   called *"cross-provider (strongest available)"* is the Sep 21 false green verbatim.
+
+**Never let "only one rail" silently escalate to "no audit".** If the ladder is truly empty,
+say `UNRESOLVED`, exit non-zero, and label the work **unaudited** — that is a known state.
+
 **Resolve it, never assume it:**
 ```bash
-python3 /root/.hermes/scripts/audit-model-resolve.py            # worker -> auditor
-python3 /root/.hermes/scripts/audit-model-resolve.py --explain  # full candidate table
-python3 /root/.hermes/scripts/audit-model-resolve.py --selftest # prove BOTH rails work
+python3 /opt/data/profiles/gentech/scripts/audit-model-resolve.py            # worker -> auditor
+python3 /opt/data/profiles/gentech/scripts/audit-model-resolve.py --explain  # full candidate table
+python3 /opt/data/profiles/gentech/scripts/audit-model-resolve.py --selftest # prove BOTH rails work
 ```
 It reads the **active provider from the profile's own config.yaml**, picks the best auditor
 against it, and **declares the downgrade when it cannot get a different provider**. If nothing is
@@ -156,6 +222,17 @@ When Jordan provides a clear task list from prior context (status report, build 
 - **Operation ordering in security-sensitive code** — Signature verification, auth checks, and access control must execute BEFORE any state mutation (caching, persistence, database writes). A verify-then-cache ordering bug lets an attacker poison the cache with forged data even when their signature fails. Fix: verify first, then mutate state. This applies to payment middleware, webhook handlers, and any endpoint that validates then stores.
 - **A check that records while it checks burns evidence a later step still needs** — even if the earlier step refuses, its write has already consumed a token the downstream step needs. If every guard must agree before acceptance, **record only after all guards have agreed**. Measured: a replay guard inserted the `jti` while checking it; a token then refused by a later step (stale roster) had already burned its `jti`, so re-presenting the same valid token after the roster refreshed failed as a replay for a call that never happened. Fix: separate `is_seen` (read-only check) from `claim` (accept-once write), and call `claim` last.
 - **Runtime-only variable name errors after renaming a dict/var** — Renaming a module-level variable (e.g. `KNOWN_SERVICES` → `KNOWN_SENDERS`) leaves stale `Name` references in down-branch code paths. These pass `ast.parse` (the old name is still a syntactically valid Python identifier) but crash with `NameError` at runtime the first time that branch executes. Fix: after renaming any module-level variable, run `grep -n 'OLD_NAME' <file>` to catch every reference — don't trust that the linter caught them all. The linter is blind to this because the old name may still be assigned elsewhere, or the down-branch is enclosed in a `try/except Exception: pass` that swallows the error.
+- **`ast.parse` passing is NOT a syntax check of your EDIT — it is a check of the file you left behind.** Measured: a multi-line function was replaced by slicing the source between two index markers (`s[:s.index("def A")] + new + s[s.index("def B"):]`), and the slice landed mid-file and **deleted an unrelated module-level constant** that sat between the markers. `ast.parse` returned clean because the name was still *used* — a missing assignment is a runtime `NameError`, not a syntax error. The script then died on its first real run, two edits later, pointing at a constant nobody had touched. **Rule: after ANY scripted/automated multi-line rewrite, RUN the script (or `python3 -c "import ast,sys; …"` plus a `grep -n '^NAME'` for every global it references), never just parse it.** **Prefer a unique-anchor replace over index slicing** — `s.replace(OLD, NEW, 1)` with an `assert OLD in s` fails loudly when the anchor drifts; `s.index(...)` silently finds the wrong one. And when a rewrite touches a region containing a lookup table, verify the table still has a definition, not merely a use.
+  - **A file with TWO `def main()` blocks compiles and parses cleanly.** Python simply binds the second; `py_compile` returns 0 while the first copy sits there as dead code with an orphaned tail. Measured: a run of targeted patches left a duplicate `main()` in a 395-line script, the compile check printed `COMPILE-OK`, and the script then died at runtime on a `NameError` from the orphaned half. **After a scripted rewrite, compare STRUCTURAL COUNTS against expectation** (`grep -c '^def main'`, `grep -n '^def '`) — a count that rose by one is the tell. **When a patch loop has already produced duplicate definitions, stop patching**: slice at the last known-good header, rebuild the body once, then execute it. Repeated patching on a corrupted region is how one small edit becomes a rewrite.
+  - **A helper's PARAMETER LIST and its BODY can disagree, and no parser checks that for you.** Measured: a
+    probe was edited to `def probe(key, model)` while its body still interpolated a different free name; the
+    `NameError` was raised *inside an error handler* whose own message read *"could not read <external thing>"* —
+    so the first diagnosis was a broken rail, and the rail was fine. **When any gate says it could not read
+    something, read the exception TYPE before the noun.** `NameError` / `AttributeError` inside a "could not
+    read" message is a code defect wearing a transport costume; debugging the network will never find it.
+    After changing a signature, print the definition AND the body together (`grep -n -A12 'def <name>'`) — a
+    renamed parameter and the old free name it replaced look identical in a diff.
+  - **Never pass a long or punctuated argument through a shell string.** A ~2 KB `hermes cron edit --prompt '<prose>'` run through `bash -c` died with `syntax error near unexpected token '('` and `unrecognized arguments: …` — parentheses in the payload were evaluated as shell syntax and the argument was split on whitespace. A *truncated* prompt is the worse outcome: half the instructions land and nothing errors. **Invoke the CLI as an argv list** (`subprocess.run([hermes_bin, '-p', profile, 'cron', 'edit', '--prompt', prompt, job_id])`) and believe the tool's own confirmation line (`Updated job: <id>`) plus a re-read of the stored value, not the absence of an exception.
 - **Persistence verification:** `cat` each modified file — does content match expectations? `git diff --stat` — verify changed files list matches what was modified
 - **Karpathy Gate:** If something seems wrong, stop and name the confusion
 
@@ -259,6 +336,193 @@ Planning is deliberate. Working is not.
 **Stop and ask only for:** money movement · a public release · a legal/account/platform action ·
 an approval gate Jordan explicitly owns · a hard blocker with no path forward.
 Everything else: decide, act, log the assumption, continue.
+
+---
+
+## ⚠️ A GATE THAT READS A FILE A HUMAN MUST REFRESH IS NOT A GATE (2026-11-01)
+
+**Proven on the x402 backend restore.** Fifteen routes were selling with no backend.
+The fix added a readiness gate that refused them — correct. **But the first version
+read a state file regenerated by hand, and that reintroduced the same defect at one
+remove:**
+
+- the gateway's `/opt/data` was a **Docker volume**, not the host tree — so
+  host-written state landed on a **different filesystem** than the gateway read;
+- a host reboot could kill the backends while the file still said `READY`, so **the
+  gateway would keep advertising a dead port.**
+
+**A file kept in sync with reality by a human will be stale, and it fails silently
+in the permissive direction — which is the worst direction.**
+
+**The rule:** when a check can ask the system directly, **ask the system**. Prefer
+a **live probe with a short TTL cache** over a materialized snapshot of the same
+fact. Loopback is cheap; a stale `READY` is not.
+
+**When a file really is needed** (no reachable vantage, expensive probe, remote
+system), then: put it where **both reader and writer resolve the same path by
+construction** (a path relative to a bind-mounted file, not two configured paths
+that can drift), and give the value a **TTL** so staleness is bounded rather than
+unbounded.
+
+**And keep the failed mechanism as a fallback, not a deletion.** An escape hatch
+that still works is how you diagnose a broken primary. Removing a working path while
+fixing a different one costs you that.
+
+**The test:** *"if this source of truth goes stale, does the system fail closed or
+open?"* A gate that fails **open** when stale is not a gate.
+
+### ⚠️ The same defect wearing an allowlist: an exemption with no expiry
+
+The stale-`READY`-file version above is one shape. The other is an **out-of-service allowlist**: a
+monitor that holds a dict of "known-down, do not alert" entries.
+
+**Measured:** a backend-liveness job ran every four hours for a night and reported `silent — empty
+output` on every run. It was **correct every time**. Three routes were down, and all three were in
+its `OUT_OF_SERVICE` dict, written months-to-days earlier with the reason *"router not started"*.
+The router had never been started at all — a service that was never started is a hole, not a
+decision.
+
+**The rule:**
+
+> **Every allowlist entry MUST carry an OWNER and an EXPIRY. Past its expiry it alerts like any
+> other fault.** A permanent exemption is a blindfold with a written note.
+
+**Why it fails silently:** the list only grows. Each addition is locally reasonable ("we know about
+that one, stop nagging"), and the aggregate is a monitor that cannot report the exact class of
+outage it was built for. **A keyword match is not a fact** — the entry says "not started", and
+nobody re-reads whether not-started was ever true or ever meant to be permanent.
+
+**Two mechanical checks that catch it:**
+
+1. **Diff the excuse list against the live failure set.** For every entry, ask *when was this
+   written, by whom, and what would have to be true to remove it?* No answer → delete the entry and
+   let it alert.
+2. **Ask what the entry SUPPRESSES, not what it declares.** An entry naming three routes suppresses
+   three routes forever; if one of them is load-bearing, the monitor has been off for that service
+   since the day the line was typed.
+
+**Corollary — "down, advertised, excused" is not a state.** For each failing component the only
+outcomes are **RESTORE · REBUILD · REMOVE**. A component that is dead, still advertised, and
+carries a written excuse is the configuration version of the false-value family.
+
+## ⚠️ INVESTIGATE THE ROADBLOCK — a blocker is a lead, not just an obstacle (Jordan, 2026-11-01)
+
+> *"Essentially, we may need to add a new rule for develop and verify. Now that you have intent and
+> you know what you're looking for, anytime you hit a roadblock, the roadblock needs to be
+> investigated alongside what you're doing because you may discover other bugs or other fixes for
+> other things."*
+
+**The rule above says fix bugs found in scope. This is the sibling rule for what you CANNOT fix.**
+
+A **roadblock** differs from a bug: the obstacle lies outside the work you were sent to do — a
+missing permission, a tool that lies, a rail that returns nothing, a file that cannot be written.
+**The instinct is to route around it and get back to the task. That instinct throws away the most
+valuable finding available.**
+
+**Investigate the roadblock in parallel with the work. It is the cheapest bug-audit you will ever
+get, because you are already standing in the failure.**
+
+### Why it pays (measured, one session)
+
+Four roadblocks hit during unrelated tasks; each investigation found something bigger than the task:
+
+| roadblock | what routing around it would have missed |
+|---|---|
+| `ob sync` exits 0 without syncing | four seats silently drifting; a cron trusting the code would report success forever |
+| GitHub answers HTTP/2 with LF | the secret audit reporting **"0 repos · 0 files · all clean"** while the token returned 143 |
+| `hermes config set` accepts any string | `provider: nous` — invalid — inherited by every seat, breaking **every voice note silently** |
+| one model returned 0 chars | **every reasoning model on the rail** does it; six non-reasoning ones answer fine |
+
+**None of these were the task. All four cost less to find than to rediscover later — and three were
+actively producing wrong answers the whole time.**
+
+### What "investigate" means — four steps, in order
+
+1. **Name what blocked you, precisely.** Not "it failed" — *"exit 0 while doing nothing"*, *"HTTP 200
+   with an empty body"*, *"the config accepted a value the engine cannot resolve."* **The wording of
+   the block is usually the name of the bug.**
+2. **Ask whether it is OURS or the world's.** Wrong path, wrong key, wrong assumption → ours, fix it
+   now. Genuinely external (a permission, a vendor, a missing credential) → record and route.
+3. **Find the BLAST RADIUS — this is the part that finds the other bugs.** *Who else reads this?*
+   `grep` for the same call, the same path, the same assumed behaviour. **A roadblock on one code
+   path is a signal about every path shaped like it.** The LF-split bug was not one audit's problem;
+   it was every script that parses a GitHub response.
+4. **Prove the failure direction.** Feed it the input that must be rejected and watch the *right*
+   thing happen. A guard never tested in its blocking direction is decoration.
+
+### Then decide, and never just "work around" silently
+
+| finding | action |
+|---|---|
+| a bug in our code | **fix it now**, log it (rule above) |
+| a bug in our *assumption* | fix the assumption and every place it is encoded |
+| an external limit | **record it** so the next attempt does not pay twice |
+| a lie from a tool we trust | **fix the tool or stop trusting its output** — never hand-tune around it |
+
+**Record roadblocks in a durable place, not in the conversation.** A roadblock rediscovered is a
+roadblock paid for twice. Keep a dated roadblock file in HQ with: what blocked it, what unblocks it,
+and whether it is **fixed / worked-around / open**.
+
+### ⚠️ The one thing this must NOT become
+
+**An investigation that never ends.** The rule is *investigate alongside the work*, not *abandon the
+work to chase the blocker*. **Time-box it: name the blocker, find who else is affected, try one fix,
+record the rest.** A roadblock you understand and have written down is a win — even if it stays open.
+
+
+> *"Whenever we're fixing something, we want to look for permanent solutions to the bugs and the problems
+> that come up. So instead of fixing something in its temporary, we want to verify that it's a permanent
+> solution. That should be how it is going forward — for everybody and all the groups."*
+
+**Fleet-wide. Every seat, every fix.** A fix is not done when the symptom stops; it is done when the defect
+**cannot recur** — and you can say **why**.
+
+### The case that produced the rule (Treasury, Jun 30 2026)
+
+A monitor reported the wrong LP shape and a stale price. **Fixing the numbers would have been the temporary
+fix, and it would have come back the same day** — because the defect was not the numbers:
+
+- **three** copies of `.lfj-aae-config.json` existed with different data (one correct, **two stale**);
+- `HERMES_HOME` resolves differently in cron than in a shell, so scripts silently read a **stale** copy;
+- **two** cron jobs wrote the same dashboard JSON, so a correct write was **overwritten seconds later**.
+
+The permanent fix was `lp-monitor-v2.py`: hardcode the one true path, read only from config + live API, and
+**delete the shared intermediate file entirely** so there is nothing left to race over. The old jobs were
+**removed, not patched.** *"File locks and read-only flags are band-aids; removing the dependency is the
+cure."*
+
+### The test — run this before calling ANY fix done
+
+| Temporary (a band-aid) | Permanent (the fix) |
+|---|---|
+| Corrects the value | Removes the path that produced it |
+| Adds a lock / retry / flag around the race | **Removes the shared dependency** so no race exists |
+| Patches the one call site reported | Patches the **transform**, then greps for the transform |
+| Syncs the copies | **Deletes the stale copies — they ARE the bug** |
+| Works in this shell, this context | Works in cron, in a shell, and **after a restart** |
+| "Fixed" | "Fixed, **and here is why it cannot recur**" |
+
+**The highest-value move is almost always: delete the duplicate.** A second copy is not a backup when
+nobody knows which is authoritative — it is a coin-flip the code takes on every single run.
+
+### Prove it, do not assert it
+
+1. **State the class, not the instance.** *"This was not one wrong number; it was N readers of one file."*
+2. **Kill the recurrence path, then search for the shape again** — `grep` the old read, the old path, the
+   old helper. A fix one call site short of the end is the normal failure.
+3. **Guard it.** Add a regression check to the selftest so the defect fails **loudly** if it returns —
+   that is the step that converts "fixed" into "cannot silently recur."
+4. **Verify BOTH directions** — it fires when it should, and stays silent when it shouldn't.
+5. **Ask what a restart / update / redeploy would undo.** A fix that evaporates on the next deploy (an
+   uncommitted live patch, or a vault-only edit while cron runs the *deployed* copy) is temporary no matter
+   how correct it looks today.
+6. **Say "permanent" only with the reason attached.** "Permanent" is a claim, and an unfalsifiable claim is
+   the exact class this pipeline exists to catch. Write *why* it cannot come back — **if you cannot write
+   that sentence, you have a temporary fix; label it one.**
+
+**Boundary — what this must NOT be read as.** Permanence is a property of the *fix*, not a licence to
+rebuild. Rewriting a working subsystem to make it "more permanent" is scope creep (anti-temptation rule 1).
+The only question is *"will this defect return?"* — never *"could this be nicer?"*
 
 ## The Permanent-Fix Rule — fix the CLASS, not the instance (Jordan, Sep 23 2026)
 
@@ -375,6 +639,16 @@ happy-path test, and every one produced a wrong answer in a single night:
   in the code. After adding any guard, confirm the INPUT it reads is actually produced, and prove the
   guard fires by feeding it a mismatch. Same family: a tolerance scaled to the WRONG quantity (1% of
   total capital to compare two valuations of the DEPLOYED amount) passes almost any real divergence.
+- **An EMPTY container makes every per-key validator pass — fail on the empty container, not just on the
+  bad value.** A validator shaped `lookup(key) -> reason_or_""` returns `""` for **every** key when its
+  source is empty, so the guard reports "nothing wrong" for the whole route and the next step prices,
+  charges, or acts on definitions nobody loaded. Measured: a manifest was read from a hardcoded host path
+  that did not exist where the process ran; the reader swallowed `FileNotFoundError`, the per-service
+  lookup returned `None`, the path validator short-circuited to `""`, and a **placeholder/template route
+  received a fully payable challenge** — charge-before-validate, on a route that could never deliver.
+  **Fix at the container:** if the loaded definition set is empty, refuse the whole request and print a
+  FATAL at startup. **Then prove it the only way that counts:** run the same probe against an empty tree
+  and watch it go RED. A guard whose only tested state is "everything loads" is decoration.
 - **When you scale a threshold, check the direction and then check the OUTPUT.** A bin-step scaling
   written as `30*step/10` instead of `30/step` produced a window that swallowed the entire position;
   the code ran clean and nothing errored. The tell was the metric jumping 35.8% → 98.8%. A number that
@@ -391,6 +665,13 @@ happy-path test, and every one produced a wrong answer in a single night:
   the profile `.env` for any first-match reader — a 401 with no error at the point of selection.
 - **After a patch, re-read the file and re-run the output.** A patch that didn't apply looks
   identical to one that worked.
+- **A redacted rendering is not the source — check the BYTES before "fixing" code that reads wrong.**
+  Tool output that shows file contents redacts credential-shaped spans, so a line that is **correct on
+  disk** can *display* as broken in the transcript. Measured: a `Bearer {token}` f-string rendered as
+  `Bearer ***`, and an edit was attempted against text that was never in the file — the file had been
+  right the whole time. Confirm with bytes, not a rendering: `open(p,'rb').read()[i:i+40]` around the
+  match, or a byte-level `grep`, then decide. **Treat `***` in display as UNKNOWN, never as evidence** —
+  and apply the same rule in the other direction before you conclude a secret is absent.
 - **When you change a value's CONTENT, keep its TYPE.** Concretising a value is not the same as
   re-typing it. Proven 2026-09-22: a helper that replaced a RELATIVE path with a concrete one returned
   an ABSOLUTE url; every consumer of that field concatenates a base, so a verifier received
@@ -460,6 +741,14 @@ needs **two** things beyond `Authorization` + `Content-Type`, and both fail in c
 
 Send a browser `User-Agent` too (Cloudflare bans bare client signatures).
 
+3. **⚠️ Do NOT send `temperature` to a kimi model on this rail.** Measured 2026-10-31:
+   any value but 1 is refused — `{"error":{"type":"invalid_request_error","message":
+   "Upstream request failed: [invalid_request_error] invalid temperature: only 1 is allowed"}}`
+   — and it arrives as **HTTP 400**, which reads like a bad model name or a missing header and
+   is neither. Omit the field entirely. **Diagnostic that settles it in one call:** send the
+   smallest possible payload (`max_tokens:16`, content `"say OK"`) — if that returns 200 and
+   your real call 400s, the fault is in your payload, not the rail or the model name.
+
 **Never trust a 0-char audit as a pass.** An auditor that returned nothing did not clear the
 work — treat empty output as unreachable and label the build unaudited.
 
@@ -467,6 +756,114 @@ work — treat empty output as unreachable and label the build unaudited.
 
 **The false-value family** — a mechanism reporting success while doing nothing, or reporting a
 number it cannot actually compute. **A green that cannot go red is not a signal.**
+
+### Two probe failures that masquerade as findings
+
+**① A probe blocked at the edge reads as "the endpoint is broken."**
+
+Measured: a Python probe using bare `urllib` received **HTTP 403 Forbidden** from a Cloudflare-fronted
+hostname that the same machine fetched **200** from with `curl`. The difference was the `User-Agent`
+— `Python-urllib/3.x` is blocked, `curl/8.x` passes. The probe then reported *"COULD NOT READ the
+manifest"*, which a reader correctly interprets as *the service is down*.
+
+> **Any probe that talks to a hostname we do not control the edge of MUST send a real
+> `User-Agent` and `Accept` header.** Otherwise "we were blocked" is indistinguishable from "it is
+> broken", and the probe has manufactured a finding.
+
+**Diagnostic in one step:** fetch the same URL twice — once with the probe's client, once with
+`curl` — and compare. A 403/`curl 200` split is the edge, not the service. Then check whether the
+failure message names the *transport* or the *content*: "could not read" is honest, "no data" is a
+lie about a blocked request.
+
+**② A rate above 100% is proof the classification is wrong — never a good day.**
+
+Measured: the first run of a conversion metric printed **461%** and **468%** on two routes — more
+served than quoted, which is arithmetically impossible. The cause was that a *collection-root*
+endpoint returns **HTTP 200** with `{"collection_root": true, "payable": false}` when called
+without its required parameter. Those 200s were counted as sales.
+
+> **When a derived metric lands outside its own possible range, stop and fix the CLASSIFIER. Do not
+> report the number and add a caveat.** An impossible value is the cheapest self-detecting bug there
+> is, and a plausible-looking correction applied on top of a broken denominator buries it.
+
+**How to catch it in the design:**
+
+- **A 2xx is not a sale.** Enumerate what each status code means *for this route shape* before
+  counting it: for parameterised routes, a 2xx on the **bare prefix** is a signpost (index, help,
+  collection root), never consumption. Classify on **shape**, not status alone.
+- **Keep the unclassified bucket visible.** Print signposts as their own column so they can never be
+  silently absorbed into either numerator or denominator. A dropped bucket is a hidden lie.
+- **A rate for a route that cannot serve prints `n/a`, never a number.** Quoting a price on a
+  backend that is down manufactures demand that could never have converted.
+- **State the denominator in the same line as the rate.** "0 of 5,492" cannot be misread; "0.0%"
+  can.
+
+### ③ A passing smoke test proves SOMETHING ran — never that the RIGHT thing ran
+
+Switching a provider, endpoint, binary or config and then confirming with a happy-path call is the most common
+false green there is: **the fallback answers for the thing you replaced, and the output looks exactly correct.**
+
+Measured: a provider switch was verified per seat with `hermes -p <seat> -z "reply OK"`. Every seat returned `0`
+and the exact text — **all of them served by the fallback provider**, because the new rail's key was missing from
+each profile's own `.env`. The test result was compatible with success and with total failure.
+
+> **Assert the ACTOR, not the output.** "It worked" is compatible with "it worked somewhere else." Read the actor
+> from a log line that names it (`model=… provider=…`), or from a counter that exists ONLY on the target (that
+> provider's own usage meter moving). If neither is available, the switch is unverified, not verified.
+
+The general shape: any check that reads only the *result* cannot tell you *who produced it*. Name the actor in the
+check itself, and when a second actor could satisfy the same assertion, that assertion is not a test.
+
+### ④ Turning a refusal into a helpful response — assert the DANGEROUS FIELD is absent
+
+When a guard stops rejecting and starts *correcting* (a 404 becomes a 402 saying "here is the call you meant"),
+the obvious regression test — *"it is no longer a 404"* — **passes on the catastrophe.** The dangerous state is not
+the old error; it is the new response being **actionable in the wrong way** — a price a client can pay against a
+route that cannot deliver.
+
+**Write the suite in both directions, in one run:**
+
+| case | must be | must NOT be |
+|---|---|---|
+| the malformed / template input | the new helpful status | **payable** — no `accepts`/price block, nothing to settle |
+| the well-formed input | still payable, unchanged | — |
+| a retired route | still a hard "gone", never a challenge | payable |
+
+And include one **negative harness**: run the same probe against a deliberately broken setup (an empty definition
+set, no backing service, the fallback disabled) and require it to go RED. A guard whose only tested state is
+"everything loads" is decoration.
+
+### ⑤ A checker's THRESHOLD must come from the code that ENFORCES it — never from a display width
+
+**A validator is only as right as the constant it compares against, and that constant is usually guessed.**
+Measured: a skill audit was written with a **60-character description limit** and reported **145 healthy
+skills as defects**. Sixty was the width of a **table cell** in the CLI's listing view (`_truncate(desc, 60)`),
+not a rule; the loader's actual limit was **1024** (`MAX_DESCRIPTION_LENGTH`). Corrected, findings fell
+**242 → 98**.
+
+> **Read the limit off the code that REJECTS or TRUNCATES — the loader, the validator, the schema — not off the
+> view that renders it, not off a doc, not off memory.** Then say where you got it, in the checker, as a comment.
+
+**The tell is the same as the false-positive table below:** a brand-new checker reporting a large count on a
+corpus you believe is healthy is **evidence against the checker** until each finding is triaged. **A checker's
+first output is a test of the checker.**
+
+**Corollary — filter the checker's own noise classes before reporting a count.** A path-existence check will
+flag placeholders (`<name>`), globs, by-design markers (`DISK-MARKER-*`) and generic example paths
+(`scripts/config.json`) equally with real missing tools. **Classify findings (missing-and-recoverable ·
+by-design · genuinely dead) and report the classes separately** — an unclassified list of 55 looks like 55
+breakages and buries the 7 that matter.
+
+### ⑥ A COMMENT that promises behaviour the code does not implement is a defect with a note attached
+
+**Prose next to code is a specification claim, and nothing parses it.** Measured: a router's comment stated that
+two specific routes "are RETIRED and answer 410", while the set the code actually consulted did not contain them —
+so those routes answered **404**. The comment was right about intent and the code was wrong, and the comment made
+the gap invisible: a reader checking behaviour against the docstring would have concluded it worked.
+
+> **When you read a comment that asserts a behaviour, EXERCISE that behaviour in the same pass.** Cheap, and it
+turns documentation into a test. Where the claim is a *set membership* (the comment names what it covers), diff
+the named set against the code's set — that diff is the defect, and it is one `grep` away.
 
 ## The AUDIT INTENT — what to look for
 
@@ -536,11 +933,164 @@ When the build plan has **independent module groups** (e.g., engine + UI), deleg
 - Shared state or configuration between modules
 - Subagents would need to coordinate
 
+- `scripts/pdf_text_probe.py` — **prove what a generated PDF literally SAYS**, by reading its own
+  text layer with no external tools. *"A PDF renderer prints a success message, and a success
+  message is not the document."* Catches two real failures: a render that **never read the input**
+  (identical byte count to the previous render is the tell), and prose claims that are **not in the
+  shipped file**. Usage: `pdf_text_probe.py FILE.pdf "phrase" [--absent "phrase"]`; exit 0 = every
+  assertion held, 1 = failed, 2 = no text layer. **The same discipline as every other check here:
+  assert on the artifact, never on the tool's own success message.**
+
+## Prose is an artifact too — proofread what we SEND, not just what we build
+
+**The same Jr/Sr split applies to a message as to a code file: one model drafts, a different model reads it
+cold for claims the text cannot support.** A sentence can be perfectly spelled and still be a lie about our own
+system, which is why a spellchecker is not the check.
+
+**Run the DETERMINISTIC half first — it is free and a model's opinion is not:** any `0x…`/base58 address that
+appears in none of our records · a URL on our own domain answering 000/404/410 · a claimed count compared
+against the LIVE source (manifest, a real 402 body) rather than against memory · hedge words (*probably, should
+be, we believe, hopefully*), each of which hides an unmeasured claim.
+
+**The three tools (all in `/opt/data/scripts/`):** `prose-write.py` — writer drafts from a FACT BLOCK, reader
+resolved at call time from the audit ladder (never hardcoded) · `proofread.py` — the model-free fact-checker,
+`--selftest` proves both directions · `gh_compliance.py` — the façade every GitHub-touching cron imports
+(`gh_get` delegating to the one guarded transport, `gh_write` requiring `allow_write=True`, `prose_gate()`).
+
+**Give the writer a FACT BLOCK and forbid anything outside it**, with an explicit `DO NOT CLAIM:` line. Without
+one, the writer invents numbers that sound like ours; with one, the worst it can do is word our own measurements
+badly.
+
+**The failure every naive check passes is the NON-REPLY** — *"we have not encountered that problem, that is all
+I can report"*. True, on-topic, useless, and it costs credibility. Rule: a message whose substance is "we have
+not seen this" is a FAIL, not a pass; the writer must emit `NO REPLY` instead.
+
+**Never template one remedy across every draft** — the reply to a schema question then carries the remedy for a
+recorder question, which is the exact generic text maintainers filter out. Key the remedy to the specific claim
+and say *"no written remedy for this one yet"* when there is none.
+
+**A 0-char model response is `UNRESOLVED`, never a pass.** And a reasoning model may return its thinking in
+`reasoning_content` with a clean answer in `content` — read `content` first and label any fallback as a
+deliberation transcript.
+
+**Scope the reader's reasoning or it will do the writer's job.** Unscoped, a reasoning proofreader spends its
+budget proposing better phrasing and returns style findings; state that it reasons on ONE question only — *does
+this draft accurately represent FACTS* — and send its effort level explicitly rather than inheriting the seat's
+setting, which is tuned for different work.
+
+**Drafts are ours; sending is the user's.** A tool may write the reply and stamp it `CLEARED` / `DO NOT SEND`;
+nothing in the pipeline posts under his name.
+
+**A LEAD SCANNER'S NUMBER IS `CONTACTED`, NOT `FOUND`.** A job that surfaces good candidates and ends at a
+notification has a yield of zero however sharp its filter is — measured: nine runs surfaced three real, recent,
+almost-comment-less issues from a target field, and not one reply was ever sent. The filter was working; the
+pipeline stopped one step short of the only step that counts. **Report found-vs-contacted side by side** (3 found ·
+0 answered), and when the gap is total, the fix is not a better filter — it is making the reply one paste away
+(draft attached, fact-checked, verdict stated). A scanner that keeps finding and never speaks is spending
+attention every day and returning nothing.
+
+Full procedure, verdict/exit mapping, selftest fixtures and the non-reply trap: **`references/prose-proofreading.md`**.
+
+## Scheduled jobs are artifacts too — tier them, do not blanket-harden them
+
+**A cron job shares the failure classes but not the treatment.** The parts of this method that apply depend on
+**what the job reads**:
+
+- **Tier A — reads a network or a shared external quota.** Needs an identifying `User-Agent`, a throttle treated as
+a **boundary** (`403`/`429` → INCOMPLETE, never a finding, never a retry), and the words to say *"I could not look"*.
+- **Tier B — local only, but prints numbers a human acts on.** Needs one rule: a missing input prints
+`UNKNOWN`/`NOT RUN`, never `0`.
+- **Tier C — local, mechanical, self-verifying** (backup, sync, sweep). **Needs nothing; leave it alone.** A UA
+and a throttle guard here are decoration, and 20 acts of theatre dilute the standard until it means nothing.
+
+**Measure the file that actually runs before judging a job** — half of a mature fleet's cron scripts are two-line
+wrappers that exec a canonical `.py`, so a grep of the wrapper reports "no network, no UNKNOWN" about the wrapper
+and the reader believes it about the job. **And follow imports**: a job calling a shared transport inherits that
+transport's `User-Agent`; a per-file grep calls it a gap and manufactures a finding. **Fix the instrument before
+accusing the code** — a checker that invents gaps trains its reader to ignore it.
+
+**The class that hides in every monitor: a failed read entering a comparison.** `live = ""` on a fetch failure then
+`local != live` reports **DRIFT** — and an `--apply` flag redeploys a page that was never wrong. Keep an
+`unverified` bucket and print it as its own column.
+
+**A detector that declines should also LEARN — the refusal is the payload.** A job that surfaces candidates and
+ends them at *"no evidence of ours — do not reply"* discards the failure modes we have never paid for. Give it a
+companion output that classifies every surfaced item against the **same evidence table** and keeps a durable
+register (mode · first seen · times seen · do we have evidence?). Wake a human only on a **new** mode. And when
+that companion is built, audit it as an instrument: a record carrying only an ID cannot be classified (printing it
+as `UNCLASSIFIED` turns an **absence** into the loudest number of the run), and an accumulating register must
+**recompute totals from a dated ledger** rather than `total += n`, or every rerun doubles it.
+
+**When the platform exposes a repair command, the watcher fixes and reports the action — but if the repair is
+asynchronous, say "requested, not yet observed" and name the proof.** A request is not a result.
+
+Full tiers, the wrapper/import resolution, the shared-quota ledger, the refusal register and the honest cost of
+turning these on: **`references/cron-conformance.md`**.
+
 ## Reference Files
 
-- `references/ecosystem-contribution.md` — Three-way scan pattern for evaluating and contributing to open-source ecosystems. Covers forking workarounds, execution flow, and repos scanned.
+- `references/prose-proofreading.md` — Proofreading published prose: deterministic checks, the FACT BLOCK, the non-reply trap, template-remedy drift, cross-model declaration, and the six-case selftest. — Three-way scan pattern for evaluating and contributing to open-source ecosystems. Covers forking workarounds, execution flow, and repos scanned.
 - `references/pitfalls.md` — **INDEX** for 143 accumulated failure-mode lessons, the ledger behind this skill's silent-wrongness rule. The items live in `references/pitfalls-1.md`, `-2.md` and `-3.md` (**part 3 is the LIVE one — append new lessons there**); the index carries the part list, their counts and digests, and the stated census rule for checking an extraction. **Read on demand.**
 - `references/audit-findings-catalog.md` — Real bugs caught by Kimi K2.7 / Claude Opus 4.8 review sessions. CWE-338, CWE-1333, CWE-117, and exception isolation patterns with fixes and provenance.
+
+## Secret & PII preflight — run it BEFORE you claim "verified" (standing rule, 2026-10-17)
+
+**Jordan's instruction:** *"During our auditing phase or our develop-and-verify phase, we want to make
+sure we didn't put any personal information or anything like this here."*
+
+**Match CONTENT, never filenames.** A filename-pattern sweep of **68 repos** reported *"no key material
+anywhere."* It was wrong. A **live private key to a funded wallet** sat in a file called
+`celo-rail-key` — which matches **no** key-shaped NAME pattern (`private[-_]?key`, `*.key`, `keystore`,
+all missed it). A content scan found it on the first attempt.
+
+**Second miss in the same pass:** five `*config*.yaml` backups each assigned a real `HIVE_API_KEY`.
+Invisible to a hex test — the value wasn't hex. The credential-ASSIGNMENT test caught all five.
+
+```bash
+python3 tools/pii_secret_preflight.py <paths...> --fail-on-find   # exit 1 => do NOT commit/sync/ship
+```
+
+Four classes, and **the second is the one that fools people**:
+
+1. **KEY MATERIAL** — PEM blocks, 64-hex appearing with private-key language, **a bare 64-hex alone on a
+   short line**, mnemonic wordlist runs.
+2. **CREDENTIAL ASSIGNMENTS** — `NAME=value` where NAME is credential-shaped and the value is real.
+   **A sha256 in a doc is fine; an ASSIGNMENT is not.** Placeholders (`${…}`, `<REDACTED>`, `xxx`,
+   `your_`, `getenv`, `_env$`) are excluded — or the gate cries wolf and gets ignored.
+3. **KNOWN TOKEN SHAPES** — `github_pat_`, `gh[pousr]_`, `sk-`, `sk-ant-`, `AIza`, `xox[baprs]-`,
+   `AKIA`, JWTs, `sk_live_`.
+4. **PERSONAL INFORMATION** — emails, phone numbers, US SSNs, Luhn-valid card numbers.
+
+**Two rules that make it an audit rather than a walk** (same ones as §The two rules that make it an audit):
+**a name-pattern sweep is not a content sweep**, and **"I looked and it seemed fine" is not a finding.**
+If you report a sweep as clean, state the method — *"filename patterns at HEAD"* is a narrower claim
+than *"no key material exists"* and it would have been true where my sweep was false.
+
+### ⚠️ A gate that fires on everything gets ignored — tune it against a KNOWN-CLEAN corpus
+
+The first working version of the preflight reported **6,338 findings on a corpus that held one real
+key.** A gate at that volume is not a gate; it is noise that trains people to skip the check — and it
+would have **buried the one true finding**. Every rule below was a measured false-positive class, not a
+guess, and the tool now carries a **6-case regression suite** (key file → FAIL, mnemonic vector → FAIL,
+prose → PASS, sha256-on-its-own-line → PASS, python import block → PASS, clean → PASS):
+
+| rule | false positives | why |
+|---|---|---|
+| seed-phrase heuristic: *"a BIP-39 word followed by 9+ words"* | **732** | `about` and `able` are BIP-39 words **and** among the commonest words in English. It fired on prose — including the fleet's own docs. |
+| same rule, tightened to *"12+ lowercase words, ≤1 function word"* | **459** | `import argparse import csv import json import sys from datetime import date` is twelve lowercase short words with one function word. **Every Python file with an import block fired.** |
+| credential name matched any field containing `token`/`seed` | **1,075** | matched `tokenizer` (330), `tokens`, `token0_balance`, `credential_type`, `PARAMS.seed`. Name the fields that *hold* secrets, and deny the ones that merely contain the word. |
+| Luhn over any 13–19 digit run | **496** | block numbers, timestamps, JSON numbers. Also require a real card-network IIN prefix and a bounded/separated run. |
+
+**Three lessons worth carrying to every heuristic you build:**
+
+1. **Tune against a corpus you believe is clean, and validate against fixtures you know must fire.**
+   Both directions, or you only learn half of what is wrong.
+2. **Separate the classes by their failure cost.** Secrets are never acceptable → always fail. **PII in
+   a private vault is expected → make it opt-in (`--pii`).** Mixing them is what made the first version
+   unusable.
+3. **Precision beats recall in a gate.** A missed detection is bad; a gate nobody obeys is worse,
+   because it converts "we check" into "we check and then ignore it" — and that is indistinguishable
+   from not checking, except that it feels covered.
 
 ## Pitfalls
 

@@ -84,8 +84,8 @@ The `setup.sh` script is interactive and reads from `/dev/tty`, which **fails ov
 cat > .env << 'ENVEOF'
 # Hummingbot API Configuration
 USERNAME=gentech
-PASSWORD=gentech_api_2026
-CONFIG_PASSWORD=gentech_config_2026
+PASSWORD=<your-api-password>
+CONFIG_PASSWORD=<your-config-password>
 
 # Tailscale
 TAILSCALE_ENABLED=true
@@ -94,11 +94,11 @@ TAILSCALE_HOSTNAME=hummingbot-api
 
 # Database
 POSTGRES_USER=hummingbot
-POSTGRES_PASSWORD=hummingbot_db_2026
+POSTGRES_PASSWORD=<your-db-password>
 POSTGRES_DB=hummingbot
 
 # Redis
-REDIS_PASSWORD=hummingbot_redis_2026
+REDIS_PASSWORD=<your-redis-password>
 ENVEOF
 chmod 600 .env
 ```

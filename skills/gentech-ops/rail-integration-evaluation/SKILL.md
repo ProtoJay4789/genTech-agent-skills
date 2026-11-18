@@ -101,6 +101,12 @@ settlement rail, tokenized-equity platform, or agentic-payment network.
 - **Shape intel applies here.** DLMM exposes `Spot` / `Curve` / `BidAsk` strategy families — the
   SAME families our shape detector drives (LFJ had them; Blackhole/Algebra does NOT). A bin venue
   is where our shape logic belongs.
+  **But the classifier is not the reader: verify a `bins-for-<chain>` adapter exists before
+  promising a shape on any venue.** The contract is three fields — `[{bin_id, price, liquidity}]` —
+  and a venue with no adapter has judgement and no eyes; a docs column saying "via RPC" is not an
+  implementation. Bin arithmetic is shared across LFJ and Meteora (`(1 + step/10_000) ** index`),
+  so the classifier never needs a chain name and the offset belongs in the adapter. See
+  `lp-shape-detector` for the adapter table and the preflight check.
 - **A documented strategy IS "accumulate an asset via LP":** docs list "DCA into a token" =
   deposit quote single-sided + Bid-Ask/edge bins below spot → fills convert into the base token
   as price falls while fees accrue. When Jordan describes a strategy, check whether the venue
@@ -486,6 +492,77 @@ side — a provider, not a depositor — so the whole rail scorecard is the wron
   not the blockers; liquidation risk on the short leg and thin OI ($417K) were.**
 - **Verdict: real rail, wrong size.** Worth revisiting as the weekly cadence compounds the book.
   Filed to `references/perp-rail-evaluation.md`.
+
+## A DAYS-OLD protocol needs an ADOPTION measurement before a build decision
+
+An SDK launch announcement answers *"can we build"*. It never answers *"should we, and for whom"*. Measure the
+existing adoption first — it is cheap, needs no key, and it reorders every product idea that follows.
+
+- **Prove DEPLOYED before reading anything else, and distinguish deployed from announced.** Read the program/
+  contract account (`getAccountInfo`, `eth_getCode`), then follow the upgradeable-loader pointer to the programdata
+  account for **size and last-upgrade slot**. A program upgraded *before* its SDK was published is a healthy
+trajectory; one published before it was deployed is vapour.
+- **A transaction RATE is meaningless until you know the window it spans.** `getSignaturesForAddress(limit=1000)`
+  on a busy program returns all 1000 inside **one second bucket**, which naive arithmetic renders as hundreds of
+  thousands of tx/hour. Always print `max(blockTime) - min(blockTime)` beside the count and compute the rate from
+  that. Compare two programs by *how long 1000 signatures takes*, never by dividing 1000 by a delta you did not
+  measure.
+- **Bucket the signatures by DAY to see the shape of adoption** — a deploy spike, a test trickle, then a listing
+  burst reads as three different phases and tells you which one you are in.
+- **Count the program's OWN accounts by data size.** The size histogram is the real object census (which sizes are
+  pools, which are per-user slots) and it needs no IDL. A program holding ~9 pool-shaped accounts is a beta, not a
+  market.
+- **Search GitHub for the program ID, not the product name.** Name matches return unrelated repos and homonyms;
+  **zero repos referencing the ID is the finding** — it means nobody has built on it yet, which is simultaneously
+  "the market does not need this" and "the window is open". Say both, and let the buyer's question decide.
+- **A beta SDK's durable asset is the LAYOUT, not the client.** Several releases in the first 72 hours plus a
+  "subject to breaking changes" line means any wrapper you write is disposable; the account/IDL knowledge is not,
+  and it survives their rewrite. Build the reader, keep the offsets as **discovery from the exported IDL**, and
+  stamp which SDK version the code was written against so a mismatch is loud.
+- **Read the revenue-share line as the only zero-capital lane.** A referral/integrator fee on routed volume earns
+  without holding a position or signing — and it needs a partner agreement, which takes longer than the code, so
+  request it while the ecosystem is empty rather than after the volume arrives.
+
+Full probe recipe, RPC calls and the decoded account layouts: `references/new-protocol-vetting.md`.
+
+## Reviving an old integration — the earning question comes FIRST, and the programme may not exist
+
+When the ask is "bring back the thing we built on platform X" because the user likes the model ("builders
+contribute **and earn**"), the code is the last question. Four gates, in this order, each answerable from the
+vendor's own current pages:
+
+1. **Does the programme still exist, in the shape we named it?** Programmes get renamed and their submission
+   surfaces get retired. **Measure the surface, do not trust the header in our artifact:** search the vendor's
+   org for the repo type we think we submitted to (`GET /search/repositories?q=org:<vendor>+templat*`) — zero
+   results means the bank we claim to have contributed to does not exist, whatever our file header says. The
+   live route is then whatever the current docs push (often a portal with steward review and a published
+   acceptance rate), which is a different job from a PR.
+2. **Does contributing PAY, by a mechanism the vendor documents?** Points are not payment. Quote the vendor's
+   own terms — a points programme that states *"no monetary value… no right or expectation of profit or
+   redemption"* is a lottery ticket, not a revenue line, and an unannounced conversion stays **UNMEASURED** no
+   matter how many trackers repeat a percentage. **A rate that appears only on aggregator blogs is
+   UNMEASURED — cite it as third-party or drop it.** Check the three real mechanisms explicitly (per-use
+   revenue, per-deployment credit, grant/allocation) and name which are absent; "no documented mechanism" is a
+   finding, not a gap in the research.
+3. **Will the old code RUN against today's runtime?** Three separate checks, and they fail independently:
+   the **magic version pin** (a Solidity-style `# {"Depends": "<runtime>:<tag>"}` — an old tag such as `:test`
+   may no longer resolve, and the current docs demand a content hash), the **SDK version** on the package index
+   (PyPI/npm JSON API gives upload date and python constraints in one call), and **doctrine drift**: the API
+   names can all still exist while the recommended pattern has inverted. Measure emphasis on the current docs
+   page — if `strict_eq` appears once and its successor twenty-one times, the surviving call is the documented
+   anti-pattern and the port is a rewrite. **An API-name grep proves compatibility of vocabulary, never of
+   design.**
+4. **Would it duplicate something we already sell?** Compare route, price and output shape against the live
+   product. A revival that ships a second, worse copy of a paid endpoint is a net negative even when it
+   compiles — the honest differentiator has to be structural (native to a network we do not own, an audience we
+   cannot otherwise reach), not "ours but older".
+
+**Verdict vocabulary, and ARCHIVE must be available:** `REVIVE` / `ARCHIVE AS TEACHING` / `RETIRE`, with two
+or three **revisit gates that are observable** (the network is actually live, the conversion is published, a
+per-use or per-unit payment is documented). Gates convert "we said no" into "here is the trigger", which is
+the difference between a decision and a mood. **ARCHIVE AS TEACHING is a complete outcome**: the artifact
+becomes a case study (how a consensus/API design ages), and the read-back — what the platform is now, what our
+thing did, what changed — is the first deliverable, before any code is touched.
 
 ## Perp / CLOB derivative rail evaluation checklist
 

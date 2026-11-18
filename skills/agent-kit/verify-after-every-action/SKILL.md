@@ -16,6 +16,24 @@ author: Gentech Labs
 
 > "After almost everything we do, we should add a verification layer to it so that we always verify that things are being done. If it does work, we immediately troubleshoot, fix it, and then... because this happens a lot." — Jordan, Sep 7 2026
 
+## Measure with an independent fetch per target (the shared-scratch trap)
+
+**A shell loop that reuses one temp file silently reports the wrong result.** Writing
+`curl -o /tmp/x` inside a `for` loop and reading `/tmp/x` afterwards can surface a stale body
+or pair a status from one request with a body from another. Observed producing a **false 404
+on four endpoints that were in fact returning 200** — one command away from being reported as
+a shipped defect in freshly-deployed code.
+
+- Fetch each target in a language with no shared scratch state (one request per URL in a
+  Python loop); print status **and** body from the *same* response object.
+- Never pair a status from one request with a body from another.
+- **If a measurement contradicts code you just deployed, re-measure by a different route
+  before believing it** — e.g. the provider's own `*.workers.dev` host, or a direct fetch of
+  a single URL. The contradiction is evidence about the measurement first, the system second.
+
+**A wrong "it's broken" costs as much as a wrong "it works."** Both are fabricated evidence,
+and the false red sends the next reader to debug something that was never wrong.
+
 ## The Core Rule
 
 **Every state-changing action ends with a verification step. If verification fails, troubleshoot and fix IMMEDIATELY — do not move on, do not report "done" without proof.**
@@ -55,8 +73,79 @@ The #1 failure: the agent reports what it *intended* to happen, not what *actual
 | Deploy | `curl` the live URL + content check, not the push success |
 | Cron edit | Read `jobs.json` for the job, not the edit command's exit code |
 | Handoff | Confirm the file exists in the target dir, not just that you wrote it |
+| File move / rename / archive | List the DESTINATION for every item AND confirm each SOURCE path is gone — a move can land under a different name and still return success |
 
 **Rule:** a successful tool call is NOT a successful task. The tool may have written to the wrong place, been overridden, or the running process may not have picked it up. Always read back the target.
+
+### ⚠️ `str.replace()` that matches nothing succeeds silently
+
+**A programmatic patch is the highest-risk form of edit, because the no-op path looks identical to the
+success path.** `s.replace(old, new, 1)` with an `old` that does not occur returns `s` **unchanged** — no
+exception, no warning, and if the next line writes `s` back, the file is rewritten byte-identical. Scripts
+that guard with `if 'NEW_TEXT' not in s:` are worse: they test **the string they were about to insert**, not
+the file they just wrote, so they cannot fail.
+
+Observed: a patch helper printed `✅ council now reads the Friday sweep` and the feature was absent from the
+file. The anchor had 7-space indentation; the file used 4. The success message described an intention.
+
+**Rules for any scripted edit:**
+
+1. **Assert the anchor exists before replacing.** `assert old in s, "anchor missing"` — a one-line guard that
+turns a silent no-op into a crash.
+2. **Verify the FILE after writing, not the string you built.** Re-open the path and count occurrences
+   (`open(p).read().count(MARKER)`); assert `>= 1`. Never `if MARKER not in s` on the in-memory copy you
+   are holding — that is a tautology.
+3. **Anchor on a token that cannot drift** — a function name, a distinctive constant — not on indentation,
+   whitespace, or surrounding prose. Indentation is the most common silent mismatch.
+4. **Then prove it end-to-end by exercising the behaviour.** The file-level check proves the text landed;
+   only a run proves the code path uses it. Here the text landed and the *renderer* still showed nothing,
+   which is a different bug and only running it found it.
+
+**The tell to distrust: a ✅ with no artifact behind it.** When an edit reports success, the next question
+is always "what did the file actually change?" — and the answer must come from the file.
+
+## ⚠️ A page that renders a stored constant is a stale claim shipped to every visitor
+
+**A literal in a page is a measurement with no date, no source and no expiry.** `const position = {avaxAmount: 2.19, currentPrice: 6.71}` was correct the afternoon it was typed and then asserted itself, in the
+present tense, on every load for months — while the real price moved 15%. Nothing errored, nothing went
+stale in any way a reader could see, and the page had no mechanism that could ever contradict it. This is
+the same defect as quoting a six-week-old balance as current, but *shipped*: a human wrote it once and the
+surface repeats it forever.
+
+- **Any figure that changes with the world must be fetched at render time**, and must print its
+  `lastUpdated` and its source beside itself. A number on a page without a timestamp is a rumour with a
+  layout.
+- **When the fetch fails, the page must SAY SO.** Falling back to the last known value reproduces the
+  original defect with better manners — a stale number that does not announce itself is indistinguishable
+  from a current one. Render `DATA UNAVAILABLE — <reason>` and blank the derived figures; **an empty page
+  beats a wrong one.**
+- **Distinguish "no data" from "zero".** `null` renders as an explicit state (`no position`); `0` invents a
+  measurement (`you earned nothing`). Same rule as an instrument failure rendered as a zero — the display
+  is an instrument too.
+
+### Verify a page's render logic by EXECUTING its own script, not by reading it
+
+You do not need a browser to prove what a static page will display. Extract the `<script>` body, hand it a
+stub `document` and a stub `fetch`, and read the values it writes:
+
+```javascript
+const els = {};
+function el(id){ return els[id] ??= {id, textContent:'', style:{}, querySelector:()=>el(id+'-val')}; }
+global.document = { getElementById: el, querySelectorAll: () => [el('r0'), el('r1')] };
+global.fetch = async () => ({ ok:true, json: async () => data });        // or a failure stub
+new Function('document','fetch', html.match(/<script>([\s\S]*)<\/script>/)[1])(global.document, global.fetch);
+setTimeout(() => console.log(els['total-value'].textContent), 100);       // assert what a visitor sees
+```
+
+- **Run the page's real code**, not a transcription of it — a hand-copied fragment is a different program
+  and its output proves nothing about the shipped file.
+- **Test three paths, not one:** live data · source missing (`{ok:false, status:404}`) · present-but-untrusted
+  (a payload whose own `trusted` flag is false or whose cross-check disagrees). The failure paths are the
+  ones that decide whether the page lies, and they are never exercised by opening the page.
+- **Assert on `textContent`, i.e. the rendered sentence.** "The handler is wired" is not the claim; "the
+  page prints `no position` rather than `$46.03`" is.
+- **A timestamp with no zone and no source is not provenance** — have the page print the zone and the
+  source label, so a reader can tell a chain read from a feed read.
 
 ## Name the thing before you read it (the wrong-identifier class)
 
@@ -141,6 +230,67 @@ root-via-automation. A box whose only keys belong to automation locks the owner 
 
 Full checklist + inventory + recovery: `00-System/vps-access-compatibility.md`.
 
+## A command YOU hand the user is a change YOU must re-verify
+
+**A paste-ready command is an action carrying your fingerprint, executed later, out of your sight.** Verification done before handing it over says nothing about the state *after* it runs.
+
+Measured: a deploy was verified green with six live probes. Then a rollback command — supplied as a safety net — was run, and it copied the PRE-FIX file over the live one and restarted the service. The next probe read `402` where `404` belonged. The code was right twice; the sequence was wrong once, and only the post-command measurement caught it.
+
+- **Label the undo as the undo.** Never present a rollback beside the deploy steps as a peer item, and never word it like a repair. A command whose effect is "revert to the previous version" must say so on the same line it appears: `cp server.py.bak-preprecheck-20261104 server.py` reads like housekeeping and behaves like a full revert.
+- **Re-measure after ANY command you supplied, whether or not the user reports success.** "Done" is a claim about execution, not about state.
+- **Prefer the non-destructive read.** Ask whether the same fact can be had by comparing files (`cmp -s live saved`) instead of by rewriting one of them.
+- **Keep the post-fix copy somewhere no cleanup rule can reach** (`backups/`, outside any synced or swept tree) — a rollback point that lives beside the code is one hygiene pass away from gone.
+
+### Deployment drift: four reads, and they must agree
+
+After any change a running process serves, prove the **deployed identity**, not just the behaviour:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://host/<route-that-changed>      # 1 · behaviour
+cmp -s <live-file> <saved-post-fix-copy>   && echo 'live == patched, no drift'  # 2 · not edited since
+cmp -s <live-file> <pre-fix-backup> && echo 'ROLLBACK HAPPENED' || echo 'fix is in'  # 3 · which version
+grep -c '<marker-from-the-fix>' <live-file>                                     # 4 · the patch is present
+```
+
+Each read catches a different failure: a route reverting, a file restored from a backup, a patch that never landed. Any one alone has a false-green — behaviour can be correct while the file on disk is not the file you think you deployed.
+
+**And check the harness does not share the code's blind spot.** A local matrix passed every case while the live route still issued a payment challenge for a nonsense path: the fix had **excluded a routing alias** to protect it, and the harness had been built around the same exclusion — so it tested the exclusion instead of the behaviour. **A test that encodes the implementation's assumption cannot falsify it.** Keep at least one case expressed the way a *caller* expresses it (the public URL, the alias form, the documented example), not the way the code branches.
+
+## ⚠️ A restart is proved by something that CHANGED, not by something that reads correctly
+
+**After editing a file and restarting the service, reading the file proves nothing about the restart** —
+the file was already correct before you restarted, so a green read is exactly what a *failed* restart also
+produces. The four identity reads above tell you the file is right; only a quantity that moves proves the
+process is now serving it.
+
+**Pick one number that should move, and one that should stop, and quote both sides of the restart.**
+
+```
+before  : <metric> at <value>            # measured BEFORE the restart
+restart : <timestamp>                    # the instant
+arch   : process start time > file mtime  # the serve-time check, not the edit-time
+after   : <metric> at <value>            # same query, same window definition
+```
+
+**Compare the process start time against the file's mtime.** `ExecMainStartTimestamp` older than the file
+you just edited means the running process is serving the previous bytes — and every behavioural probe you
+run will describe the OLD code while the disk describes the new one.
+
+**An outsider changing behaviour is the strongest evidence available.** Measured: a published-surface fix
+had been staged on disk for hours and every surface *read* correctly, so file reads were uninformative. The
+proof it went live was a **third party's error rate falling at the restart timestamp** — a crawler that had
+been generating thousands of guaranteed `404`s stopped generating them, to the minute. That is evidence no
+local read can produce, because it is generated by something that is not us.
+- **A defect with an external signature has an external stop-signal.** Find the thing that is misbehaving
+  *because* of the bug (crawler noise, retry storms, a client's error code) and time-gate it around the
+  restart.
+- **Expect a lag and say so.** Caches, retries and third-party polling continue briefly after a correct fix;
+  report the trend from the restart instant rather than requiring the number to hit zero at once.
+- **A threshold a healthy system cannot meet is noise, not a signal.** A freshness check demanding a file be
+  under `N` hours old while the workflow that writes it runs on a 10-day cycle reports a permanent alarm, and
+  a permanently red check trains every reader to ignore the check. Derive the threshold from the writer's real
+  cadence, or measure the thing's actual age and compare *that* to the cadence.
+
 ## The Immediate-Troubleshoot Discipline
 
 When verification fails, do NOT:
@@ -154,12 +304,21 @@ DO:
 3. **Re-verify** — confirm the fix actually took effect.
 4. **Report** — "Found X, fixed it, verified: [proof]."
 
-## Verification Checklist (run after every action)
+## The rewrite-then-verify cycle (monitor / gate scripts)
 
-- [ ] Read back the actual target (file, config, URL, on-chain) — not the tool's success message
+A rewritten script is a changed thing — every step that changed has to be re-verified, not just the file. The cycle used for the fallback-rail gate (`usage-gate.py`):
+
+1. **Compile the rewrite.** `python3 -m py_compile <script>` — the parse gate, before anything else runs.
+2. **Run with the contract's report flag** (`--report`) and read the *verdict lines* — not just the exit code. A gate prints a real verdict only when a real completion (HTTP 200) succeeded; when it cannot measure, it must SAY SO in its own text, never render a calm state.
+3. **Check the state file the script writes** (`grep last_spoke_band $STATE`) — the change landed in durable state, not only in stdout.
+4. **Run it a second time with no state change, and assert the second run is empty** (`len(out) == 0`). A signature that carries a live value changes on every run and re-fires forever; the gate must speak on transition, not on level.
+5. **Kill-softly is not a verdict.** A script that dies mid-run writes nothing — the job exits 0 with output empty, which reads as healthy. A gate that cannot measure must say SO; an exit-0-with-nothing is the trap this step exists to catch.
+
+**The tenant in one line:** a successful compile and run is not the same as a working gate — read the state file and the verdict lines, then say "verify".
 - [ ] For fleet changes: ALL profiles verified, not just the source
 - [ ] Auxiliary slots checked (they don't follow the main model)
 - [ ] Cron pins checked (they don't auto-follow)
+- [ ] Script rewrite | `py_compile` + run + read the state file, not the edit's exit code
 - [ ] Running processes checked (gateways read config at startup)
 - [ ] If anything failed: root-caused, fixed, re-verified
 - [ ] Reported with proof, not just "done"
@@ -376,6 +535,31 @@ nginx -T | grep -A2 'location .*well-known'   # which rule actually matches
 **Rule: identify the artifact behind the URL before trusting anything read from it.** When a path
 exists both on disk and as a service route, one of them is invisible — and it is usually the one you
 deployed to. Prefer deleting the shadow so there is ONE source.
+
+### ⚠️ A `200` is not evidence a path EXISTS on a host with a catch-all
+
+**A static host or SPA fallback answers `200 text/html` for every path it does not recognise**, so an
+existence check that reads only the status code is green on paths that were never deployed. Worse, it is
+green in the direction that matters: "the page is live" is the claim you want to be true.
+
+Measured: a vault page was about to be referenced from a public route, and a status check returned `200`
+for the path — and for a deliberately invented sibling path one character away. The host was serving its
+index fallback for anything, so the `200` described the host, not the file.
+
+**The control that settles it in one request: probe a path you KNOW does not exist.**
+
+```bash
+curl -s -o /tmp/a -w '%{http_code} %{content_type}\n' https://host/<real-path>
+curl -s -o /tmp/b -w '%{http_code} %{content_type}\n' https://host/<invented-garbage-path>
+cmp -s /tmp/a /tmp/b && echo 'SAME BODY — this host has a catch-all; 200 proves NOTHING'
+```
+
+- **If the nonsense path returns the same status and the same body, no `200` from that host is a finding.**
+  Fall back to an in-body marker (a title, a distinctive string) or the origin directly.
+- **Assert the CONTENT TYPE as part of the check**, not after it: a JSON endpoint answering `text/html`
+  is a routing failure wrapped in a success code.
+- **A 404 is the more informative answer** — a host that 404s unknown paths can be trusted when it returns
+  200; a host that never 404s cannot, and you must say which kind you tested on.
 
 ### ⚠️ A DOCUMENTED claim is not a TESTED one — eligibility is not trigger
 

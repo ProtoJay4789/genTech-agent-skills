@@ -118,6 +118,17 @@ if qt:
 
 **Pitfall:** Quoted tweets can contain long-form articles (`article.title`, `article.preview_text`) that aren't in `text`. Always check the `article` field on quoted tweets — the real substance is often there, not in the 280-char text.
 
+**⚠️ A post is not the event — date the CLAIM, not the post.** A high-engagement statement from a major account
+is usually a *sequel*: an apology, a denial, a clarification, or a public bid to get a job back, published days
+after the thing everyone is reacting to. Reporting the post as the news is an error the user catches with one
+search. **Before writing the summary: subtract `created_at` from today, then search the EVENT rather than the
+post** (`<person> resigns <company>`, `<company> Q3 results`). If coverage predates the post, the timeline *is*
+the story — say what happened, when, and what this post adds, as three separate sentences. Corroborate with two
+named outlets before calling anything fact, and read likes/views as reach, not truth.
+
+**Full procedure, plus the relevance pass that makes a market event worth the user's attention:
+`references/is-this-post-the-news.md`.**
+
 **If fxtwitter fails, try these in order:**
 1. **Twitter oEmbed API** — `curl -s "https://publish.twitter.com/oembed?url=https://x.com/i/status/{TWEET_ID}"` — returns HTML blockquote with tweet text, author name, and date. No auth needed, works from VPS. Parse the HTML or extract from JSON `html` field.
 2. `web_search(query="site:x.com {TWEET_ID}")` — search engines index tweets
@@ -221,6 +232,29 @@ When Jordan references a product by name (not a URL) — especially agent framew
 
 See `references/agent-tooling-evaluation.md` for the full methodology.
 
+### A "verified partner plugin" announcement — the installed CATALOG ENTRY is the disclosure
+
+When a vendor announces a plugin for Hermes, the post gives you the feature list and the local catalog gives you
+the truth. **Read `/opt/hermes/plugin-catalog/<name>.yaml` before evaluating anything** — it names the pinned sha,
+the remote host every tool call goes to, the runtime it needs, the credit cost, **and whether unattended runs are
+refused**. That single file answers most of the evaluation, and it is upstream's own disclosure rather than the
+vendor's marketing.
+
+- **Check the prerequisites against THIS box, not the vendor's feature page.** A `npx`/Node dependency is usually
+  fine; a **browser + local callback port + interactive OAuth** opens a lane a headless seat cannot drive — that is
+  a human-at-a-keyboard step, so say so instead of planning around it.
+- **The decisive question for a cron fleet is UNATTENDED viability, not capability.** A package that marks its
+  server `untrusted` makes Hermes prompt before every non-read-only call and **refuse it in unattended runs**. With
+  most of the fleet's work in scheduled jobs, a tool that cannot run there is one we would use once by hand and
+  forget — **that alone turns a feature into a WATCH**, however good the feature is.
+- **Find the meter, and name it.** "Free plugin" describes the package; the spend is in the disclosure
+  (*"launching runs spends <vendor> credits"*). The standing rule is consolidate onto the already-paid rail, so a
+  new credit balance is a decision — price it before recommending it.
+- **Verdict shape: WATCH with the trigger named** — *the dataset worth fine-tuning on, and a paid reason to*. "We
+  could use it for something" is not a trigger, and an unqualified verdict reopens the same question next month.
+- **Steal the disclosure standard.** If the catalog entry states the host, the pin, the runtime, the cost and the
+  refusal in one paragraph, that is the bar to hold our own integration pages to — say so when you file the note.
+
 ### Agent Marketplaces (where agents work, not just tools)
 
 When Jordan shares a platform where AI agents register, bid on tasks, and get paid — that's an agent marketplace, not a tool registry. Key difference: these are revenue opportunities for our agents, not tools they consume.
@@ -251,7 +285,7 @@ Returns JSON with `items` array (each: name, chain_id, owner_address, x402_suppo
 - Discover named agents (not "Agent #xxxxx") with descriptions
 - Monitor Base chain (8453) for ecosystem growth
 
-**Monitor cron job:** Runs hourly, delivers to Labs group. Script at `/root/.hermes/scripts/8004scan-monitor.py`.
+**Monitor cron job:** Runs hourly, delivers to Labs group. Script at `/opt/data/profiles/gentech/scripts/8004scan-monitor.py`.   <!-- ⚠️ ABSENT (verified 2026-11-17): this tool is not present on this host. Do not assume it runs. See build-queue #108. -->
 
 > **Reference:** `references/8004scan-agent-monitor.md` — full API reference, monitor script details, and ecosystem context.
 
@@ -301,6 +335,67 @@ grep -rli "topic keywords" "$VAULT" --include="*.md"
 ```
 
 If you find past work, reference it: "We covered this on [date] — [brief summary of what was concluded]. Anything new you want to add?"
+
+### Step 1c: Measure OUR OWN admissibility gate before forming a verdict
+
+**Most "should we adopt this" questions are settled by a gate on OUR side, not by the project's merits.** Read the
+project's stated requirements, then test whether we meet them **with a call against our own account** — plan tier,
+credential, quota, chain, host capability. A requirement that merely *sounds* affordable is not met.
+
+```bash
+# Cloudflare plan tier — an EMPTY list means free, whatever the dashboard narrative says
+curl -s -H "Authorization: Bearer $CF_TOKEN" \
+  "https://api.cloudflare.com/client/v4/accounts/<account_id>/subscriptions"
+#   {"result":[], "success":true}  →  no paid subscription  →  Workers Paid-only features are unavailable
+```
+
+- **Read the requirement off the project, then look for the endpoint that answers it for us** — subscriptions for
+  plan-gated features, `/rate_limit` for quota-gated ones, a real authenticated call for credential-gated ones.
+- **A gate we cannot meet today turns the verdict into a NOTE, not a build** — and say which gate, measured.
+  "Requires X; our account returns Y" is a complete, checkable answer; "it's too expensive" is a guess.
+- **Judge the strategic value separately from the admissibility.** A project can be genuinely important to us and
+  still not deployable this week; both halves belong in the verdict or the reader thinks one implies the other.
+- **The trap: a provider's own docs are the wrong instrument for our entitlement.** They describe what the feature
+  does, never what our account has paid for.
+
+### Step 1d: The launch post is rarely the opportunity — find the PROVIDER DOOR
+
+**A launch announcement is usually the smallest asset in the link.** Read it for what shipped, then walk one step
+past it to the organisation's product index and ask a different question: **does this ecosystem have a place where
+someone can list what we sell?** Distribution is the scarcer good; a devnet feature nobody can buy is not.
+
+- **Fetch the parent site, not just the post.** The announcement's own domain (the org's `.ai` product page) is where
+the catalogue, the pricing page and the "for providers / get listed" link live. Measured: a confidential-compute
+  launch tweet sat on a front page whose flagship was a **pay-per-call API catalogue with a provider application** —
+  the catalogue was worth a session of work, the launch was worth a paragraph.
+- **Look for the words *catalog*, *registry*, *directory*, *for API providers*, *get listed*, *submit*.** Those mark the
+  difference between reading about an ecosystem and being discoverable inside it.
+- **Check who is already listed.** A catalogue with named competitors in our exact category tells you the price band
+  and the level of polish expected — and proves the door is real.
+- **Read the application form from the LIVE page before describing it.** `web_extract` refuses Typeform-style pages;
+  drive a browser, click through, and print the field labels. Then state which fields only the human can supply
+  (phone, email, legal name) and how long it takes. **Never guess a form's questions** — the human decides whether to
+  spend the 90 seconds based on the real fields, not on your paraphrase.
+- **Then measure OUR eligibility from the LIVE protocol, not from our own manifest.** A manifest advertises intent; a
+  live challenge shows what a client would actually get. For an x402 catalogue, decode one real 402 and list the
+  networks with their payTo addresses:
+
+  ```python
+  import urllib.request, base64, json
+  try:
+      urllib.request.urlopen(urllib.request.Request(URL, headers={"User-Agent": "audit/1.0"}), timeout=20)
+  except urllib.error.HTTPError as e:
+      val = e.headers.get("payment-required")          # header name is lowercase; a mixed-case read misses it
+      pad = "=" * (-len(val) % 4)
+      d = json.loads(base64.urlsafe_b64decode(val.replace("-", "+").replace("_", "/") + pad))
+      print([(a.get("network"), a.get("payTo")) for a in d.get("accepts", [])])
+  ```
+
+  **An advertised network with a payTo is not a settled rail.** Say which rails have a verified settlement and which
+  are merely offered — listing on a chain-first catalogue while that chain has never settled is the same
+  advertise-what-we-cannot-do defect, just aimed outward.
+- **Two honest paths when the gap is real:** prove one settlement on the missing rail before listing, or list naming
+  the rails that actually settle. Prefer proving — one paid call converts a claim into a receipt.
 
 ### Step 2: Analyze & Summarize
 

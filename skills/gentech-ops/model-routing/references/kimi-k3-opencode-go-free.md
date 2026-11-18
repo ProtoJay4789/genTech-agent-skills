@@ -1,7 +1,37 @@
-# Kimi K3 — Free via OpenCode Go (verified Aug 15, 2026)
+# Kimi K3 on OpenCode Go — RE-VERIFIED 2026-10-23, with the exact model id
 
-## Verdict
-Kimi K3 is reachable at **$0 cost** through our existing **OpenCode Go** provider — no new key, no signup, no Ollama credit burn. This is the best free route when Ollama Cloud's weekly cap is being conserved.
+## Verdict (updated 2026-10-23)
+Kimi K3 is reachable through our **OpenCode Go** provider — **and the current model id is
+`kimi-k3.1-pro`**, not `kimi-k3-pro` (which 400s `"Model is unavailable"`).
+
+**Measured 2026-10-23, same key, same minute:**
+| model id | result |
+|---|---|
+| **`kimi-k3.1-pro`** | ✅ **200** — the one to use |
+| `kimi-k3` | ✅ 200 — still serves |
+| `kimi-k2.6` | ✅ 200 |
+| `kimi-k3-pro` | ❌ 400 `"Model is unavailable"` — wrong id |
+
+## The two mandatory headers (this is why the rail looked dead in September)
+```
+-H "x-opencode-session: <stable value>"     # without it: 400 MissingSessionID, and uncached-token pricing
+-H "User-Agent: Mozilla/5.0 ..."            # without it: 403 Forbidden (Cloudflare bot block)
+```
+> ⚠️ **The September 2026 note that "opencode-go returned 403 Forbidden" and therefore Ollama Cloud was the
+> working rail is superseded.** The 403 was **intermittent and almost certainly a User-Agent block** — the
+> routing skill already documents *"a 403 from this API is usually your UA, not your key."*
+> **The `senior-audit-kimi-k3` skill carried the stale version and would have routed a seat around a rail
+> that answers 200. Corrected 2026-10-23.**
+
+## The false-empty trap — re-confirmed
+A **30-token** probe returned **HTTP 200 with `content: None`**: the model burned the whole budget on
+internal reasoning. **For an audit, budget 16000.** `content: None` means *under-budgeted*, not *broken*.
+
+## Failover: the SAME model is on the Nous portal
+**`moonshotai/kimi-k3.1-pro` is present in the Nous model list (426 models, measured 2026-10-23) and answers 200.**
+That makes the allowance failover clean — **the same model, one config change.**
+⚠️ **METERED:** `x-nous-credits-remaining-usd: 17.28` of a `22.00` cap; **`x-nous-tool-pool-gated-off: true`.**
+**Price it before committing — it is a second, smaller ceiling, not free runway.**
 
 ## Live verification (Aug 15, 2026)
 Direct API call succeeded and reported `"cost":"0"`:

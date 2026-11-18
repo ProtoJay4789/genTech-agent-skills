@@ -77,6 +77,193 @@ The inverse also holds: a repair must not be the only thing policing the exclude
 separate RED-only check anchored to that subject's own source, and **print what was excluded** — an
 exemption that is silent gets read as coverage.
 
+## Moving a directory out of a synced/owned tree is still a destructive write
+
+Relocating a folder feels safe because nothing is deleted — but every consumer that reads its old path
+breaks, and the breakage is silent until the consumer next runs. **A move has the same blast radius as a
+delete for anything that hardcodes the path.**
+
+**Check consumers BEFORE the move, not after:**
+
+```bash
+grep -rl '<old/path>' <scripts dirs> */cron/jobs.json 2>/dev/null   # who reads from here?
+```
+
+Measured: a directory that looked like obvious dead weight — a service working dir with `node_modules`
+and logs, nothing like the notes around it — was read by **eight** cron scripts. Removing it would have
+killed four monitors that same night, each one reporting its own quiet failure.
+
+**Moving is the answer when references exist; deleting is not.** Move the payload out of the synced tree
+and **leave a symlink at the original path** — the bytes stop syncing, every reader keeps working, and
+nothing is lost. Then prove it:
+
+```bash
+test -e <old/path>/<known-file> && echo 'path still resolves'
+# and run each consumer once — its own exit code is the receipt
+```
+
+**⚠️ BUT CHECK FOR A MOUNTER BEFORE YOU SYMLINK ANYTHING — readers follow symlinks, mounters refuse them.**
+A path that is a **docker bind-mount source** (or a systemd `BindPaths=`, or anything the kernel mounts on
+startup) cannot be a symlink: docker tries to `mkdir` the source and fails with
+`mkdir <path>: file exists`, and **the container will not start.**
+
+The failure mode is what makes this expensive: docker does not re-validate a mount that is already in
+place. The container stays up, keeps serving, reports healthy — **and the fault is invisible until the
+first restart, which is exactly when a routine deploy happens.** A latent fault and a healthy service
+are indistinguishable for as long as nobody restarts.
+
+```bash
+# before ANY move out of a tree: is this path mounted?
+docker inspect $(docker ps -q) --format '{{.Names}} {{json .Mounts}}' | grep -F '<old/path>'
+grep -rn 'BindPaths=<old/path>\|<old/path>' /etc/systemd/system/ 2>/dev/null
+```
+
+**If any consumer MOUNTS the path, it does not move — not at all, and not "just the heavy parts".** The
+number that made the move attractive (megabytes removed from a synced tree) is outbid by an outage. Either
+leave the directory in place, or move it *and* update the mount definition in the same change; a symlink
+is never the third option.
+
+### If the path IS mounted, edit the HOST side of the bind — a write from inside reports success and lands nowhere
+
+Once a path is a bind mount, the container's view of it is a **view**, and writing to it is not the same
+operation as writing to the host file.
+
+Measured: `docker cp <file> <container>:/var/www/…/.well-known/x402-bazaar` printed
+**`Successfully copied 8.17kB`** — and the file it reported writing never changed. The two follow-up
+commands told the truth that the copy did not:
+
+```
+chown: changing ownership of '…/x402-bazaar': Read-only file system
+chmod: changing permissions of '…/x402-bazaar': Read-only file system
+```
+
+**"Read-only file system" on an in-container path is never a permissions nuisance — it is the mount
+telling you that the file lives somewhere else.** Stop and find the mount; do not escalate privileges.
+
+**The rule:**
+
+> **For a bind-mounted file, the edit is made at the SOURCE the mount points at, wherever that is, and
+> the consumer is then restarted to re-read it. The container path is a read view, not a write target.**
+
+```bash
+# which host path is this container path? (answers it definitively)
+docker inspect <container> --format '{{json .Mounts}}' | python3 -m json.tool
+```
+
+**Three consequences that cost an hour each if learned the hard way:**
+
+- **`docker cp` and `chown`/`chmod` are the wrong instrument for a mounted file**, and their success
+  messages are not receipts. **Verify by reading the file at its real path**, not by the tool's output.
+- **A mounted file is usually already correct once the source is correct** — the deploy step is a
+  RESTART, not a copy. Ask whether a copy is needed at all before performing one; if the source of truth
+  is already the mount source, the only action is to make the consumer re-read.
+- **Processes that read config ONCE at import never see a file swap.** A manifest, a dataset, a config
+  loaded at startup needs a restart to change behaviour, and until that restart the file and the running
+  process disagree — silently, in the direction of the old value.
+
+**And the compound trap:** when a write "succeeds" onto a read-only bind, the operator's next step is
+usually the restart — which is the same moment a latent mount defect (see above) surfaces. Two faults,
+one command, and neither one names the other. **Prove the write landed, prove the mount is sound, THEN
+restart.**
+
+**The proof for a move is a restart, not a read.** Running each reader and seeing exit 0 proves the
+readers work. It says nothing about the mounter. Restart the dependent container/service from a clean
+stop and watch it come back before calling the move done.
+
+**⚠️ A size audit must state whether it follows symlinks.** After a move-and-symlink, a walk that follows
+links still reports the original size and the "reduction" looks like it never happened. Count synced
+content with a non-following walk (`os.path.islink(fp) → 64 bytes`), or the before/after numbers describe
+nobody's reality.
+
+### Verify an archive by counting YOUR entries, not the tool's output
+
+Before deleting originals after a tar/zip, compare the archive's contents to what you put in — and count
+in a unit you control:
+
+```bash
+tar tzf out.tar.gz | wc -l              # ❌ includes the '.' entry → off by one, every time
+tar tzf out.tar.gz | grep -c '\.md$'    # ✅ the files you actually archived
+```
+
+**The off-by-one is not the danger; the danger is what an operator does when the check fails.** Measured:
+a count of 45 against an expected 44 correctly refused to delete — then the tempting next move is to
+"fix" the guard. **Never relax the guard to make it pass; change the unit until it measures the thing you
+meant**, then re-run, confirm a true match, and only then remove the originals.
+
+**And when the tally is wrong, the count is what is trusted — so give the count a printer.** Print
+`expected N · found M` with both numbers and the filenames when they disagree. A silent boolean is
+indistinguishable from a pass.
+
+## Evicting weight from a BIDIRECTIONALLY synced tree — order is the safety property
+
+When a sync client refuses uploads because the account is over quota, the instinct is to delete local
+weight first and let sync propagate it. **That order destroys the only other copies.** A bidirectional
+sync treats a local delete as an instruction to delete everywhere: the server, and every colleague's
+device. The copy that was supposed to be the backup is the one that just got removed.
+
+**The order cannot be reversed:**
+
+1. **Copy out of the tree** to a staging location on the same host, outside the synced root.
+2. **Verify file by file** — compare size against the source for each name, count them, and fail the whole
+   batch on a single mismatch rather than continuing.
+3. **Write a manifest** of what moved (`relpath → bytes`) so the removal step reads a list instead of
+   re-deriving one.
+4. **Re-check at removal time**: `if os.path.getsize(src) != size_from_manifest: skip`. A file that changed
+   between staging and removal is a file the staging copy no longer represents.
+5. **Remove only after 1–4 pass**, and print both totals (files, bytes).
+
+**And never let the staged copy live inside the tree being swept** — same rule as a code backup beside the
+code it protects: one glob away from gone.
+
+### A local size drop is not quota relief — verify with an UPLOAD
+
+The quota lives on the server. Measured: the local tree went **131.8 → 100.8 MB** after a verified eviction
+and the next sync still printed the identical failure:
+
+```
+Connection successful. Detecting changes...
+Uploading file <small-note>.md
+Sync error: Error: Vault limit exceeded.
+```
+
+**Deletes and uploads fail independently.** In this direction deletes propagate while uploads are refused, so
+a shrinking local tree can sit next to a server that still counts the old total. Report relief only when a
+**probe file you just wrote uploads successfully** — a smaller `du` output is a statement about your disk,
+not about the account.
+
+- **Read the sync LOG for the operation, not the exit code or the headline.** `Connection successful` precedes
+  the failure on the same run; the line that matters names the file it tried to upload and then errors.
+- **Count deletions with their timestamps before panicking.** A log holding tens of thousands of
+  `Deleting remote file` lines may span a month of history; printing the raw count reads as "the vault was
+  wiped". Always print the first and last timestamp of the range you are quoting.
+- **Confirm the local corpus is intact before telling anyone what happened** — a note count is one command and
+  it settles the question in the only frame the human cares about.
+- **The heavy recurring writer is the real fix, not the one-off sweep.** If a service writes its logs into the
+  synced tree, evicting them buys a day and the job re-grows them. Prefer the service's own path env var
+  (`<APP>_LOG_DIR`-style) so the weight is never in the synced tree, and treat the sweep as the stopgap.
+
+### Classify REFERENCES from MENTIONS before removing any asset
+
+**A basename grep over a notes corpus returns almost everything, because inventory notes and session
+checkpoints echo filenames.** Measured: a check for whether staged media was still in use reported
+**47 of 47 referenced**; tightening it to "does a file that actually LOADS assets point at this path"
+returned **8**, and three of those eight were checkpoints — transcripts of past sessions — not loaders.
+
+| match type | example | delete? |
+|---|---|---|
+| **loader** | `icons/icon-192.png` inside `manifest.json` / a dashboard `.html` | **no — keep** |
+| **inventory** | the media queue note listing every filename | yes |
+| **transcript** | a checkpoint or completions log quoting a path | yes |
+| **prose** | a design note naming an image | usually yes |
+
+- **Require the path TAIL** (last two segments), not the bare basename, inside a file type that consumes it
+  (`.html`, `.json`, `.py`) — and exclude inventory/checkpoint/completions files **by name** from the hit set.
+- **Keep an explicit `KEEP` set** of everything a live page loads, and assert it is untouched after the pass.
+- **PWA icons and manifests are the classic near-miss**: an icon a `manifest.json` names and a dashboard
+  references is load-bearing even though it looks like incidental artwork.
+- **A checkpoint hit is not a consumer** — it is a recording. Treating it as a reference makes every asset
+  permanently undeletable once any session has mentioned it.
+
 ## The tell that you have one of these bugs
 
 - A count that goes **DOWN** right after you added something.
@@ -84,6 +271,23 @@ exemption that is silent gets read as coverage.
 - Two audits reporting **clean** over a window in which content demonstrably disappeared.
 
 All three mean: re-read the artifact, do not trust the summary.
+
+### A PATH SUBSTRING TEST SKIPS MORE THAN YOU MEANT — and a guard that never runs is silent
+
+`if '/.obsidian' in dp: continue` was written to skip a sync metadata directory. **It matched
+`/opt/data/.obsidian-vault` — the vault itself** — so the walk found **0 files** and the tool reported
+**"0 examined, nothing to do"** on a corpus of 26.
+
+**This is the dangerous shape:** the wrong answer and the right answer look the same. A guard that
+silently skips its whole subject reports exactly what a clean pass reports.
+
+- **Test a path by its COMPONENTS, not by substring:** `'.obsidian' in dp.split(os.sep)`, or prune with
+  `dn[:] = [d for d in dn if d not in SKIP_DIRS]`. `in` on a string is a substring test no matter how
+  path-like the operand looks.
+- **A "0 items examined" result is a RED FLAG, not a pass.** If you know the population is non-empty,
+  zero means your filter ate it. Assert the population before trusting the verdict.
+- Same family: `endswith('.bak')` also matches `.bak-old` and `x.bak.orig`; `startswith('a/')` misses
+  `./a/`. **Anchor globs and strip comments before source-inspection tests.**
 
 ## Auditing an existing overwrite path
 
@@ -193,6 +397,102 @@ blast radius of ONE skill, and the 79 seat-only files in the neighbouring seat w
 - **Small blast radius is not small verification.** Re-check every destination afterwards: the scoped run
   touched four, and the count of changes it reported was the number of DESTINATIONS, not of edits.
 
+#### A cleanup that classifies ARTIFACTS by filename pattern will sweep away rollback points
+
+**A `*.bak*` glob cannot tell a stale note copy from the backup you will need in ten minutes.** A structure/hygiene
+sweep built to move note backups out of a synced tree matched `server.py.bak-preprecheck-<date>` and relocated it
+minutes after it was created — and the next rollback command failed with `cannot stat`, because the file it needed
+had been "tidied" somewhere else.
+
+**The rule: classify an artifact by the class of the file it is an artifact OF.**
+
+```python
+CODE_EXT = {".py", ".js", ".mjs", ".ts", ".sol", ".go", ".rs", ".sh"}
+
+def is_code_backup(path):
+    base = os.path.basename(path)
+    for marker in (".bak", ".pre", ".rolledback", ".premerge", "~"):
+        if marker in base:
+            return os.path.splitext(base.split(marker)[0])[1].lower() in CODE_EXT
+    return False
+```
+
+- **Note backups** (`.md.bak`, `data.json.bak`) → clutter, sweep freely.
+- **Code backups** → **rollback points: leave them beside the code** until the change they protect is settled.
+  A dependency tree is regenerable (`npm ci`); the pre-edit copy of a 200 KB production file is not.
+- **Assert the exclusion, don't assume it:** create one note backup and one code backup in a scratch tree, run the
+  report mode, and confirm only the note one is listed before any `--apply`.
+- **Store the post-change copy OUTSIDE the swept tree as well.** The only durable guarantee is a copy no sweep rule
+  can reach; a backup that lives in the folder being cleaned is one glob away from gone.
+
+**The generalisable shape:** a cleanup rule written for one population (notes, documents, listings) run over a
+mixed population will select by shape and take the exceptions. When the sweep's purpose is "declutter", the one
+file class that must survive is *whatever you would need to undo the change that created it*.
+
+### A cleanup that classifies DATA by a word will move live work — match the STATE MARKER
+
+A tool that moves "finished" items out of a working list is a destructive write, and its whole risk
+lives in the classifier. **Matching the words that describe a state captures prose that describes
+future work in the past tense.**
+
+Measured: a "done" detector matching `done|shipped|completed|resolved|closed` anywhere in a line
+selected **61** items for relocation. Reading them showed **8 were plans**:
+
+```
+**What it would package (all pieces already exist in the fleet):** …
+**Concrete first deliverable (cheap, high-leverage):** …
+**Why it matters:** … we just shipped the Algorand rail …
+```
+
+Moving those files open plans as completed work — **the exact failure the cleanup existed to fix,
+committed by the tool meant to fix it.**
+
+**The rule: a state is a MARKER, not a vocabulary.** Classify only on the explicit, structural signal
+the item carries for that purpose — a checkbox at line start (`- [x]` vs `- [ ]`), a status field, a
+frontmatter key. Everything else is prose about the state and belongs to nobody.
+
+```python
+# ❌ a word search over content — negation, description and storytelling all match
+DONE = re.compile(r"(?i)\b(done|shipped|completed|closed)\b")
+
+# ✅ the marker the format defines, at the position it defines it
+DONE = re.compile(r"(?i)^\s*[-*]\s*(\[x\]|✅)")
+```
+
+**Before applying, count both populations and print them side by side** — `53 ticked · 24 open · 8
+mentioning` — and **list the ones you deliberately did not move.** A cleanup that silently ignores the
+prose matches reads as complete; one that names them lets a reader spot the near-miss. The 8 were only
+caught because the dry-run output was read line by line, not because the count looked wrong (61 is a
+perfectly plausible number).
+
+**Generalises to any reclassifying migration:** archived / stale / duplicate / obsolete. The classifier
+must read the field that *means* the state, never the text that *mentions* it — and any count it
+produces is a hypothesis until a sample has been read.
+
+#### A record file must be excluded by NAME, not by pattern — and the pass must be audited after
+
+**A bulk "file the finished items" pass moved two completion ledgers — the append-only records the
+whole system's history lives in — into `_archive/` alongside the ordinary notes.** The exclusion regex
+tested **TRUE** against both paths when re-run, and a reproduction of the exact filter returned zero
+ledgers. **So the filter was correct and the files moved anyway, and the cause was never determined.**
+
+**That is the argument for the guard, not against it: a pattern that is provably right can still be
+wrong in operation.** Ledgers, receipts, append-only records and indexes share a directory and a
+naming shape with the notes a filing pass is meant to move, so they are one classifier bug away from
+being filed as finished work.
+
+- **Exclude by an explicit basename SET, evaluated first,** before any content classification runs. A
+  pattern is a claim about names; a literal list of the four files that must never move is a fact.
+- **Print the full move list BEFORE moving, not a count after.** A pass that reports "filed 16" has
+  told you nothing about *which* 16 — and 16 is a perfectly plausible number for either outcome.
+- **Audit the destination by mtime immediately after the pass.** List what landed in the last ten
+  minutes and read the names; that is the only check that catches a record riding along.
+- **Recovery is a move back, and it must be verified by content, not by existence.** Restore to the
+  original path and compare the **line count against the pre-move count** — a ledger whose last entry
+  is the one you appended before the pass is intact; one that is merely present may be truncated.
+- **Do not relax or "fix" the exclusion to make it pass on a later run.** The filter already passed; the
+  unexplained part is the operation, and rewriting the pattern buries the only evidence you have.
+
 ## References
 
 - `references/seat-sync-clobber.md` — the multi-target sync case in depth: why three audits all read
@@ -223,6 +523,26 @@ the fallback is needed.
 - **The alarm branch must RETURN NON-ZERO.** This guard's whole value is that a STOPPED state is loud: exit 1 on
   refusal, exit 0 on every quiet outcome (up-to-date / too-soon / deferred / pushed). Verify the exit code **without a
   pipe** — `cmd | sed` reports `sed`'s status, so a refusal can look like success to the scheduler that reads it.
+
+### An UNDO must be labelled as the undo — never shipped in the same block as the deploy
+
+**A rollback presented next to a deploy reads as a second, safer form of the deploy.** Handed a deploy command and a
+restore-from-backup command in one message, an operator waiting on a restart will run the one that *ends the
+incompleteness* — and silently revert the change that was just verified. Measured: a fix was deployed and verified
+6/6, then the accompanying "rollback if anything looks wrong" line was run after a first `cp` had failed for an
+unrelated reason; the copy succeeded on the retry, the pre-change file replaced the new one, the service restarted,
+and the defect was live again with a green deploy report already sent.
+
+- **Do not offer an undo as a standing option.** State the deploy, and hold the undo until a symptom actually exists.
+  "If it breaks, tell me and I will hand you the revert" is complete; a ready-to-paste revert is an invitation.
+- **Name it as the undo in the command itself**, not in a paragraph above it — a filename like
+  `server.py.bak-preprecheck-<date>` beside `server.py` reads as debris, not as "the version that has none of this".
+  Say the word *revert* or *undo* in the sentence that contains the command.
+- **After any interrupt, re-prove state before continuing.** The next step is never "carry on from where the plan
+  was"; it is `cmp` the live file against BOTH the patched copy and the pre-change copy, and say which one is
+  running. A deploy is not done until the running artifact is identified, not merely reported as restarted.
+- **Keep the post-change copy outside the tree the undo would overwrite.** If the only "new" copy lives beside the
+  file being restored, an undo destroys the evidence of what was undone.
 
 ### A declared guard that is never READ is not a guard — and the one that works may have no name
 

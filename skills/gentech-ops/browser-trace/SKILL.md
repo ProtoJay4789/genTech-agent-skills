@@ -1,5 +1,5 @@
 ---
-name: browser-trace
+name: browser-trace   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `browser` exists on this seat -->
 description: Capture a full DevTools-protocol trace of any browser automation — CDP firehose, screenshots, and DOM dumps — then bisect the stream into per-page searchable buckets. Use when the user wants to debug a failed run, audit network/console/DOM activity, attach a trace to an in-progress session, or feed structured per-page summaries back into an agent loop so its next iteration learns from the last one.
 compatibility: "Requires Node 18+, the browse CLI (`npm install -g browse`) with `browse cdp`, and optionally `jq` for ad-hoc querying of the bisected JSONL files. For remote Browserbase sessions, also requires `BROWSERBASE_API_KEY`. The skill scripts themselves use only the Node standard library — no `npm install` step."
 license: MIT

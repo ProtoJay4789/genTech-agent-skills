@@ -10,6 +10,66 @@ CDP-settlement path so you don't re-derive the auth + envelope schema by trial a
 - **Indexing runs after SETTLEMENT completes — verify alone is NOT enough.** The CDP
   facilitator catalogs your resource the first time it **settles** a payment for that
   endpoint. `paymentPayload.resource` must be set in the payload.
+
+### ⚠️ Omitting `paymentPayload.resource` fails SILENTLY — and the spec permits the omission
+
+x402 v2 §5.2.2 marks `resource` **Optional** in `PaymentPayload` (it is Required in
+`PaymentRequired`). Nothing rejects a payload without it, no validator complains, and the
+settlement SUCCEEDS — the money never needed the field. The catalogue just never gets the
+listing, so the symptom is "we settle payments and appear in no directory," which reads as a
+vendor bug and is not one.
+
+Coinbase's seller guide is the stricter source: *"the payment payload sent to the facilitator
+must include `paymentPayload.resource` so CDP knows which resource to catalog."*
+
+**Rule: a field that is Optional for correctness can still be mandatory for DISCOVERY. When a
+vendor's success path depends on an optional field, the vendor guide outranks the spec.**
+
+**Check for the drift pattern, not just the one builder.** A gateway that supports several
+facilitators tends to copy one envelope constructor per rail (CDP, Dexter, GoPlausible, a
+generic PayAI/Naven path). Measured: four independent builders each constructed
+`{x402Version, paymentPayload, paymentRequirements}` and **none** mentioned `resource` — so a
+fix applied to one path leaves the others silently unlisted. Add ONE helper and call it from
+every builder:
+
+```python
+def _with_resource(pp, request_url):
+    out = dict(pp)
+    out.setdefault("resource", {"url": request_url,
+                                "description": "...", "mimeType": "application/json"})
+    return out
+```
+
+`setdefault`, never assignment (a caller that already supplied `resource` must not be
+overwritten), and **the URL always comes from the request being served, never from the
+caller's payload** — otherwise a settlement can be attributed to a route that was not called.
+
+### Verify with the MCP validator — it answers `indexed` directly
+
+The REST `validate` endpoint returns check-by-check results. The **MCP** surface answers the
+question you actually have, in one boolean:
+
+```
+POST https://api.cdp.coinbase.com/platform/v2/x402/discovery/mcp
+  {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{...}}}
+  {"jsonrpc":"2.0","id":2,"method":"tools/list"}
+  {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"validate_endpoint","arguments":{"url":"<public URL>","method":"GET"}}}
+```
+
+Tools: `search_resources` · `proxy_tool_call` · `validate_endpoint`. The validator returns
+`active`, **`indexed`**, `hasBazaarExtension`, `lastCrawledAt`, `simulate.outcome`, and a
+`preflight[]`. `indexed: true` is the facilitator stating it catalogued you — do not infer
+listing from a search hit alone.
+
+**Expect `bazaar.info.output.example` to fail preflight if you withheld the example.** An
+example is a check item, so an honest "we will not publish a shape we cannot honour" costs a
+preflight point. Once the route returns a real, stable shape, publish THAT — withholding was
+right when the shape was fake, and is wrong once it is true.
+
+**MCP search and REST search do not rank alike.** Measured: REST `search?query=<brand>`
+returned our resources while MCP `search_resources` (by query, by `payTo`, by `urlSubstring`)
+returned none. Same catalogue, different filtering. Treat a zero from one surface as
+"this surface does not see us yet," not "we are not listed."
 - **No separate registration step.** There is no form. Settlement through the CDP
   facilitator is the trigger.
 - **30-day recency window:** endpoints with no activity in 30 days are excluded from
@@ -110,6 +170,43 @@ requires 'scheme'`):
 in Node and print `opts.body` on the `/verify` call the CDP SDK makes. That shows the exact
 envelope the SDK sends — replicate it in the gateway. This is far faster than trial-and-error
 against the 400 responses.
+
+## The client-side EIP-3009 payload — SIGN over ints, TRANSMIT strings
+
+The exact-EVM scheme carries `uint256` authorization fields as **STRING** values in the JSON
+payload. Signing over integers is correct (EIP-712 hashes `uint256` numerically); encoding them
+as JSON numbers in the transmitted payload is what fails.
+
+Symptom: the facilitator answers **400** with
+`request body has an error: Error at "/paymentPayload/payload..."`. The shape is right, the
+signature is right — the *type* is wrong.
+
+```python
+auth = {"from": addr, "to": pay_to, "value": str(amount),
+        "validAfter": str(now - 60), "validBefore": str(now + timeout - 30),
+        "nonce": "0x" + secrets.token_hex(32)}
+auth_int = {k: int(v) if k in ("value", "validAfter", "validBefore") else v
+            for k, v in auth.items()}      # sign the ints
+sig = account.sign_message(encode_typed_data(domain_data=domain,
+        message_types=TransferWithAuthorization, message_data=auth_int))
+# transmit `auth` (strings), not `auth_int`
+```
+
+Domain for Base USDC comes from the challenge's own `accepts[].extra` (`name`, `version`) plus
+`chainId` and `verifyingContract` = the advertised `asset`. Never hardcode the domain — read it
+from the 402 you were just handed.
+
+### ⚠️ Never truncate a facilitator error to a short slice
+
+A `resp.text[:200]` in the verify/settle error path cut the facilitator's message off at exactly
+the field name — the operator saw `Error at "/paymentPayload/payloa` and had to guess which
+field, while the full body named it. **Keep at least ~800 chars of the error body**: it carries
+`correlationId`, `errorLink` and `errorMessage`, which is the only support handle you get. A
+truncated error message is the bug that hides the bug.
+
+**Triage order when a paid request 402s with a facilitator reason:** read the FULL error body
+first (auth vs schema vs type), then compare the payload field-by-field against the scheme's
+type definition — not against a working example, which hides type mismatches.
 
 ## Client-side header — the PAYMENT-SIGNATURE gap
 

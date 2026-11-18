@@ -84,6 +84,86 @@ All brand assets are created as SVG first, then converted to PNG for deployment.
 </g>
 ```
 
+## Avatars — the small-size discipline (measured rules)
+
+An avatar is not a small picture; it is a picture that must survive a **160px circular crop, on both a
+dark and a light page**. Treat those as the design brief, not a final check.
+
+**1. The platform crops to a CIRCLE — anything outside the inscribed circle does not exist.**
+GitHub renders the avatar as a circle of diameter = image width. A mark on the subject's chest sits
+exactly on that boundary and is sliced in half, which reads as a rendering artifact. **Settle the
+mark's fate by geometry FIRST:** measure its distance from centre against the crop radius
+(`sqrt(dx²+dy²) < W/2`). If it cannot fit inside, that is not a design problem to solve — it is an
+impossible placement. Put the story in the bio and the profile README instead.
+
+**2. Test at 160px on BOTH page backgrounds.** Downscale, mask circular, composite onto a dark page
+(≈`#0d1117`) and a white one. The same file can read crisp on white and collapse into a moody smudge
+on dark. A palette that fails the dark-mode composite fails the medium.
+
+**3. Palette beats detail — and it is measurable.** Re-rendering an expression to make a portrait
+"happier" moved the full-size review and NOT the 160px one; the small-size read was set by the
+background. **Measure rather than argue:** sample the background band above the head and the face
+region and compare mean luminance. Background luma ≈60 against a dark page reads "closed"; lifted to
+≈110 it reads "open." **Fix the tonal collapse first** — it is one render and it is usually the
+actual defect. Watch for the classic collapse: dark garment + dark hair + dark background = the lower
+arc of the circle simply vanishes.
+
+**4. An illegible text panel makes a critic HALLUCINATE — and that IS the test.** Asked to read a
+named list at 160px, a vision model did not report "unreadable": it invented plausible different
+text. **Treat an invented reading as proof of illegibility** — if a reviewer can confabulate content,
+no human will read it. Cut the text rather than enlarging it.
+
+**5. A ring reads as a frame only with three cues, and the rim must be EVEN.**
+- A flat, uniformly saturated blue ring reads as a **browser focus indicator**, not a frame.
+- Supply all three: a directional gradient (lit to one side), a **hairline gap** between portrait and
+  ring, and a soft outer glow.
+- **Build the rim by blending toward a CONSTANT colour, never by adding light.** An additive rim
+  brightens whatever is underneath, so it blows out over a light background and barely shows over a
+  black garment (measured spread 24.0 additive vs 17.0 constant, same geometry). Blending toward a
+  fixed colour lands the same over both.
+- Keep the ring **inside** the crop radius or the crop truncates it.
+- **PIL trap:** carving a gap with `draw.ellipse(..., fill=...)` paints a solid disc **over the
+  subject** — a separator is `outline=` or a masked-layer annulus, never a `fill=`.
+
+**6. Identity — never generate a likeness from a text description.** Build from the existing base
+render with img2img so the face IS the source image, and re-render from the base each time. After
+every edit, **look at the output AND measure a face-region mean luminance** before showing the user
+(a wiped face reads ~10; a real one >60). A compositing bug that erased the portrait was caught only
+by the number, not by reading the code.
+
+**7. An expression SET is one base render edited N times — and the states you asked for are not the
+states you get.** For a talking-head avatar that must react (content, thumbnails, B-roll), generate the
+neutral portrait first, then derive every other state as an edit **off that base file**, never off a
+text description and never off the previous expression — chaining edits walks the face away from the
+person. State the invariants in every prompt (beard shape, hairline, skin tone, garment, framing,
+lighting) and change only the expression.
+
+Useful default set: `neutral · happy · excited · laughing · serious · thinking · skeptical · sad ·
+concerned · shocked`.
+
+**Then calibrate by looking, because the labels lie.** Measured on a 10-state set: `happy` ≈ `excited`
+at thumbnail size, and `serious` ≈ `neutral` ≈ `skeptical` in one corner. Do not promise ten distinct
+moods — put the states in a 5×2 contact sheet, read it, and record which pairs are near-duplicates so
+they are never cast in adjacent beats.
+
+**Cast per BEAT of the script, not per video** — this is what makes an avatar read as a person rather
+than a still:
+
+| Beat | State |
+|---|---|
+| a claim being quoted | `thinking` |
+| "here is what it means" | `serious` |
+| the receipt lands | `happy` / `excited` |
+| a verdict of wrong | `skeptical` |
+| our own mistake | `concerned` / `sad` |
+| a surprising number | `shocked` |
+
+Keep a reproducible builder script beside the assets. Every state must be re-derivable by re-running
+it from the base, or the set is a pile of orphans after one bad regeneration.
+
+Construction recipes — circle-safe geometry, the even-rim maths, the dark/light composite test:
+`references/avatar-construction.md`.
+
 ## Pitfalls
 
 - **cairosvg must be installed:** `pip install cairosvg` — not always available
@@ -136,6 +216,12 @@ blockrun_image(
 | Repo thumbnail | Either | AI for speed, SVG for control |
 
 **Pitfall:** AI-generated logos are raster (PNG), not vector. Fine for web/social but not for print or extreme scaling.
+
+⚠️ **When the `blockrun_image` MCP tool is not loaded in the session, do not give up on AI generation** —
+call the SDK directly. See `blockrun-wallet-management/references/direct-sdk-invocation.md` for the
+`ImageClient` img2img call, the funded-key rule (two `.session` files can hold different keys), and the
+`data:`-URI response handling. **Measure the charge as a wallet balance delta** — `cost_usd` has come
+back `undefined` on successful runs.
 
 **Token image iteration pattern (proven Jul 22, 2026 for $TREASURY):**
 1. Generate a concept (vault + G logo, gold/blue palette)

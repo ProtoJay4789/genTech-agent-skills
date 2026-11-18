@@ -16,21 +16,56 @@ author: Gentech
 
 **Every cron job must verify data freshness before acting on it.** Stale data causes wrong decisions. The truth layer catches this before it happens.
 
+## Scope first: which jobs need this at all — the three-tier triage
+
+**Do not apply the truth layer to every job. Triage by what a job READS, and say which tier each is in.**
+Applying a User-Agent and a throttle handler to a script whose only input is a local file is decoration —
+words that look like safety and change nothing — and a standard that pads itself with theatre stops being
+trusted where it matters.
+
+| tier | who | what it needs |
+|---|---|---|
+| **A — network / shared quota** | reads an API, another service, or a quota shared with other jobs | identifying User-Agent · throttle treated as a **boundary, not a transient** · says `INCOMPLETE` when it could not look |
+| **B — local input, human-facing output** | reads only local files/state but prints numbers or advice a person acts on | one rule: a missing input prints `UNKNOWN` / `NOT RUN`, never `0`; add a prose fact-check where it recommends an action |
+| **C — local, mechanical, self-verifying** | backups, syncs, sweeps, restores | **nothing.** Its failure is visible on its own face. Listed so nobody "fixes" it |
+
+**The graduation rule makes it durable:** a tier-C job becomes A or B the moment it grows a network call or a
+human-facing recommendation. That is the trigger — not a schedule, not a rewrite.
+
+### Measure the job, not the file that launches it
+
+**Half of a mature cron fleet is two-line wrappers.** A grep of the wrapper reports "no network, no UNKNOWN" —
+true of the wrapper, false of the job. Measured: a naive pass found **8** network jobs; resolving each job to the
+file it actually invokes found **14**. **Resolve a job to the executable before judging it** (follow the `.py`
+path in the wrapper), and follow shared-transport imports the same way: a job that calls `gh_get()` from a guard
+module inherits that module's User-Agent, and a per-file grep will call it a gap that does not exist.
+
+### The checker's vocabulary is part of the checker
+
+A job that prints **`ABSTAIN`**, **`UNMEASURED`**, or "could not reach" has done the right thing even if it never
+types `UNKNOWN`. Measured: a conformance checker flagged a well-written monitor as a gap purely because of the
+word it chose — the monitor's wording was better than the checker's. **Match a vocabulary, not one blessed token**,
+and print the matched word so the reason is auditable. The same rule applies to the job's exit codes (see the
+0/1/2/3 convention below): the meaning lives in the code and the message, not in a display layer.
+
+**And run the conformance check itself as a job**, silent when tier A has zero gaps, speaking only on a gap —
+never on a clean night. A checker that reports the same clean banner daily trains its reader to skip it.
+
 ## How It Works
 
-### The Preflight Script (`/root/.hermes/scripts/preflight.py`)
+### The Preflight Script (`/opt/data/profiles/gentech-treasury/tools/preflight.py`)
 
 Every cron job should call this before doing real work:
 
 ```python
 import subprocess
-subprocess.run(["python3", "/root/.hermes/scripts/preflight.py"], 
+subprocess.run(["python3", "/opt/data/profiles/gentech-treasury/tools/preflight.py"], 
                capture_output=True, timeout=15)
 ```
 
 Or for job-specific filtering:
 ```python
-subprocess.run(["python3", "/root/.hermes/scripts/preflight.py", "--job", "data-freshness"], 
+subprocess.run(["python3", "/opt/data/profiles/gentech-treasury/tools/preflight.py", "--job", "data-freshness"], 
                capture_output=True, timeout=15)
 ```
 
@@ -90,7 +125,7 @@ When creating a new cron job that reads data:
 ```python
 import os, time
 
-DASHBOARD_PATH = "/root/repos/gentechlabs.github.io/DeFi/defi-data.json"
+DASHBOARD_PATH = "(GitHub repo, not on this host: gentechlabs.github.io/)DeFi/defi-data.json"
 
 def check_data_age():
     """Returns age in hours, or 999 if missing."""
@@ -132,10 +167,10 @@ When multiple sources disagree, use this order:
 
 ## Adding Custom Validators
 
-Create a Python file in `/root/.hermes/scripts/validators/`:
+Create a Python file in `/opt/data/profiles/gentech/scripts/validators/`:
 
 ```python
-# /root/.hermes/scripts/validators/my_check_validator.py
+# /opt/data/profiles/gentech/scripts/validators/my_check_validator.py   <!-- ⚠️ EXAMPLE (verified 2026-11-17): this tool is not present on this host. Do not assume it runs. See build-queue #108. -->
 def validate():
     """Return issue string if problem found, empty string if OK."""
     # Your check logic here
@@ -198,7 +233,7 @@ POOL = {
 }
 
 # ✅ CORRECT — reads live config, falls back to defaults
-CONFIG_FILE = "/root/.hermes/scripts/.lfj-aae-config.json"
+CONFIG_FILE = "/opt/data/profiles/gentech/state/lfj-aae-config.json"
 
 def load_pool_config():
     defaults = {"range_low": 6.04, "range_high": 6.196, "shape": "curve", ...}
@@ -228,7 +263,7 @@ Two common patterns that fail:
 
 | Pattern | Resolves To (bogus) | Actual Path |
 |---------|---------------------|-------------|
-| `expanduser("~/.hermes/scripts/config.json")` | `${PROFILE_DIR}/home/.hermes/scripts/config.json` | `/root/.hermes/scripts/config.json` |
+| `expanduser("~/.hermes/scripts/config.json")` | `${PROFILE_DIR}/home/.hermes/scripts/config.json` | `/opt/data/profiles/gentech/scripts/config.json` |   <!-- ⚠️ NOT PRESENT (checked 2026-11-17): this file does not exist on this seat. Do not assume it; verify before relying on it. -->
 | `expanduser("~/.hermes/profiles/gentech/secrets/token")` | `${PROFILE_DIR}/home/.hermes/profiles/gentech/secrets/token` | `${PROFILE_DIR}/secrets/token` |
 
 The second pattern is especially insidious — the path already contains `.hermes/profiles/gentech/` which makes the expanded path doubly nested and the error message harder to correlate with the source.
@@ -241,7 +276,7 @@ CONFIG = os.path.expanduser("~/.hermes/scripts/config.json")
 TOKEN = os.path.expanduser("~/.hermes/profiles/gentech/secrets/github-token")  # doubly nested!
 
 # ✅ CORRECT — absolute path works regardless of HOME
-CONFIG = "/root/.hermes/scripts/config.json"
+CONFIG = "/opt/data/profiles/gentech/scripts/config.json"
 TOKEN = "${PROFILE_DIR}/secrets/github-token"
 ```
 
@@ -369,6 +404,11 @@ cronjob(action='run', job_id='xxx')
 - ❌ Skipping manual test runs when quiet hours prevent output
 - ❌ Moving to next solution when current one wasn't verified
 - ❌ Presenting plans instead of working artifacts
+- ❌ **Testing a cron script with the interpreter and calling it verified.** `python3 script.py` and
+  `hermes cron run <job>` fail *differently* — only the second exercises the job's env, arguments, model pin and
+  delivery path, and only the second is what the fleet actually experiences. A script that compiles and runs
+  clean under `python3` can still fail as a job (and vice versa). After editing any cron script, run it through
+  **`hermes cron run`** before reporting it fixed.
 
 **Practical application (session example):**
 - Bug: Dashboard showed wrong shape (curve vs bid-ask), wrong entry price, wrong position amounts
@@ -595,6 +635,64 @@ def push_to_github():
 3. **A stale value must not leak into any DERIVED list.** Grep every downstream aggregate that filters on the value (here: the PURE-FEE summary and the emissions table both printed the frozen number as live). Excluding it from the ranking but not from the summaries leaves the same lie in a different place.
 
 **The general rule:** a number without a date is not evidence. Any reading that survives longer than its refresh interval must expire on its own, or it will be quoted as current forever.
+
+#### The two-clock rule — mtime lies, and a stale file ARGUES
+
+**Checking `os.path.getmtime()` is only half a freshness test.** A file can be touched, copied, rsynced or
+format-migrated today and still contain last quarter's numbers. **Check both clocks and require both to
+pass:** the filesystem's mtime AND the document's own internal timestamp (`lastUpdated`, `as_of`, `updated_at`).
+
+Measured: a sentiment feed had an mtime **19 days** old and an internal `lastUpdated` of **72 days** old. The
+same file was scored `+1 bull` by a restored lens that never checked either — while the live board next to it
+read *every asset at a lower low*. **The stale file did not merely fail to inform; it argued, and it argued
+in the opposite direction to the tape.** A stale-but-present source is more dangerous than a missing one,
+because a missing source returns `None` and the code path usually notices, while a stale source returns a
+confident value that flows straight into a verdict.
+
+```python
+age_file = age_hours(PATH)                                    # mtime
+age_doc  = hours_since(load(PATH).get("lastUpdated"))         # the document's own word
+if age_file > MAX_H or age_doc is None or age_doc > MAX_H:
+    print(f"UNMEASURED — file {age_file:.0f}h, contents {age_doc}h (max {MAX_H}h) → 0, not scored")
+    data = None          # report the absence; never score the stale value
+```
+
+**Three requirements on that check:** (a) an unparseable or absent internal timestamp counts as STALE, not as
+fresh; (b) print **both** ages so the reader sees which clock failed; (c) drop the value from scoring without
+dropping the line — the output must show that a source was rejected, or the operator cannot tell a dead feed
+from a quiet one. **And prefer replacing dead feeds with a source the same job already maintains** — a
+lens pointed at a live 2-hourly file is worth more than a lens with a perfect staleness gate around a corpse.
+
+#### Reachable is not true — the publication surface needs the same gate
+
+**A 404 and a stale panel are different faults, and fixing only the first makes the page worse.** Measured: four
+public dashboard fetches were repointed from a wrong repo to the right owner; every 404 cleared, and every panel
+then filled with **87–126-day-old numbers** — a token shown at its July price, presented as today. Dashes look
+broken and someone investigates; a plausible number looks fine, so nothing is ever investigated. **"It is
+connecting again" and "it is telling the truth" are two claims, and only the second is worth reporting.**
+
+- **The published page must state the age of its own data**, per feed, from each file's own internal timestamp
+  (not the page's load time). One line of markup beats a pipeline: a page that cannot say how old it is will be
+  read as live, and no amount of upstream verification fixes a reader's misreading.
+- **A status badge is a claim; make it agree with the data.** A badge reading `Active — harvesting` above
+  97-day-old data is worse than no badge, because the loudest element on the page is then the most false one.
+- **Never hand-merge or auto-resolve a data file found with conflict markers.** Classify it `INVALID` and
+  demand republication by its generator. Measured: a committed file carried **67 unresolved hunks** (201 marker
+  lines) from an August stash — an old nested conflict has no correct side, so any resolution manufactures a
+  number. Count the hunks (`grep -c '^<<<<<<< '`) rather than describing the nesting; "nested seven deep"
+  described the top of the file and was off by an order of magnitude.
+- **Classify every source, and let UNKNOWN outrank STALE in the exit code.** One row per source —
+  `FRESH · STALE · ARCHIVED · INVALID · UNKNOWN/NO_TIMESTAMP` — with exit `0` all fresh, `1` stale/archived,
+  `2` could-not-read/parse. **Not knowing is louder than knowing it is old**, so an unreadable source must win
+  the code even when another source is merely stale. A parsed file with no internal timestamp is
+  `NO_TIMESTAMP`, never fresh; a fetch failure is `UNKNOWN` with a null age, never `0` days.
+- **Prove the classifier with planted negatives, not the live clean input:** old-but-parseable must read
+  ARCHIVED · conflict-marker bytes must read INVALID with no age · a failed fetch must read UNKNOWN with no age
+  · parsed-with-no-timestamp must not read FRESH · and the rendered report must not print "OK" for any of them.
+  A runnable implementation of this whole block — stdlib only, `--selftest` plants those ten failures — is
+  **`scripts/freshness-guard.py`**: `freshness-guard.py SOURCES.json [--stale-days 3 --archive-days 30]`,
+  where `SOURCES.json = [{"name":…,"url":…}, …]`. It exits 0/1/2 as above, so a scheduler sees
+  could-not-read differently from stale.
 
 ### Anti-Pattern 16: Measurement Stronger Than Its Method (Overclaiming Provenance)
 
@@ -948,6 +1046,73 @@ Any hit whose underlying task is verified complete is a live false ask. Each del
 
 **Cross-reference:** `completion-registry` (canonical done-source) and `verify-after-every-action` (verify the effect, not the command) are the same principle at different layers: the command succeeding ≠ the task done; the task done ≠ the record updated.
 
+### Anti-Pattern 19: A Retrieval Layer With No Budget and No Deadline
+
+**Bug pattern:** A cron script reads a remote dataset through a chunked API. The chunk size came from a
+half-remembered limit; the fetch has no retry, no alternate route, and no ceiling on how long it may take.
+One transient failure on one chunk aborts the whole read — and because the script correctly refuses to report a
+partial sum as a total, the job exits non-zero and the user sees a failure for a dataset that was never
+truly unavailable.
+
+**Real-world example (Oct 31, 2026 — `x402-revenue.py`):** an on-chain read of USDC transfers used
+`eth_getLogs` with a single RPC and no retry. A transient hiccup produced `UNKNOWN` and a cron failure alert.
+The refusal was CORRECT (an unreadable chain is not an empty one) — but the underlying read was fine minutes
+later, and had been fine before. Diagnosis found three separate faults stacked:
+
+1. **The provider list was a folklore list.** Of nine public Base RPCs, two serve `eth_getLogs` at all. The
+   header comment naming only one was accurate the day it was written and had no re-measurement path.
+2. **The fallback's cap was 10x wrong.** The only other getLogs route accepts **1,000** blocks, not 10,000 —
+   and the error said so in a field that is easy to skim past:
+   `{'code': -32602, 'message': 'invalid params', 'data': 'Block range too large: maximum 1000 blocks without an api key'}`.
+   **Read the `data` field.** The human-readable `message` said only "invalid params."
+3. **No retry, no fallback, no budget.** One failed chunk = whole job failed.
+
+**Fix — four parts, all required:**
+
+```python
+# 1. RETRY the primary with backoff — this alone converts most transients into successes.
+for attempt in range(LOG_ATTEMPTS):
+    for url in LOG_RPCS:
+        if (res := rpc(method, [span], urls=[url])) is not None:
+            return res
+    time.sleep(1.5 * (attempt + 1))
+
+# 2. FALL BACK across routes, re-splitting an over-cap span into pieces the fallback can serve.
+
+# 3. BOUND the fallback with a call budget AND a wall-clock deadline — not one, both.
+budget = {"left": FALLBACK_BUDGET, "until": time.time() + FALLBACK_DEADLINE}
+...
+if budget["left"] <= 0:  return None      # honest failure
+if time.time() > budget["until"]: return None
+
+# 4. NAME the span that failed, so the next reader knows what could not be read.
+print(f"unreadable block span {lo}-{hi} (every route failed)", file=sys.stderr)
+```
+
+**Why BOTH guards, and why the budget alone is a trap:** measured fallback calls are cheap (~0.19s each), so
+400 calls finish in ~80s and a full recovery is possible. But a *dead* fallback costs the per-call **timeout**
+(30s) each — 400 × 30s is three and a half hours inside a cron job. A call budget without a deadline turns a
+fast honest failure into a hang; a deadline without a budget turns a bounded recovery into a slow one. Together
+they keep the worst case at the deadline.
+
+**Keep the honest-failure path reachable.** The point is not to eliminate `UNKNOWN` — it is to stop reporting
+it for transients. After the fix, prove both directions with these four tests:
+
+| test | expected |
+|---|---|
+| primary live | full data, exit 0 |
+| **primary dead, fallback live** | **identical data** (not zero, not partial), recovered |
+| all routes dead | `read_ok=False`, bounded time, exit 2 |
+| the **job** (`hermes cron run <id>`) | `last_status: ok` |
+
+**The middle row is the one that matters.** A fallback that returns *something* is not proof; the proof is that
+it returns the **same** thing. Compare counts and totals, not just exit codes.
+
+**Generalisation:** any external read — RPC, indexer, paginated API — needs retry, an alternate route, and a
+ceiling on both *attempts* and *elapsed time*. **Test the negative: kill the primary and confirm the answer is
+unchanged; kill everything and confirm you still say "I don't know."** A retrieval layer you have only ever seen
+succeed is not a verified retrieval layer.
+
 ### Anti-Pattern 17: A Check That Cannot Match the Artifact Reports Green
 
 **Bug pattern:** A verifier's pattern — regex, grep, date format, path template — cannot match the text it is
@@ -994,6 +1159,340 @@ Rules that follow:
 **Generalisation:** *a verifier that cannot fail is worse than no verifier, because its green is trusted.*
 When reviewing any verification code, the first question is not "does it find the bug?" but "what would it
 have to see to say RED — and can its pattern actually match that?"
+
+### Anti-Pattern 18: The Check Answers an Easier Question Than the One Asked
+
+**Bug pattern:** The verifier *can* fail — it just fails for the wrong thing. It reads a surface that is cheap
+or adjacent instead of the one that actually holds the answer, then reports that surface's result as the answer
+to the question asked. Nothing looks broken: the number is real, it is just measuring something else. This is
+the sibling of Anti-Pattern 17 — 17's instrument *cannot* match, 18's instrument matches something off-target.
+
+**Three faces, one class, all found in a single fleet audit:**
+
+1. **Wrong direction.** An ACK checker searched for the reply in the **sender's** own lane. Our own newer
+   outbound notes therefore looked like replies, so 5 handoffs that had never been answered were counted as
+   ACKed and a 26-day-stale lane read "clean." The reply is authored by the **target** — only
+   `<target>-to-<sender>` holds it. Fixing the direction moved the real numbers (unacked 6→11, acked 13→9) and
+the lane then correctly reported that it was silent.
+2. **Wrong basis.** A usage monitor watched the **weekly** window (the binding limit) but computed its
+   projection from the **monthly** counter over <1 day of data — and fired WARN on a fresh allowance. A forecast
+   must be computed *on the window that binds*, and a rate extrapolated from a fraction of a day is noise, not a
+   forecast.
+3. **Wrong evidence.** A revenue report counted every HTTP 200 as a "sale," so free endpoints (`/mcp`,
+   `/openapi.json`, a service index page) were printed under *"sales by service"* — the opposite of a sale. A
+   status code is evidence the request was **served**; only a settled-payment line is evidence of **revenue**.
+
+**Rules that follow:**
+
+- **Name the direction, the basis, and the window inside the check.** Whose record proves this? Which counter
+  binds? Over what interval? If the code cannot state it in a comment or a field name, the answer it produces is
+  uninterpretable — and will be read as an answer to whatever question the reader had in mind.
+- **Verify the values behind a bucket before interpreting the bucket.** A non-zero `unknown` / `other` /
+  `unclassified` group is not evidence of demand or of coverage — it is evidence the classifier is **incomplete**.
+  Dump the members and read the raw keys (user-agents, caller ids) before writing a sentence about the bucket.
+- **A measurement that is correct but off-target survives review precisely because it is correct.** The dangerous
+  form of a false report is not a wrong number — it is a right number answering a different question.
+
+### Anti-Pattern 20: The Reporting Job's Exclusion List Lives in Its Own Source
+
+**Bug pattern:** A report must subtract *us* from *them* — our own wallets, our own test accounts, our own
+probes, our own IPs, our own user-agents. That exclusion set gets hardcoded as a literal inside the report.
+It then fails in three ways at once, and none of them raise an error:
+
+1. **It drifts.** Every new wallet/account/agent is added everywhere except the list, so a payment we made
+   is counted as a customer. Measured: an outbound-spend wallet was missing from the set, and a transfer we
+   made to ourselves printed as `customer USDC in 0.001` for weeks — a customer that was our own bill.
+2. **It carries no evidence.** A bare address in source cannot be audited, so nobody ever re-checked it, so
+   the drift was permanent. The set becomes folklore that everyone trusts and no one can verify.
+3. **It fails UNSAFE when unreadable, if you move it to a file without a guard.** A missing or unparseable
+   registry leaves the exclusion set EMPTY — so every address becomes "external" and the report prints a
+   confident customer total composed entirely of ourselves. Measured: `customer USDC in 0.281000` where the
+   true answer was zero, produced by nothing worse than a renamed file.
+
+**Fix — registry as data, evidence required, and a hard UNKNOWN on read failure:**
+
+```json
+{ "wallets": { "<address>": { "label": "media wallet",
+                              "evidence": "pays for outbound media generation; not a customer" } } }
+```
+
+```python
+SELF, REGISTRY = load_registry()      # empty set on failure
+self_total     = sum(r["amount"] for r in rows if r["from"].lower() in SELF)
+print("customer total :", sum(r["amount"] for r in rows if r["from"].lower() not in SELF)
+                       if SELF else
+                       "UNKNOWN — registry unreadable; do NOT read as revenue")
+if not SELF: print(f"registry unreadable: {PATH}", file=sys.stderr)
+```
+
+- **Every entry states WHY it is ours.** "It looked like ours" is not an entry — that reasoning is exactly
+  what produces both false customers and silently-hidden ones.
+- **Unlisted is `UNATTRIBUTED`, never "customer".** Print the address and the amount. That bucket is where a
+  real first sale lands, so it must be visible rather than folded into a total.
+- **Gate the headline figure on the registry LOADING, not on the subtraction succeeding.** A subtraction
+  over an empty exclusion set always succeeds, always produces a number, and always looks plausible.
+
+**Test the negative — it is the direction that lies.** Hide the registry, re-run, and require the job to say
+`UNKNOWN`; then restore it and confirm the honest figure. This is the same discipline as Anti-Pattern 19's
+"kill the primary and confirm the answer is unchanged": **a reporting job whose failure path was never
+exercised is a job that has only ever told you what you wanted to hear.**
+
+**Generalisation — the class is bigger than wallets.** Any reporting job that subtracts a population of its
+own (our containers' IPs, our cron's user-agents, our test API keys, our internal account ids) holds an
+exclusion list that is **a claim about the world, in code, unreviewed**. Put it in a data file with a reason
+per entry, print the excluded total BESIDE the headline so the reader can see what was removed, and make a
+read failure print `UNKNOWN` — because the one thing an empty exclusion set must never produce is a
+confident number.
+
+### Anti-Pattern 21: A Shared Data File That Grows Breaks Its Consumers
+
+A data file many scripts read is a **contract**, and every consumer encodes an assumption about its shape
+that has no expiry date visible to anyone. **The consumer breaks when the file gains a member — not when the
+consumer changes** — so the bug appears in a job nobody touched, traced back to a producer nobody suspected.
+
+Measured in one pass, after three records were added to a shared calendar file: a monitor crashed, and a
+sibling tool was found to carry the identical fault one commit from its own scheduled run.
+
+**Three defects that surface together the first time a record is added:**
+
+1. **`sorted()` over tuples whose second element is a dict.**
+   `sorted(pairs)` where `pairs = [(days, event_dict), …]` works until two entries tie on `days`, then Python
+   falls through to comparing the dicts and raises `TypeError: '<' not supported between instances of 'dict'
+   and 'dict'`. It passes every test with distinct keys, so it ships clean and dies on the first same-day event.
+   **A comparator needs a TOTAL ORDER, and a dict has none.**
+   → `sorted(pairs, key=lambda t: (t[0], str(t[1].get("name", ""))))` — always supply the key.
+
+2. **Dedupe keyed on a PARTIAL identity.**
+   Checking `if new["date"] not in existing_dates` silently discards a legitimate record that shares a date —
+   an economic release and a civic event on the same day are two facts, not a duplicate. **A record's identity
+   is its full key**, never the one field that happens to sort well.
+   → `key = (e["date"], e["name"])`; assert the count added equals the count intended, not just that the
+   write succeeded.
+
+3. **`row['field']` on a member another producer wrote.**
+   A required-key read turns one malformed record into a dead **job** — and a monitor that dies on row 3 stops
+   watching rows 4 through N, which is precisely the outage it exists to catch. Tolerate the field, print a
+   placeholder, keep running.
+   → `str(e.get("code", "—"))` in display paths. Reserve hard `[]` for a schema you control end to end.
+
+**And the rule that would have caught all three at once:** after changing the SHAPE of a shared data file,
+**grep for every reader of that file and run each one**, rather than running only the producer and the one
+consumer you were working on. **A producer change is a breaking change for every script that reads it, whether
+or not the field you added is optional.**
+
+```bash
+# the blast-radius check, before declaring a data-shape change done
+grep -rln 'economic-calendar.json\|buylist-state.json\|watchlist' "$PROFILE_DIR"/tools "$PROFILE_DIR"/scripts
+# then run each hit — a crashing consumer is silent until its own schedule arrives
+```
+
+### Anti-Pattern 22: `completed` Means the Job RAN, Not That Anyone Received It
+
+The durable run record carries a **status** — `completed` / `failed` / `running` — and **nothing about
+delivery**. A job that exits 0 and writes its output is recorded as `completed` even if the message never
+left the machine. **"The job ran" and "the user got it" are two different facts and only one of them is in
+the table.**
+
+Measured: a weekly report and its follow-up both showed `completed` with correct local artifacts, and the
+user reported never seeing either. Verification then has to leave the run table entirely — check the delivery
+artifact (the cached file, the sent message, the public URL), not the job status.
+
+- **Never answer "did it arrive?" from `hermes cron runs`.** That answers "did it execute?".
+- **`hermes cron run <id>` is the live delivery test** — it exercises env, arguments, model pin and the
+  delivery path. Running the script with `python3` exercises none of the delivery layer.
+- **When a delivered payload contains a media token or an attachment, verify text and attachment separately.**
+  A payload that fails as a whole reports as nothing at all, and the failure is indistinguishable from silence.
+- **A silence-gated job produces no message by design — so "no message" is only an error for a job that is
+  not meant to be silent.** Classify the job before interpreting its absence.
+
+**The general rule:** for any scheduled output, the proof of delivery is an artifact at the DESTINATION — a
+message id, a served URL, a written file the recipient actually reads. Status codes and exit codes are
+statements about the sender.
+
+### Anti-Pattern 23: The Consumer Reads a Copy While the Writer Writes Elsewhere
+
+**Bug pattern:** A file is moved, copied, or relocated to save space/quota. Readers are repointed to the new
+location — but the **producer never agreed to move**. Code that builds its output path from its own location
+(`os.path.join(os.path.dirname(__file__), "logs")`) recreates the directory at the OLD path on its next run
+and writes there. Now **two files exist, both named the same, both growing** — one live, one frozen at the
+instant of the move. Every check passes: the path is valid, the file parses, the mtime is recent enough, the
+line count is large.
+
+**Why it is worse than ordinary staleness:** the frozen copy is not merely old. It is a **complete, coherent,
+self-consistent record of the past.** It has no gaps, no corruption, nothing that reads as missing. A report
+built on it produces confident, internally-consistent numbers about a world that ended hours ago — which is
+indistinguishable at a glance from a quiet period.
+
+**Symptom to recognise:** a watcher never fires on the exact event it exists to detect; a conversion or
+volume figure plateaus at a suspiciously round moment; two instruments that read "the same" dataset disagree.
+
+**Detection — two reads, and count the delta:**
+
+```bash
+# list every candidate path with size, line count and mtime, then read again in a few minutes
+for p in <every candidate path>; do
+  printf '%-64s %8s lines  %s\n' "$p" "$(wc -l < \"$p\")" "$(date -r \"$p\" '+%H:%M:%S')"
+done
+```
+
+**The live file is the one whose line count ADVANCES between the two reads.** A file that does not move while
+the service is serving traffic is not quiet — it is disconnected.
+
+**Fix — resolve the writer's path, do not trust the path you were handed:**
+
+```python
+# Derive the directory the way the PRODUCER does (dirname(__file__)/logs), list the writer's path FIRST,
+# and fall back only if it is genuinely absent.
+_CANDIDATES = ["<writer-path derived from producer>", "<the copy you moved>"]
+LOG = next((p for p in _CANDIDATES if os.path.exists(p)), _CANDIDATES[-1])
+```
+
+- **Never silently pick the first existing path.** Resolve and, when the fallback is used, say so in the
+  output — a fallback that is invisible is a permanent silent downgrade.
+- **Before declaring a move done, grep every reader and verify each one resolved the LIVE path.** Moving a
+  file is a change to every consumer, exactly like a schema change (Anti-Pattern 21).
+- **Keep the moved copy only as an archive and name it so** — a second file with the live file's name is a
+trap for the next reader, not a backup.
+
+**The rule:** *a log is only "the log" if you read the path the writer actually uses.* **A report reading a
+frozen log is not measuring less — it is measuring a different, dead world.**
+
+### Anti-Pattern 24: A Branch That Discriminates Nothing
+
+**Bug pattern:** Code carries an `if/else` whose whole purpose is to separate two states, and **both branches
+produce the same output.** The condition runs, the reader believes a distinction was made, and the distinction
+does not exist. It survives review because an `if/else` reads as care.
+
+Measured: a revenue report ended with
+
+```python
+label = "UNATTRIBUTED payment(s) — payer not in the wallet registry" if not registry_ok \
+    else "UNATTRIBUTED payment(s) — payer not in the wallet registry"
+```
+
+Both branches identical. So a **real customer's settled payment** and a **broken exclusion registry** printed
+the same sentence. A stranger paid, the report called them an anomaly, and the one event the job exists to
+detect looked like noise for hours. The user's read was exact: *"it looks the same."*
+
+**Why it matters more than a cosmetic string:** the label is the *interpretation layer* over the number. A
+metric can be perfectly measured and still be unreadable if its label collapses two states — and unlike a
+wrong number, nothing about it looks wrong. The money was correct the whole time; the sentence around it lied.
+
+**The fix — a label must PARTITION, and every state must be reachable:**
+
+| registry | payer unlisted | what it means | label |
+|---|---|---|---|
+| loaded | yes | **not us, money arrived → CUSTOMER** | `🎉 N CUSTOMER payment(s)` |
+| loaded | no | ours — excluded upstream | not printed |
+| **unreadable** | unknown | cannot tell | `UNATTRIBUTED — registry unreadable, status UNKNOWN` |
+
+The middle-right cell is the one that gets forgotten: **with the registry healthy, an unrecognised payer is
+the positive signal, not the exception.** Do not let the honest-unknown state and the good-news state share a
+text.
+
+**Two mechanical checks, both cheap:**
+
+1. **Read every `if/else` that assigns a display string and ask whether the two arms differ.** If they are the
+   same literal, one of them is dead code and the state it was meant to name is invisible.
+   ```bash
+   # eyeball every conditional label in one pass
+   grep -n -A2 'label = .* if .* else' <script>.py | grep -B1 -A1 'label ='
+   ```
+2. **Print the branch that says something GOOD.** A report whose only vocabulary is absence and anomaly has
+   no way to announce success — so the first real customer arrives and is filed under "unattributed." If no
+   state in the output means "this is the thing we wanted to happen," the metric has no positive class and is
+   therefore not measuring anything.
+
+**Test the negative:** force the registry-unreadable path and confirm it prints the UNKNOWN wording, then
+restore it and confirm the customer wording. **Two states, two sentences** — a check with only one observable
+outcome is not distinguishing them.
+
+**Generalisation:** *a state machine that renders identically in two states is a state machine with fewer
+states than it claims.* This applies to any enum-to-text mapping — severity bands, status labels, verdict
+banners. Whenever a branch exists solely to name a condition, prove the names differ.
+
+### Anti-Pattern 25: The Report Sums a Key the Producer Never Writes — and queries a window it never verified
+
+**Two faults that both render as a plausible zero.** Neither raises, so neither is investigated, and "we earned
+nothing" is a reading a reader accepts without asking how the number was computed.
+
+**Fault A — the aggregation key.** A producer writes `amount`; the summary sums `r.get("usdc")`, which is `None`
+on every row, so `float(x or 0)` yields **0.0 no matter what arrived**. The rows are correct, the read succeeded,
+the total is confidently wrong. It survives every review because there is no error to see — only an empty-looking
+period.
+
+```python
+# WRONG — silently 0.0 when the producer's key is named anything else
+usdc = sum(float(r.get("usdc") or 0) for r in rows)
+
+# RIGHT — one key, asserted on real data, and emitted by the producer under the name consumed
+totals = [r["usdc"] for r in rows]        # KeyError on the first row beats a plausible zero
+usdc = round(sum(totals), 6)
+```
+
+- **Emit and consume the SAME key**, and have the producer set it (`row["usdc"] = amount`) rather than letting a
+  downstream reader re-derive it from a differently named field.
+- **Assert on the first row before summing a list.** A `KeyError` at line 1 is a five-minute fix; a zero that
+  ships for weeks is a wrong business fact.
+- **A total of `0` is a claim, not a default.** It needs the same proof as any other number — see the known-positive
+  test below.
+
+**Fault B — the window is a unit conversion, and the constant was never measured.** A block scanner computed its
+lookback as `days * BLOCKS_PER_DAY` with `BLOCKS_PER_DAY = 43200` ("≈2s blocks" from folklore). The chain actually
+produced **431,952 blocks/day — 10x that** — so a query labelled *"last 7d"* covered **0.70 days** and returned
+zero rows one day after a payment landed. Nothing errored; the window was simply answering a different question.
+
+- **Derive the rate, do not state it.** Compute blocks/day from two known `(block, timestamp)` pairs in the same
+  run, or resolve the start block from a timestamp. Print the rate you used next to the window.
+- **When a time-windowed query returns nothing, first prove the window is wide enough** by querying for a known
+  event you already have a block number for. An empty result from an unverified window is not a quiet period.
+- **Prefer the absolute anchor over the relative one.** "Scan from the block of the last known settlement" needs no
+  constant at all and cannot rot.
+
+**Test the negative with a positive control inside the window**, for both faults at once:
+
+| test | expected |
+|---|---|
+| plant a known settlement at a known block, query its window | the total EQUALS the planted amount |
+| rename the producer's key | the run raises, never prints 0.0 |
+| shrink the window to a period you know was empty | 0 — so 0 is distinguishable from a broken read |
+
+**Fault C — the column is NULL because ITS WRITER DID NOT EXIST YET.** A field that is `None` on every row is
+read as "the writer is broken" almost every time, and that reading is wrong whenever the field was added after
+the rows were written. Measured: 15 delivered rows carried `tx: null` on all 15, which was reported as a live
+defect — the tx-capture block had been added five days *after* the newest of those rows. **A schema field cannot
+appear in data that predates it, and history is not a bug.**
+
+- **Before reporting a uniformly-NULL column as a defect, date the writer.** `grep -n '<field>' <writer>.py` for
+the assignment line and read the comment/branch around it; compare its introduction to the newest row that should
+have carried it. **Newer writer than data = history. Older writer than data = a real defect.**
+- **State the correct finding:** not "the writer is broken" but *"the fix is new and no qualifying record has
+  occurred since to exercise it"* — which is a coverage claim, and coverage claims are falsifiable by a planted
+  record.
+- **Sweep the same field's OTHER effects before closing it.** The ordering that makes a failed delivery still
+  leave a payment row (write the log in middleware, after the endpoint) is a separate defence that survives the
+  NULL episode — check it explicitly rather than letting one retraction close two findings.
+
+### Exit codes carry the meaning the run table cannot express
+
+When one script exits `1` because it crashed and another exits `2` because it could not read the data and
+refuses to report zero, **both appear in the run record as `failed`** — so a correct alarm is buried by
+crashes that look identical, and nobody can tell a broken job from a healthy one telling the truth.
+
+The convention, enforced at the source rather than in the display:
+
+| code | meaning | how it should read |
+|---|---|---|
+| `0` | ran; findings, if any, on stdout | ok |
+| `1` | the script broke | failure — investigate |
+| `2` | could not read; refuses to report zero | **UNKNOWN** — a valid state, not a fault |
+| `3` | blocked on a precondition | blocked, with the precondition named |
+
+- **Never exit `1` for "could not read".** That is the false-value family wearing an exit code.
+- **Print the meaning, not just the code.** Every non-zero exit should emit one line naming which of the
+  above it is, so the message says it even when the table cannot.
+- **Do not patch a scheduler's status vocabulary to solve this.** Expressing `warn` is an engine change; making
+  the script say `UNKNOWN` in its own output is a change the script owns.
 
 ## Health Tracking + Workflow Enforcement Layer (NEW — Jul 2026)
 

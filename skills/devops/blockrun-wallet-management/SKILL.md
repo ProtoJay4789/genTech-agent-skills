@@ -5,6 +5,15 @@ description: "BlockRun wallet lifecycle — creation, funding, key restoration, 
 
 # BlockRun Wallet Management
 
+## ⛔ WALLET STATUS — 2026-11-03
+
+`0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (F8) is **RETIRED** — key lost in the Oct 12 wipe; its 0.4868 USDC is unspendable.
+**Do not fund it; do not expect it to work.** Current BlockRun wallet:
+`0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0` — one shared key file at `/opt/data/.blockrun/.session`, symlinked into every seat.
+It holds 0.9687 USDC and **0.000000 ETH** on Base: calls fail until gas is funded.
+Detail: `gentech-wallet-management` → WALLET STATUS.
+
+
 > Load this before any paid BlockRun operation (image generation, video, music, speech, RealFace, search). The wallet must be funded and the correct key must be active.
 
 ---
@@ -15,7 +24,7 @@ BlockRun maintains **two wallets** — one on Base, one on Solana — and pays o
 
 | Chain | Address (Gentech) | Explorer |
 |-------|------------------|----------|
-| Base (F8) | `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` | basescan.org |
+| Base (F8) | `0xebc8c719…72f8 (RETIRED)` | basescan.org |
 | Solana | `BX9ELMCGPy3qmGNrhH3c2W5NJmapSQ435k8hqE5K43XT` | solscan.io |
 
 **Gentech's wallet:** The BlockRun MCP uses `getOrCreateWallet()` from `@blockrun/llm`. The Base address ends in `72f8` — Jordan calls it "the one ending in F8." This is the media wallet.
@@ -25,7 +34,7 @@ BlockRun maintains **two wallets** — one on Base, one on Solana — and pays o
 The wallet private key is stored at `~/.blockrun/.session` (a 66-char hex string starting with `0x`). The MCP server reads this file on startup to derive the wallet address.
 
 **⚠️ Dual-session-file pitfall:** There can be TWO `.session` files:
-- `/root/.blockrun/.session` — the original, created on first BlockRun use
+- `/opt/data/.blockrun/.session` — the original, created on first BlockRun use
 - `${PROFILE_DIR}/home/.blockrun/.session` — a profile-specific copy
 
 The MCP server reads the **profile-specific copy** (`~/.hermes/profiles/gentech/home/.blockrun/.session`). If this file was created fresh (e.g. after a Hermes update or MCP server restart), it will have a **different private key** than the original, resulting in a different wallet address.
@@ -100,7 +109,7 @@ When the `blockrun_wallet` MCP tool is NOT loaded in a session (tool unavailable
 # 1. Derive the address from the private key (both .session files should match)
 python3 -c "
 from eth_account import Account
-acct = Account.from_key(open('/root/.blockrun/.session').read().strip())
+acct = Account.from_key(open('/opt/data/.blockrun/.session').read().strip())
 print(acct.address)
 "
 
@@ -176,7 +185,7 @@ Shows global spend, per-agent budgets, and total calls made.
 When the BlockRun MCP server failed to connect at gateway startup (parked), you can discover available tools by running the MCP server manually:
 
 ```bash
-cd /root/.hermes/blockrun-mcp
+cd /opt/data/tools/blockrun
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | timeout 5 node node_modules/@blockrun/mcp/dist/index.js
 ```
 

@@ -170,6 +170,46 @@ REPORTING GAP (DefiLlama reports apyBase=0 for Blackhole CLMM while chain
 measurement shows ~120% real fees), never a true zero-fee pool. Flag it and fill
 it from chain truth.
 
+**⚠️ And do not over-correct in the other direction either: `apyBase: 0` is
+UNMEASURED, which is neither zero nor a verdict.** The tempting second mistake is
+to write `apyBase 0` up as "all reward, no fees — rejected" and close the venue.
+That asserts a fact the data does not carry: **the aggregator is silent, not the
+market.** The honest label is *"fee core not measured — cannot size on it"*,
+which is a different sentence with a different next step (measure it
+on-chain, or set it aside as unevaluable rather than as disproven). **A reward
+APR is still not bankable income** — size only on a measured fee core — but
+"unmeasured" and "zero" are the two ways of being wrong about the same field.
+
+## Every venue gets the SEAT test before any economics
+
+**A market you can trade is not a pool you can fund.** Before computing APR,
+turnover, or capital-to-goal for a new venue, answer one structural question:
+
+> **Is there a seat where OUTSIDE capital can be placed and earn?**
+
+Some things that look like venues are **mints** — they let you create or trade an
+asset but offer no position an outside LP can hold. Measured: a token launchpad's
+post-graduation pool is **protocol-owned with the LP burned at graduation**, so
+there is nothing to enter. Not "hard to enter" — nothing to enter. Every
+subsequent number about its APR would have been wasted work.
+
+- **Check the OWNERSHIP of the pool, not the existence of one.** A pool existing
+  on a chart is not a seat; ask who may hold an LP position in it.
+- **Burned LP tokens and protocol-owned pools are hard disqualifiers.** No
+  strategy rescues a venue you cannot enter.
+- **Also check the instrument type.** Spot LP, perps, and launchpads are three
+  different seats. A venue with no perps is not a venue for a directional book;
+  one with no LP seat is not a venue for the allocator.
+- **The venture is rejected structurally, not by opinion** — so record the
+  structural reason ("pool protocol-owned, LP burned") and the question is closed
+  for good rather than re-litigated from a headline later.
+- **Then ask what its volume does to what you DO hold.** A launchpad's flow can
+  lift the chain token's price and touch the LP pair not at all. State that
+  asymmetry explicitly: **appreciation is real, fee income is not.**
+
+**Keep rejected venues in a ledger with their structural reason**, one row per
+venue — so the next person inherits the conclusion and not just a shrug.
+
 ### Price level moves the EMISSIONS APR, not the fee core
 
 Measured on 196 days of Avalanche history (Blackhole WAVAX/USDC):

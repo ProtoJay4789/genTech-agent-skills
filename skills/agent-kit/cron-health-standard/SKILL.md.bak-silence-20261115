@@ -1,0 +1,531 @@
+---
+name: cron-health-standard
+description: "Fleet-wide standard for cron health: every job declares its INTENT, every ring ships a self-healing sentinel that retries once before it speaks, alerts ONCE per distinct problem and re-arms on success, and a monitor that cannot read its own job list reports UNKNOWN — never healthy."
+tags: [cron, health, self-healing, intent, monitoring, debounce, agent-kit, fleet-standard]
+trigger: "When creating, registering or auditing ANY cron job, in ANY profile — and whenever a cron job fails, goes quiet, repeats an alert, or someone asks 'is everything still running?'."
+related_skills:
+  - ../cron-truth-layer/SKILL.md          # verify data before acting; this verifies the JOB
+  - ../verify-after-every-action/SKILL.md # a change is not done until it is re-read
+  - ../../devops/cron-delivery-audit/SKILL.md
+  - ../../devops/stateful-alert-monitoring/SKILL.md   # the debounce pattern, generalized
+version: 2.0.0
+author: Gentech
+---
+
+# Cron Health Standard (fleet-wide)
+
+**Every cron job in every profile declares what it is FOR, is watched by a sentinel that reads
+its recorded outcome, is retried once before anyone is woken up, and is reported ONCE per
+distinct problem instead of once per run.** A job that fails silently is indistinguishable from
+a job that never ran — and nobody finds out by being asked afterwards.
+
+This is the generalization of the one-profile treasury sentinel. Measured before it existed:
+**130 jobs across 4 profiles, and the health sentinel lived in ONE ring.** Every other ring had
+exactly the blind spot the treasury had.
+
+---
+
+## The rules
+
+### 1. DECLARE INTENT — every job says what it is FOR, machine-readably
+
+**Rule: every cron job has a one-line `intent` resolvable by machine.** A failure is triaged
+against *purpose*, never reported as an opaque error string. `last_error: "exit code 1"` tells a
+human nothing; `INTENT: weekly country-adoption scan for the AVAX laggard thesis` tells them
+whether to care at 3am.
+
+**Where intent is recorded — the registry.** `/opt/data/.obsidian-vault/10-Labs/agent-kit-self-tracking/cron-intents.json`
+(vault canonical; a copy ships next to the sentinel in each profile's `scripts/`):
+
+```json
+{ "by_id":     { "<job id>": { "intent": "…", "profile": "…", "source": "curated" } },
+  "by_name":   [ { "profile": "*", "match": "^Wake ", "intent": "…" } ],
+  "lookup_order": ["job.intent", "by_id[<id>].intent", "by_name[].match regex", "derived (flagged)"] }
+```
+
+**How a job's intent is looked up — deterministic order** (implemented in
+`cron_health_fleet.py::intent_for`, do not invent a second scheme):
+
+1. the job spec's own `intent` field, if a job ever carries one;
+2. `by_id["<job id>"]` in the registry;
+3. the first `by_name[]` rule whose `match` regex hits the job name (`profile` `*` or the job's own);
+4. otherwise **derived from the job's own prompt** (`derive_intent`) and **flagged `DERIVED`** in
+   every report, with a standing instruction to curate it.
+
+**Curation is the job author's, at authoring time.** A derived intent is a starting point, never
+a substitute. When you register a job, add its `by_id` entry in the same change — an intent that
+is not written down is an intent nobody can triage against.
+
+### 2. EVERY RING SHIPS A SENTINEL THAT READS, HEALS, THEN SPEAKS
+
+**Rule: every profile's cron ring runs a health sentinel on a ~30-minute cadence.** In order:
+
+1. **READ** every job's recorded outcome — `last_status`, `last_error`, `last_delivery_error`,
+   `failure_streak`, `enabled`. These fields already exist; **a field nobody reads is not a
+   monitor, it is a diary.**
+2. **CLASSIFY** — apply self-exemption, then the paused-broken rule, then the healthy-silent rule
+   before any heal or speak step. (See the sub-rules below for the exact ordering.)
+3. **HEAL** — re-fire a failed **SCRIPT** job **once**, immediately. Most failures are transient
+   (lagging RPC, rate limit, node timeout) and the retry clears them.
+4. **SPEAK** only about what healing could not fix — and only once per distinct problem (rule 3).
+
+#### The classification rules (applied in this order)
+
+**PAUSED IS NOT RETIRED — a disabled job with a failure record is still a finding.**
+
+`enabled: false` ends retries, not accountability. A paused job that left a `failure_streak`
+behind it is a broken thing we stopped trying to fix. Report it as `PAUSED_BROKEN` with its intent
+and last error, **unless** the pause carries an explicit, machine-readable reason that says it was
+deliberately retired (`archived`, `deprecated`, `migrated`, `user_paused`).
+
+Why: a sentinel that skips every disabled job cannot distinguish "we turned this off on purpose"
+from "this thing broke, we hit pause, and now it rots silently." The latter is how a money cron
+disappears for three days while everyone assumes it is healthy.
+
+**Classification order, hard:**
+1. `is_self()` — sentinel/health jobs: exempt, never report on itself.
+2. `enabled == false`:
+   - reason in `{"archived", "deprecated", "migrated", "user_paused"}` → **silent** (legitimate retirement);
+   - any other reason or no reason, and `failure_streak > 0` or `last_status == "error"` → **PAUSED_BROKEN finding**;
+   - otherwise → silent.
+3. `last_status == "ok"` and no error → silent.
+4. `heal` branch — retry once if script exists and idempotent.
+5. Remaining unhealed failures → finding.
+
+The PAUSED_BROKEN branch must run **before** the heal branch, so a paused job can never be
+re-fired. A refactor that moves the `is_self()` or pause checks below the heal call re-introduces
+the exact outage this ordering prevents. Pin the ordering with a test that asserts `is_self()` and
+`PAUSED_BROKEN` return before the heal call site.
+
+**Rule: every deliberate pause must declare its reason.** A pause with no reason is a bug report
+waiting to happen. Write the reason into the job's metadata (`pause_reason`) or registry entry at
+the same moment you pause it; a reason added afterwards is indistinguishable from a cover-up.
+
+**Rule: a PAUSED_BROKEN finding uses the same debounce as any other finding.** It is not a special
+class that re-alerts every tick; it alerts once, then stays silent until the condition changes or
+the job is unpaused and fails again.
+
+**Rule: HEAL BEFORE SPEAKING, and treat a silent successful retry as the ideal outcome.** The
+fleet repaired itself and nobody was woken up for it. An alarm that fires on a transient blip
+teaches the humans to ignore alarms.
+
+#### A job whose PERIOD is long must carry its own retry budget
+
+**The sentinel's heal is an IMMEDIATE single re-fire. That is the right shape for a job on a short
+cadence and the wrong shape for a job on a long one.**
+
+A failure that clears in seconds (a lagging RPC, a stale node) is fixed by an immediate retry. A failure
+that clears in **minutes** — a rate limit, a throttled upstream, a cold start — is not: retrying at once
+hits the same wall, and the sentinel's next tick is 30 minutes away while the job's own next run may be a
+week away. **For a weekly job, one failed run is not a bad run; it is a dark feature for seven days**, and
+the thing it was built to feed goes on without it.
+
+**So the retry budget belongs to the JOB, sized to the job's period and to the failure's observed recovery
+time:**
+
+- **One bounded wait, not a burst.** `attempt → if failed, wait N minutes → attempt once more → refuse`.
+  Two attempts is usually right; a third rarely changes the outcome.
+- **Space it to the recovery time, not to a convenient number.** A rate limit measured to clear in minutes
+  needs the wait in minutes. An immediate second attempt after a throttle is not a retry, it is the same
+  request that already failed.
+- **Never stack quick retries against a rate limit.** That deepens the block and turns a one-period outage
+  into a multi-period one. **Waiting is the fix; retrying harder is the cause.**
+- **The second attempt must be in the wrapper the job actually runs**, not in a human's memory. A retry
+  described in a runbook is a retry that does not happen at 14:00 on a Friday.
+- **Refusal is a real outcome — make it loud and accurate.** After the budget is spent, print `UNMEASURED`
+  with the reason and **write no artifact**. A stub file produced to look complete is worse than a missing
+  one, because the consumer cannot tell the difference.
+- **Say what the absence means.** The downstream reader must be able to report *"no input on file"* rather
+  than implying the upstream was legitimately quiet.
+
+**Test both branches with a stub** (a script that always fails, and one that succeeds) before trusting the
+retry: the failure path is the one that never gets exercised in production until the day it matters.
+
+**Rule: a ring heals only its OWN profile's jobs.** The ring that owns a job is the one that
+re-fires it, so a money script is never double-fired by two rings seeing the same failure. A
+wedged ring's jobs are still detected and reported by the others.
+
+**Rule: register it as `no_agent: true` with `--quiet-unless-bad`.** Empty stdout delivers
+nothing, so a healthy fleet is literally zero notifications. Silence means *nothing changed*.
+
+**Rule: a monitor must not grade its own report.** Exclude every health job from its own scan
+(by name / id / script). A sentinel that exits non-zero when it finds a problem records *itself*
+as a failed job, and the next run sees a permanent failure it can never heal — an alarm that can
+never be cleared. The report states the exemptions it made.
+
+#### HEAL, THEN SPEAK — and a fault the PLATFORM can repair should never reach the human
+
+**"Heal" is not only re-firing a failed script.** Some faults are states the engine can rebuild on
+demand, and a watcher that reports one of those while holding a repair command is asking a human to
+do a five-second job. **When the platform exposes a repair for the class you detect, call it.**
+
+**But split the two shapes, because only one of them can be verified in the same run:**
+
+| shape | report exactly |
+|---|---|
+| **synchronous** — the command returns the repaired state | `FIXED` + the post-state you read back |
+| **asynchronous** — the request is accepted, the effect lands later | **`REPAIR REQUESTED — applies on <the event>, not yet observed`** + the field that would prove it |
+
+**A request is not a result.** Writing `FIXED` for an asynchronous repair is the banner-over-a-no-op
+class: the same seat appears broken on the next run and the reader cannot tell whether the repair
+failed or the report lied. **Measured:** a job that queues a prompt rebuild reports `requested`,
+because the rebuild lands on the target's next turn — and a target that never takes a turn keeps the
+request queued indefinitely. **That is a second fault, not the same one:** "stale" and "silent" are
+different alarms, and collapsing them hides both. Say which you measured.
+
+**Boundary:** never let the fixer's existence turn into an exemption. A repair that has been
+requested five runs in a row is a fault that does not heal, and it must escalate — re-requesting
+silently forever is the allowlist-with-no-expiry defect wearing a verb.
+
+#### Before wiring an auto-fixer, READ THE FIX — and give every finding an owner
+
+**A repair command is not a repair for every finding it sits beside.** `hermes doctor --fix` exists and
+looks like a general fixer; measured against its own code paths it could repair **none** of the five
+findings it was being reported next to: the large-WAL branch returns *before* the checkpoint whenever a
+live writer holds the database (it fails closed on purpose — a checkpoint under a running gateway joins
+the live WAL and corrupts it), the missing-API-key line has **no `--fix` branch at all**, and the npm
+rows carry a comment stating the doctor *never* prescribes a local mutating fix because the next update
+reinstalls the pinned versions. **Read the branch, not the help text.**
+
+**Classify every finding by the hand that unblocks it, before offering to automate anything:**
+
+| tag | meaning |
+|---|---|
+| `FIXABLE-NOW` | the repair has a branch for this class **and** can run in this context |
+| `NEEDS-HOST` | the repair exists but is refused here (live DB writer, root, container recreate) |
+| `NEEDS-USER` | interactive or credential-bearing — only a human can do it |
+| `UPSTREAM` | no local fix exists by design (pinned dependency trees, vendor-side defects) |
+
+**Print a COMPUTED count, never an adjective.** `VERDICT: 0 of 5 fixable by this job as configured` is a
+measurement; "some issues may be auto-fixable" is a shrug. Compute it by running the same classifier over
+the findings the tool just printed, so the number cannot drift from the list above it.
+
+**Why this is a health rule and not a nicety:** measured, the **same five findings were re-reported daily
+for five days and nothing happened** — not because they were unfixable, but because no line said whose
+job they were. An unowned finding is a diary entry with a scary icon; naming the owner is the minimum that
+lets a report act on itself.
+
+#### A finding tagged `NEEDS-USER` belongs in the user's QUEUE, not in the report
+
+**Rule: naming the owner is necessary and not sufficient — every `NEEDS-USER` finding is physically written
+into the user's own task file, in a bounded section the job owns.** A tag in a chat message scrolls away; the
+queue is the artefact they actually review. If the human's items live only in the report, the report is still
+a diary, just a better-labelled one.
+
+- **Own a SECTION, never the file.** The job writes exactly one block under a stable marker heading
+  (`## <AREA> — needs your hands (auto, rewritten each run)`) and leaves every other section byte-identical.
+  The user's queue is a shared, hand-edited document; a job that rewrites it wholesale deletes work.
+- **REWRITE, NEVER APPEND.** A job on a four-a-day cadence turns a three-item queue into a twelve-item one by
+  lunchtime, and a queue that only grows is one nobody reads. Partition the file on the marker, find the next
+  `## ` heading to bound the block, splice the new block in, and replace the file atomically (write a temp
+  file in the same directory, then `os.replace`) so a crash cannot leave a half-written queue.
+- **Prove idempotency, do not assume it.** Run the job twice: the marker must occur exactly **once**, and a
+  `diff` of every other `## ` heading in the file must show only the new section added. Quote that diff as the
+  evidence.
+- **Carry what the reader needs to ACT, not a restatement of the finding.** Item text = what it is, the
+  measured number that makes it worth doing, whose hands it needs, and the consequence of waiting. An item
+  that says "WAL issue" is a second report; an item that says "WAL checkpoint, 64 MB against a 50 MB line,
+  gateway must be stopped, nothing breaks waiting a day" is a task.
+- **A fixed item is stated as fixed, with the measurement** — the section should show the self-fixes that ran,
+  so the reader can see the job is working rather than only asking for things.
+
+**A self-fixer must not count its own artefacts as findings.** Measured: a bloat sweep wrote a `README.md`
+pointer *inside* the directory it swept, so the next run found one file, moved it, and reported
+`FIXED — moved 1 file` for work it had not done. Put explanatory pointers and markers **outside** every
+path the fixer scans, and make the pass silent when it finds nothing to do.
+
+**And count what CHANGED, not what the command announced.** `mv -n … -print | wc -l` reports only the files
+`mv` chose to act on — measured 2 reported against 9 actually moved, because `-n` silently skips existing
+targets. Count the state before and after (`find | wc -l` either side, or `stat` the destination) and print
+the difference; a fixer's own count is a claim like any other and needs a probe behind it.
+
+**And a repair that REWRITES CONFIG must not be scheduled.** The same `--fix` calls a non-interactive
+config migration that rewrites `config.yaml`, and a template that can create `SOUL.md`. On hand-tuned
+profiles that blast radius is larger than any finding it repairs, and it runs unattended. Prefer the
+report that says *"config migration available — one command, your call"* over the cron that silently
+rewrites a running fleet's config at 03:00.
+
+**Rule: an agent-prompt job has no script and CANNOT be re-fired mechanically.** Report it as
+`cannot retry: no script (agent-prompt job)`. Never print a retry that did not happen.
+
+**Rule: idempotency is the job author's call, not the monitor's.** A job that must never be
+double-fired (a partially-executed money action) sets `"heal": false` in its registry entry or
+`heal: false` in its spec; the sentinel then reports `retry suppressed: job is marked
+non-idempotent` instead of firing it. The sentinel exports `HERMES_HEAL=1` / `STEWARD_HEAL=1` on
+every retry so a money script can behave conservatively when it knows it is a heal.
+
+### 3. ALERT ONCE PER DISTINCT PROBLEM, RE-ARM ON SUCCESS
+
+**Rule: a monitor that reports the same unresolved failure on every tick trains its reader to
+ignore it.** At a 30-minute cadence that is 48 identical messages per day for one problem. The
+sentinel is therefore **quiet by default even when something IS broken** — it speaks when the
+problem is NEW, and then stops.
+
+This is a first-class requirement of the standard, not an implementation detail:
+
+- **DEDUP BY SIGNATURE.** The debounce state (`<state dir>/cron-health-fleet.json`, key
+  `<profile>:<job id>`) records the failure signature already reported — the normalized error
+  text plus the escalation bucket. Same signature next tick → **silent**, recorded, no message.
+- **RE-ARM ON SUCCESS.** When a job is healthy again its entry is cleared, so the NEXT failure
+  alerts again. *A problem that recurs after being fixed is news; one that never stopped is not.*
+- **ESCALATION IS A CHANGE.** Re-alert when the streak crosses a threshold (3, 6, 12, 24, 48, 96),
+  not on every increment.
+- **THE DEBOUNCE MUST NOT BE ABLE TO HIDE A NEW PROBLEM.** Suppression is keyed per job id and
+  signature: job B failing while job A is silenced alerts normally. Prove this two-directionally
+  whenever you touch the logic.
+- **ONE VOICE.** All four rings run the same scan and read the SAME state file, and all deliver to
+  the same place (Gentech HQ). The first ring to observe a new problem claims it and speaks; the
+  others find it claimed and stay silent. That is **one message per distinct problem, from a
+  single destination, with four independent readers** — so one wedged scheduler cannot blind the
+  fleet and cannot multiply the noise either. (If a ring ever genuinely needs its own lane, give
+  it its own `--state` file and destination; do not let four rings each alert to four rooms.)
+- **A RING RUNS ONE HEALTH SENTINEL, NOT TWO.** When the fleet sentinel lands in a ring that
+  already had a local health job, SUPERSEDE the local one (pause it) — two sentinels for one
+  problem is two voices, and the older one usually has no debounce. (Live example: the treasury's
+  original 30-minute sentinel would have repeated one known failure 48 times a day; it was paused
+  when this standard landed.)
+- **THE DEBOUNCE STATE IS SHARED AND ATOMIC.** The state file is read-modify-written under
+  `flock`; the claim is what makes "first one wins" true rather than racy.
+
+### 4. QUIET HOURS APPLY TO THE SENTINEL TOO
+
+**Rule: outside working hours, RECORD and HEAL — do not deliver.** A failure discovered at 04:00
+is still read, still retried, still recorded in the state file; only the MESSAGE waits, and it is
+flushed by the first run after the window (default `00:00–08:00 America/New_York`, override with
+`HERMES_CRON_QUIET_HOURS` / `HERMES_CRON_QUIET_TZ`). Discipline is not an exemption from the
+hours it is protecting: waking the founder at 04:00 for something the morning digest can carry is
+the same noise failure as a repeated alert.
+
+### 5. A MONITOR MUST BE ABLE TO SAY "I DO NOT KNOW"
+
+**Rule: an unreadable job list reports UNKNOWN and exits non-zero — never healthy.** The two
+states that must never look alike:
+
+```
+"nothing is wrong"   -> silence (exit 0)
+"I could not tell"   -> SPEAKS, exit 2, and it speaks EVEN UNDER --quiet-unless-bad
+```
+
+This is the same trap as a failed `eth_call` reading as a real zero: a monitor blind to its own
+blindness reports perfect health, which is worse than reporting nothing. **Silence doctrine
+protects against noise from good news; it must never be used to hide blindness.**
+
+Exit codes: `0` healthy, or nothing new · `1` a NEW/unresolved problem needs a human · `2` UNKNOWN.
+
+**`status: failed` in the execution record does NOT mean "the job is broken" — and a health view that prints it
+as one is lying.** This standard deliberately uses non-zero exits for *"a human should look at this"* (rule 5
+above), while the execution recorder writes every non-zero exit as `status: failed`. The two meanings are
+indistinguishable at the `status` column:
+
+| What happened | `status` | What it means |
+|---|---|---|
+| job ran, found a real problem, exited 1 per this standard | `failed` | **working monitor** — do not "fix" it |
+| job threw, could not run | `failed` | broken job — heal or report |
+| job ran, exited 0 | `completed` | healthy **or unobserved**, if it never actually did work |
+
+So when reporting fleet health from the execution history: say **"N non-zero exits"**, not "N broken jobs";
+read the error text to split a structured finding from a traceback before calling anything broken; and never
+propose silencing a job that exited non-zero to report a true condition. That is the same class of error as a
+failed read being reported as a real zero.
+
+**Check `delivery_outcome` on every failing job.** A failing alarm with `delivery_outcome: not_configured` is
+not monitoring — it is writing a diary. The failure is real, the reader is nobody, and it will fail forever
+without anyone learning. Verify the delivery destination of any job that fails before concluding the alerting
+path works; "the job reports" and "someone is told" are two separate facts.
+
+See `references/execution-history-reading.md` for the schema and read-only query recipe.
+
+### 6. REPORT A FAILURE WITH ITS INTENT AND ITS ERROR
+
+**Rule: every failing job is reported as `name / id / profile / INTENT / failure_streak /
+last_error`** — plus one line saying what the retry did or why none was possible. Name alone is a
+page with no information; intent is what makes it triageable by whoever reads it.
+
+### 7. SAFETY — A MONITOR NEVER MOVES MONEY, AND YOU NEVER TEST ON LIVE MONEY
+
+- A health script performs exactly one action: the read-only retry of a job's own script.
+  It never reads keys, never signs, never invents a money action.
+- **Never prove the heal path by re-firing a real money job.** Build a throwaway job — a script
+  that exits 1 the first run and 0 afterwards, off a state file, in a scratch dir — and prove the
+  heal on that.
+- Registering a job in a profile's own `cron/jobs.json` is expected. Nothing else in another
+  profile is in scope.
+
+### 8. WHERE IT LIVES (paths are part of the standard)
+
+| Thing | Path |
+|---|---|
+| Fleet sentinel tool (canonical) | `/opt/data/.obsidian-vault/10-Labs/agent-kit-self-tracking/cron_health_fleet.py` |
+| `no_agent` wrapper registered per ring | `…/agent-kit-self-tracking/cron-health-fleet.sh` |
+| INTENT registry (canonical) | `…/agent-kit-self-tracking/cron-intents.json` |
+| **Debounce state (shared by all rings)** | `/opt/data/profiles/gentech/state/cron-health-fleet.json` |
+| Deployed copies (a cron `--script` must resolve inside the profile) | `/opt/data/profiles/<profile>/scripts/` |
+| Sync manifest (vault → repos + profile, md5-verified) | `…/agent-kit-self-tracking/sync-treasury-scripts.sh` |
+| Per-ring sentinel job | `Fleet Cron Health Sentinel (self-healing, 30m)`, `*/30 * * * *`, `no_agent: true`, deliver → Gentech HQ |
+| Nightly fleet-wide record | `/opt/data/profiles/gentech/scripts/nightly-maintenance.py` → `00-System/nightly-reports/` |
+| **HQ escalation path** | `/opt/data/.obsidian-vault/01-HANDOFFS/gentech-treasury-to-gentech/<date>.md` (append-only) + a dated line in `gentech-treasury-completions.md` |
+
+---
+
+### 10. TIER THE FLEET BEFORE YOU STANDARDISE IT — a guard where nothing can fire is decoration
+
+**Rule: audit every job by WHAT IT READS before applying a hardening standard, and give each tier only the
+rules that can actually fire there.** A standard applied uniformly to a whole fleet is mostly theatre, and
+theatre dilutes the parts that matter: a reader who sees a UA header on a backup script learns that headers
+are decoration, and stops reading them where they are load-bearing.
+
+| tier | reads | gets |
+|---|---|---|
+| **A** | a shared external quota, or a network we do not control | identifying `User-Agent` · throttle treated as a boundary · the words **INCOMPLETE** when it could not look |
+| **B** | only local files/state, but prints numbers a human acts on | **one rule**: a missing input prints `UNKNOWN` / `NOT RUN`, never `0` |
+| **C** | local, mechanical, self-verifying (backup, sync, sweep) | **nothing** — its failure is visible on its own face |
+
+**Graduation is the trigger, not a schedule:** a C job becomes A or B the day it grows a network call or a
+human-facing recommendation. Encode that sentence where the next author will read it.
+
+**Resolve every job to the file that ACTUALLY runs before you tier it.** A large share of a mature fleet's cron
+"scripts" are two-line wrappers that call the real one elsewhere, and a grep of the wrapper answers a question
+about the wrapper. Measured: a name-and-header sweep counted **8** network jobs; following each wrapper to its
+target found **14** — the six missing ones were exactly the jobs whose guards had never been checked. Follow the
+path, then judge the code.
+
+**And the checker's vocabulary is part of its honesty.** A job that prints `ABSTAIN` or `UNMEASURED` has done the
+right thing even if it never types the word `UNKNOWN` — a sweep that only greps for one word accuses the
+better-written job. Accept the whole family (`UNKNOWN · NOT RUN · INCOMPLETE · ABSTAIN · UNMEASURED · could not`),
+and **follow a transport import** before calling a User-Agent missing: a job that calls a shared guard inherits
+whatever that guard sends, so a per-file grep reports the opposite of the truth.
+
+**Adopt on touch, not in a big bang.** Harden a job when you are already changing it, and start every NEW job
+conformant. A fleet-wide refactor touches everything and proves nothing; a job hardened and then RUN has a
+receipt.
+
+#### Two costs of an honest guard — announce them before they land
+
+1. **Traffic.** A silence-gated monitor that can now say `INCOMPLETE` speaks on days it used to stay quiet.
+   That is the point, but it is messages: budget one threshold re-tune per job.
+2. **The honesty shock.** A digest that said *"0 dead links"* now says *"0 dead links, 3 unverified"*.
+   **It reads as a regression and it is the first time the number was true.** Say that in advance, or the
+   reader will conclude the guard broke something and ask you to remove it.
+
+#### One transport, and writes are opt-in
+
+- **Never write a second HTTP client beside the guarded one.** A per-script curl that re-implements budget and
+  throttle handling drifts from the guarded transport, and the older copy wins by accident. Wrap: a small
+  façade that re-exports the guarded GET and adds only what was missing.
+- **A scheduled job's writes must be opt-in at the CALL SITE** (`allow_write=True`), not inherited from a
+  helper's default. A cron that silently gained write ability is an incident waiting for the right bug; the
+  refusal should be in code a reviewer can see.
+- **A boundary must not be reported as a finding, and vice versa.** Distinguish *"the edge refused us"* from
+  *"the thing is down"* in the message text — both are UNKNOWN, but only one is our fault, and they call for
+  different actions.
+
+### 9. A JOB THAT CALLS A THIRD-PARTY API OWNS ITS BUDGET — AND A THROTTLE IS A BOUNDARY, NOT AN ERROR
+
+**Rule: any cron that talks to an external API states, in the file, which limit binds it and what the run does when it is hit.** A cron has no human watching it, so a throttle it retries through is how a warning becomes a suspension — and the account is shared with everything else we do.
+
+Three things belong in every such job:
+
+1. **An identifying `User-Agent` with a URL**, on every call. An unattributed client is the first thing an operator bans, and a ban is indistinguishable from an outage.
+2. **Know which limit actually binds.** Verify it, do not assume the headline number: REST core can be thousands per hour while the *search* endpoint is tens per minute, so a job that makes 3 calls per run is nowhere near a limit until someone adds one search call. **Write that sentence into the file** so the next person adding a call sees why the budget just changed.
+3. **A pre-flight quota read, and a hangup below the floor.** Read the remaining quota before the work; if it is below the floor the run needs, **stop** and say so rather than starting work it cannot finish.
+
+**A throttle is a boundary.** A `403`/`429` whose body says rate limit, or whose `x-ratelimit-remaining` is `0`, is a decision by the other side — **never retry it, and never let it look like an empty result**: print something like `this run is INCOMPLETE, not empty` and **leave the state file untouched**, so the next scheduled run is not poisoned by a half-read result and the digest cannot report "nothing found" for a run that was cut off.
+
+**And the threshold a job measures against must be READ from the authority, not restated in the script.** A monitor with a hardcoded limit measures a world that no longer exists: measured, a memory instrument still compared against the engine defaults after every profile had been raised, so it reported seats at 99% that were running at 68% — a number that would have justified destructive trimming. Read the cap from the profile's own config (or the live API), and print the value you compared against so a drift is visible the day it happens.
+
+## "Is this job OK?" — diff two runs before you reassure
+
+**A human seeing a scheduled report for the first time and asking whether it is broken is usually looking at a job
+that is fine, where the INPUT changed** — a threshold crossed, a count moved, a source went quiet. Answer with the
+comparison, never with a feeling:
+
+1. **Count the job's recorded runs first.** History is the proof it has been working silently for weeks; a directory
+   of past outputs is stronger evidence than any claim about the code.
+2. **Diff today's body against the newest earlier run, section by section.** The one line that moved is the answer —
+   and it is usually a number crossing a floor rather than a new fault.
+3. **Read the loudest row against the ARTIFACT it accuses.** Whether the note really lacks its block, whether the
+   job really failed. A monitor's finding is a claim, and the thing it points at is the evidence.
+4. **If the loudest row is a structural false alarm, fix the instrument in the same pass** — a report that accuses a
+   seat of silence it could never have broken trains the reader to skip the section, which is worse than no report.
+
+**Never answer "it's working" from the absence of an error line.** The reader asked what changed; "nothing" is an
+answer only when you compared two runs and can say which number did not move.
+
+## Operating it
+
+```bash
+# the cron invocation (what the registered job runs)
+python3 /opt/data/profiles/<profile>/scripts/cron_health_fleet.py --heal --quiet-unless-bad
+
+# right now, would it heal anything? (never delivers)
+python3 …/cron_health_fleet.py --heal --dry-run
+
+# what is failing and why it is currently quiet
+python3 …/cron_health_fleet.py --show-silenced --no-quiet-hours
+
+# the whole fleet, machine-readable
+python3 …/cron_health_fleet.py --json
+
+# one ring only
+python3 …/cron_health_fleet.py --profiles gentech-treasury
+
+# CHANGE A SCHEDULE WITH THE TOOL, NEVER BY EDITING jobs.json
+hermes cron edit <job-id> --schedule '0 5,17 * * *'
+hermes cron list | grep -A4 '<job-id>'        # VERIFY through the tool after the edit
+
+# CREATE takes the schedule POSITIONALLY; EDIT takes it as a FLAG. The asymmetry is real:
+hermes cron create '40 * * * *' --name '<name>' --script <script>.sh --no-agent --deliver origin
+hermes cron edit   <job-id>     --schedule '40 * * * *'
+# `hermes cron create --schedule …` fails with "unrecognized arguments: --schedule". A reader who
+# hits that may conclude the tool cannot schedule at all and fall back to hand-editing jobs.json —
+# the exact failure this section exists to prevent. Read `--help` before assuming a flag is missing.
+
+# after adding jobs: seed intents for anything unrecorded (curated entries are never overwritten)
+python3 …/cron_health_fleet.py --emit-intents
+
+# make the next run speak again about a known problem (ops)
+python3 …/cron_health_fleet.py --no-debounce          # once
+python3 …/cron_health_fleet.py --reset-state          # forget everything
+```
+
+## Anti-patterns (each one cost real time)
+
+- **Counting `status: failed` as "broken jobs".** The recorder writes an alerting non-zero exit and a real
+  crash to the same column, so a dashboard built on `status` alone reports a working monitor as infrastructure
+  failure — and the reader then learns the dashboard is noise. Split them by reading the error text.
+- **Assuming a failing job has a listener.** `delivery_outcome: not_configured` on a failing job means the
+  alarm has been failing into a void, possibly for days. Check delivery on the job, every time.
+- **Repeating an unresolved failure on every tick** — 48 messages a day for one problem, and the
+  founder learns to ignore the channel. Alert once per distinct problem; re-arm on success.
+- **Trusting the sentinel's immediate re-fire for a weekly job.** An immediate retry clears a lagging
+  RPC; it does not clear a rate limit. A weekly job that fails is dark for a week — give the wrapper its
+  own bounded wait sized to the recovery time, then refuse loudly.
+- **A monitor whose output nobody reads** is a diary. Read `last_status`/`last_error` or do not
+  claim to monitor.
+- **Exiting non-zero on an alert without self-exemption** → the sentinel becomes the permanent
+  failure it can never heal (live example: the treasury sentinel flagged an agent-prompt job,
+  exited 1, and was itself the next failing job with `failure_streak=1`).
+- **Reporting a retry that could not happen** on an agent-prompt job — say `no script`.
+- **Treating "I could not read the list" as healthy** — the blindness failure this standard exists
+  to prevent.
+- **Letting the debounce state be per-ring while four rings alert** — you get 4 different rooms
+  reporting the same problem, each of which then goes quiet on its own. One state, one voice.
+- **A new file not in the sync manifest** never reaches the executed copy; it looks written and
+  does nothing. Enrol the tool, the wrapper and the registry together, then verify md5.
+- **Skipping disabled jobs blindly** — `enabled: false` hides both deliberate retirement AND a
+  broken job we paused in panic. Distinguish them by `pause_reason`; report the latter as
+  `PAUSED_BROKEN`.
+- **Hand-editing `cron/jobs.json` to change a schedule.** The scheduler holds its OWN copy of the job table;
+a  file edit is invisible to it and the job keeps firing on the old cadence while the file reads correct.
+  Measured: the file said `0 5,17`, `hermes cron list` still said `0 5`, and only `hermes cron edit` moved it.
+  **The rule: mutate through the tool, then prove it through the tool** — `hermes cron list`, or `hermes cron run <id>`,
+  never `cat jobs.json`.
+- **A job that reports on a queue which just changed SHAPE and was never re-run.** Merging two lists into one
+  introduced string ids beside numeric ones and three separate instruments died on the same assumption
+  (`TypeError: '<' not supported between 'str' and 'int'` in two sorts, `%d format: a real number is required`
+  in one formatter) — the digest printed "script failed", the reconciler raised before doing anything, and both
+  looked like queue problems. After any change to a list's item shape, RUN every reader and print its output;
+  a green grep over repointed paths proves nothing about whether the scripts still execute.
+- **Moving the classification checks below the heal call** — a refactor that reorders `is_self()`
+  or `PAUSED_BROKEN` after `heal()` can re-fire a paused or non-idempotent money job. Pin the
+  ordering with a test that targets the heal **call site**, not the function definition.

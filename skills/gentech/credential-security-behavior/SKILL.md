@@ -128,7 +128,7 @@ ElevenLabs now requires API keys to start with `sk_`. Old-format keys (e.g. `82a
 **Fix:** Get a fresh key from elevenlabs.io → Profile → API Keys (starts with `sk_`). Update ALL locations atomically:
 - `${PROFILE_DIR}/.env`
 - `${PROFILE_DIR}/.env`
-- `/root/.hermes/.env`
+- `/opt/data/profiles/gentech/.env`
 - Scripts read via `os.environ.get("ELEVENLABS_API_KEY")` — so the `.env` update is what matters.
 
 **Verify immediately** with a real API call:

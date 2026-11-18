@@ -12,6 +12,15 @@ triggers:
 
 # Image Generation Workflow (FAL image_generate)
 
+## ⛔ WALLET STATUS — 2026-11-03
+
+`0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (F8) is **RETIRED** — key lost in the Oct 12 wipe; its 0.4868 USDC is unspendable.
+**Do not fund it; do not expect it to work.** Current BlockRun wallet:
+`0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0` — one shared key file at `/opt/data/.blockrun/.session`, symlinked into every seat.
+It holds 0.9687 USDC and **0.000000 ETH** on Base: calls fail until gas is funded.
+Detail: `gentech-wallet-management` → WALLET STATUS.
+
+
 ## When to Use
 - User sends photo(s) and asks to edit, combine, or generate a new image from them
 - Creating portraits, composites, or stylized versions of real people
@@ -23,7 +32,7 @@ triggers:
 
 - **The same rule applies to `image_url` (image-to-image edits / transformations)** — FAL fetches that image remotely too. Passing a local absolute path to `image_url` fails with the identical `file_download_error`. Host it the same way before editing.
 
-- ❌ **Local absolute paths** (`/root/.hermes/.../image_cache/x.jpg`) → `file_download_error`. FAL is remote; it cannot read the VPS filesystem.
+- ❌ **Local absolute paths** (`/opt/data/profiles/gentech/.../image_cache/x.jpg`) → `file_download_error`. FAL is remote; it cannot read the VPS filesystem.
 - ❌ **catbox.moe uploads** → `file_download_error` even though the URL returns 200 locally. FAL cannot reach that host.
 - ❌ **tmpfiles.org direct URLs** → `image_load_error`. The direct URL serves an HTML viewer page (200 text/html), not raw bytes; the `/dl/` variant 302s back to the same HTML. FAL downloaded HTML and couldn't decode it.
 - ✅ **VPS public nginx root** → `https://demo.gentechlabs.net/refs/<file>.jpg` (root `/var/www/gentechlabs`, site `demo.gentechlabs.net`). Verified working.
@@ -66,7 +75,9 @@ triggers:
 5. **Generate** with `reference_image_urls` set to the public URLs. Include the reference subjects' EXACT appearance in the prompt text (hair, skin tone, facial hair, distinguishing marks) — the model reinterprets references, it does not copy them.
 6. **Download the result** (`curl -s -L -o out.png <fal_url>`) and check `file out.png`.
 7. **Pre-verify with `vision_analyze`** before showing the user — confirm likeness to references, pose, clothing, background, and that nothing is corrupted. Iterate if the model drifted.
-8. **Deliver** via `MEDIA:/absolute/path` in the response.
+8. **Deliver the FILE, not a description of it** — put a `MEDIA:/absolute/path` line in the SAME reply that announces the render. A message that reports the output path, the model, the cost and the caveats is a *report*; the user sees no image and has to ask where it went. Cost and limitations belong in the accompanying text, never in place of the file.
+   - **One MEDIA per message when the artifact is the point.** Two MEDIA lines in one reply can arrive as nothing or as documents. If the user says "I can't see it", resend **singly**, starting with the best one.
+   - **Check the file before blaming the render.** `ls -la` for mode/size (644, under Telegram's 50 MB), `stat` the parent dirs for traverse permission, and `ffprobe` for codec. A file that is 644, h264, and 2 MB will send; if it did not appear, the fault is in delivery, not in generation — say so instead of re-rendering.
 
 ## Character Sheet From a Photo (Olivia / Lightning pattern)
 
@@ -83,8 +94,8 @@ When the user asks to edit art to feature an established character (HIKARI, KAGE
 
 **Proven workflow:**
 1. **Read the character sheet + visual bible** in the repo:
-   - `/root/repos/gentechlabs.github.io/09-Green Room/HIKARI Character Sheet.md`
-   - `/root/repos/gentechlabs.github.io/09-Green Room/HIKARI Complete Visual Bible.md`
+   - `(GitHub repo, not on this host: gentechlabs.github.io/)09-Green Room/HIKARI Character Sheet.md`
+   - `(GitHub repo, not on this host: gentechlabs.github.io/)09-Green Room/HIKARI Complete Visual Bible.md`
    - (KAGE: `${VAULT_DIR}/music/vanito/kage-character-sheet.png`)
    The visual bible lists LOCKED reference image URLs hosted at `https://vanito.gentechlabs.net/characters/<file>.png` (e.g. `hikari-sakura-outfit-sheet.png`, `hikari-hairstyle-reference.png`).
 2. **Pass the locked reference URLs as `reference_image_urls`** AND restate the exact canonical appearance in the prompt text (hair length/color/tips, bangs, outfit, accessories). The model reinterprets references — it does not copy them, so the prompt must carry the full detail.
@@ -96,19 +107,48 @@ When the user asks to edit art to feature an established character (HIKARI, KAGE
 
 **Pitfall — AI mangles kanji/lettering on character art.** The 桜 kanji on HIKARI's tee and any text on props (piano lids, signs) will be hallucinated or misspelled (e.g. "HIIKARI" on a piano lid). This is a known AI limitation — do not promise exact character rendering. If the text must be exact, hand it to Forge for a surgical compositing fix, or accept the AI's approximation.
 
-## GPT Image 2 via BlockRun MCP (preferred when the Nous gateway doesn't proxy it)
+## BlockRun is the DEFAULT media lane (standing rule) — image AND video
 
-When the Nous gateway returns **HTTP 402** for `fal-ai/gpt-image-2` (or the Nous portal is out of funds), do NOT fall back to FLUX/Klein 9B — use the **BlockRun MCP `blockrun_image` tool** instead. It provides GPT Image 2 (and other models) paid via USDC on Base/Solana, **no API keys needed**. Verified working 2026-08-07.
+**Jordan, standing: "BlockRun is our default for media generation."** Reach for it first, not as a
+fallback after FAL/Nous fails. The old framing here — *"preferred when the Nous gateway doesn't proxy
+it"* — is superseded: it made the default conditional on another lane's failure.
 
-- **Tool:** `blockrun_image` (registered in the BlockRun MCP server at `/root/.hermes/blockrun-mcp/node_modules/@blockrun/mcp/dist/index.js`)
+Why it is the default, measured rather than assumed:
+
+- **It is reachable from the agent container.** The local ClawRouter proxy is a HOST service
+  (`127.0.0.1:8402`) and is closed from inside the container — verified on loopback, the docker
+  bridge addresses, and `host.docker.internal`. BlockRun is a plain HTTPS endpoint, so a media job
+  runs without a host command at all.
+- **One wallet, one auth path.** `/opt/data/.blockrun/.session`, passed explicitly to the client.
+- **It carries both modalities on the same rail** — images (`/v1/images/models`) and video
+  (`/v1/video/models`, Seedance 2.0 family), so a still and the clip made from it can share a
+  model family and stay stylistically consistent.
+
+**The video API REJECTS unknown parameters and NAMES them** — e.g.
+`400 {"message":"unsupported parameter: output_format"}`. Send the minimal accepted set and add back
+only what a rejection tells you is accepted; do not guess a full option bag.
+
+**⚠️ BlockRun's own video docs state: "Real-person likeness is not supported."** That is the vendor's
+line, on top of ours — see the motion section below. A refusal there is not a lane to route around.
+
+When BlockRun genuinely cannot serve the brief, THEN the fallback order is: FAL (public-URL reference
+rule above) → Forge (local GPU / compositing). Do not quietly regress to FLUX/Klein 9B.
+
+The **BlockRun MCP `blockrun_image` tool** remains the second way in when the tool isn't in the
+session toolset: It provides GPT Image 2 (and other models) paid via USDC on Base/Solana, **no API keys needed**. Verified working 2026-08-07.
+
+- **Tool:** `blockrun_image` (registered in the BlockRun MCP server at `/opt/data/tools/blockrun/node_modules/@blockrun/mcp/dist/index.js`)
 - **Default model:** `openai/gpt-image-2` ($0.06–0.12/image) — flagship, best on-image text + character consistency
-- **Other models:** `google/nano-banana-pro` ($0.10, up to 4K photorealism), `zai/cogview-4` ($0.015, cheapest), `xai/grok-imagine-image` ($0.02), `openai/gpt-image-1` ($0.02–0.04)
+- **Other models:** `google/nano-banana-pro` ($0.10, up to 4K photorealism), `zai/cogview-4` ($0.015, cheapest), `xai/grok-imagine-image` ($0.02), `openai/gpt-image-1` ($0.02–0.04), `bytedance/seedream-5-pro` ($0.045)
+- **Model list and prices are live — read them, do not trust this table:** `GET https://blockrun.ai/api/v1/images/models` returns every image model with `billing_mode` and per-size pricing. (`/v1/image/models` singular 404s; the plural is correct.)
+- **`bytedance/seedream-5-pro` pairs with Seedance for video** — same model family for the keyframe and the clip keeps a painted/illustrated style consistent across the still→video pair.
+- **⚠️ `aspectRatio: "9:16"` is advisory on this lane.** seedream-5-pro returned **1024×1024** when asked for portrait — same as nano-banana. **Always `ffprobe` the result and check the dimensions before using it as a video keyframe**, and prefer regenerating over cropping (cropping discards the framing you composed).
 - **Actions:** `generate` (text→image) and `edit` (img2img, up to 4 source images fused in one render)
 - **Payment:** USDC on the active chain (Base default). Check balance with `blockrun_wallet action:"status"`.
 - **Source images for edit** accept a base64 data URI, http(s) URL, or **local file path (auto-encoded)** — no public hosting needed, unlike FAL.
 
 **Invoking when the tool isn't in the session toolset:** `blockrun_image` may not be loaded as a first-class tool in every session. Two reliable ways to reach GPT Image 2 directly:
-1. **Standalone `.mjs` script — PREFERRED (verified working Aug 7 2026).** Import `ImageClient, getOrCreateWallet` from `/root/.hermes/blockrun-mcp/node_modules/@blockrun/llm/dist/index.js`, then `client.edit(prompt, sheetUri, { model:'openai/gpt-image-2', size:'1024x1024' })`. No MCP handshake, no toolset dependency — just `cd /root/.hermes/blockrun-mcp && node job.mjs`. Copy the ready-to-edit template from `templates/blockrun-gpt-image2-edit.mjs`.
+1. **Standalone `.mjs` script — PREFERRED (verified working Aug 7 2026).** Import `ImageClient, getOrCreateWallet` from `/opt/data/tools/blockrun/node_modules/@blockrun/llm/dist/index.js`, then `client.edit(prompt, sheetUri, { model:'openai/gpt-image-2', size:'1024x1024' })`. No MCP handshake, no toolset dependency — just `cd /opt/data/tools/blockrun && node job.mjs`. Copy the ready-to-edit template from `templates/blockrun-gpt-image2-edit.mjs`.
 2. Via the MCP protocol with a node spawn + JSON-RPC (see `references/blockrun-image-mcp.md`).
 
 **User preference (Aug 7 2026): GPT Image 2 > FAL/FLUX Klein 9B for CHARACTER-CONSISTENT art.** When the user asks for character art (KAGE/HIKARI/Vanito cast) and wants GPT Image 2 quality, use the BlockRun path proactively — don't burn FAL generations on character work. GPT Image 2 edits the character sheet into the scene so hair/face/accessories stay locked, and it reliably honors **Dutch angle** and **low camera** phrasing that the FAL/FLUX Klein 9B backend misses (it defaults to straight-on).
@@ -116,9 +156,53 @@ When the Nous gateway returns **HTTP 402** for `fal-ai/gpt-image-2` (or the Nous
 **BlockRun quirks (Aug 7 2026):**
 - `client.getBalance()` is broken (`not a function`) in the installed build. Read the on-chain USDC balance directly instead — see `scripts/blockrun-balance.mjs`.
 - BlockRun CDN URLs can 502 transiently through the vision proxy. Download locally first (`curl -sL -o <name>.png <url>`), then vision-verify the local path.
-- Wallet (Base): `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8`. GPT Image 2 img2img edit ≈ $0.128/image.
+- **Funded wallet: `/opt/data/.blockrun/.session`** (`0xc0A1f229…4a0`, USDC on Base), passed explicitly as `new ImageClient({ privateKey })`. GPT Image 2 img2img edit ≈ $0.128/image.
+  ⚠️ **`0xebc8c719…72f8 (RETIRED)` is the OLD skill address and is stranded (~0.49 left) — never fund or target it.** And the MCP's own `profiles/<seat>/home/.blockrun/.session` is a different, EMPTY account: a funded path in one is not a funded path in the other.
 
 **Cost check:** a 1024×1024 gpt-image-2 generation costs ~$0.065. The BlockRun Base wallet typically holds enough for many generations.
+
+**MEASURED 2026-10-31 — model size limits and refusal behaviour (do not re-derive):**
+
+- **`google/nano-banana` accepts ONLY `size:"1024x1024"`.** Any other size is a hard 400 — *"Invalid size for google/nano-banana. Available sizes: 1024x1024"*. It silently crops the *input* to square, so a portrait source comes back centre-cropped (a raised arm or the top of the head can be cut off). gpt-image-2 also defaulted to square in the same run.
+- **`google/nano-banana` refuses some subject matter.** It returns **`"No image generated"`** — a refusal, not a transport error — for briefs involving revealing clothing on a real person. **Rewording the prompt does NOT fix it** (a deliberately softened second attempt refused identically). **Switch model to `openai/gpt-image-2` instead of rewriting the prompt** — it rendered the same brief first try.
+- **Neither model gives portrait output on BlockRun today.** A `1024x1536` render has not been achieved; do not promise original aspect ratio back from a portrait source. Say so up front.
+
+**Fidelity rule for real people.** When editing a photo of an identifiable person: change **setting and quality**, not **face, features, skin tone or body**. If the brief could be read as altering someone's appearance ("make her look more X"), read it as **setting/ambience**, do the safe edit, and state plainly that features were left alone — then offer a redo if that was not the intent. Keep `_source-*.jpg` beside every output so each edit can be compared to its original, and keep personal edits out of any public manifest.
+
+**⚠️ Which rendering actually preserves a person — measured, and it inverts the obvious answer.** A **stylized illustration** reads as the subject *better* than a photographic "enhancement" does. Every image model **reconstructs** a face rather than copying it, and reconstruction is where likeness leaks: two photographic edits of the same person drifted, while the illustration — which never promised photographic fidelity — was the one the subject picked out as *"most like me."* **When likeness matters, offer the illustration; do not treat a photo-to-photo "enhance" as the higher-fidelity option.**
+
+**Describe the person RICHLY in the prompt — omitting description is not the safe choice.** A sparse prompt does not protect a subject's features; it hands the model a free hand to invent them. Write the observable traits (face shape, hair length and style, skin tone, earrings, expression, pose) and then constrain: *"keep her as exactly the same person — same face, same hair, same expression, same pose; do not alter her features, ethnicity, skin tone or body."* State unchanged parts and changed parts as two separate clauses, then vision-verify that the *unchanged* ones survived the render.
+
+**⚠️ Sensitive-brief gate — judge the BRIEF, not the medium.** When a request would put a real, identifiable person in less clothing than they chose, in a sexualized context, or in a situation that never happened, **decline the alteration of the person and offer the alternatives instead**: change the *setting* only, produce a *stylized illustration* where likeness is inspired rather than photographic, or decline outright if the person is the point. **Consent must come from the subject** — a third party's assurance, or a screenshot showing they were on a call, is evidence of contact, not of consent to *that edit*. Say plainly what was left unchanged, record the scope beside the output, and treat a subject who is not present to speak for themselves (an ex-partner, a private individual) as the case needing the most care rather than the least.
+
+**⚠️ MOTION IS A STRICTER LINE THAN A STILL — and "uncensored" does not move it.** A still illustration
+of a real person is already one step from a photograph. A five-second *moving photographic* likeness is
+the version that **cannot be told apart from a real recording of them**, which is a different artifact in
+kind, not in degree.
+
+- **Consent has to come from the subject.** A third party saying "she's fine with it" is an assertion by
+  someone else about someone who is not present. It is not consent, and there is no version of the file
+  that carries their intention with it later.
+- **The file outlives the intent.** It can be forwarded, synced, backed up, or lost. A synthetic likeness
+  is the one artifact whose damage is irreversible: regenerable from a copy, unrecallable, indistinguishable
+  from a real recording.
+- **A model or vendor refusal is a SIGNAL, not an obstacle.** When the vision lane declines the brief AND
+  the video API's own docs say likeness is unsupported, that is several independent reads agreeing. Do not
+  hunt for a lane that will say yes; the agreement is the finding.
+- **Running it locally removes the VENDOR, not the OBLIGATION.** On our own GPU there is no vendor left to
+  say no, which makes the line entirely ours to hold — strictly more responsibility, not less.
+- **One photograph cannot support a likeness animation.** Moving a face seen once means the model *invents*
+  the profile, the jaw from the far side, the angles nobody captured. The result is recognisable and wrong —
+  the most insulting possible output and the least defensible.
+
+**How to answer it — once, then move.** State the boundary in about three lines with the reason, then
+immediately offer the compliant version: **outfit, pose, light, setting and motion are STYLE and are all
+renderable; likeness is the one thing withheld.** "Same dress, same turn, same lamp, an original
+character" is a real deliverable and is safe to send. Do not re-argue it on the next ask — write the rule
+into a standing note once and reference it. Repeated re-litigation is what makes a boundary feel like
+friction, and the friction is what the user actually objects to.
+
+**⚠️ Third-party characters and marks on generated items.** A generated garment or prop can carry a recognizable licensed character, logo or trade dress. Fine as private work; **not publishable**, and never to be listed in a public manifest, gallery or portfolio. Name that constraint to the user up front rather than assuming they already know it.
 
 ## Verify the ACTIVE image model BEFORE image-to-image edits (user-corrected Aug 6 2026)
 

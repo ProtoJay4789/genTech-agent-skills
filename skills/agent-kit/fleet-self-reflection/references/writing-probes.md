@@ -1,0 +1,232 @@
+# Writing probes that can be trusted
+
+A probe is a check that returns `(ok, detail)` and feeds a score. A self-reflection is only as good
+as the probes underneath it, and probes have their own failure class: **they produce a plausible
+number that grades the wrong thing.**
+
+Every rule below was hit while building the seven-probe scorecard, and every one was caught by
+running it rather than reading it.
+
+---
+
+## 1 · The verdict must come from the SAME NUMBER you print
+
+A probe that returns `ok=True` while its own detail reads `0/30` scores a deliberate fault as healthy.
+That is not a rounding error; it is a green check that means nothing, sitting in the report that
+exists to eliminate exactly those.
+
+```python
+# ❌ reads as healthy at 0 of 30 — the fault IS the zero
+explicit = sum(1 for j in jobs if j.get("model"))
+return True, f"{explicit}/{len(jobs)} name their own model"
+
+# ✅ the verdict is derived from the quantity the detail reports
+return (explicit > 0), f"{explicit}/{len(jobs)} name their own model (rest inherit)"
+```
+
+**The test for every probe you write: *what value makes my detail say zero while my verdict says
+true?*** If such a value exists, the probe is decorative. This is the same question as "what would
+make this print a confident PASS while the thing it guards is broken?" — apply it per probe, not per
+report.
+
+---
+
+## 2 · Bound every block parser, or it counts the NEXT block too
+
+In an indentation-structured config, a block is **the lines with leading whitespace**. Any pattern
+that lets `\s` match a newline at column zero is unbounded, and will run straight into the next
+top-level key.
+
+```python
+# ❌ `\s+.*\n` matches a BLANK line, so the block continues past its own key
+re.search(r"(?ms)^fallback_providers:\s*\n((?:\s+-.*\n|\s+.*\n)*)", txt)
+
+# ✅ indented lines only — the block ends at the first column-zero key
+re.search(r"(?m)^fallback_providers:[ \t]*\n((?:[ \t]+.*\n)+)", txt)
+```
+
+**The failure shape it produced:** one config was counted three times — `default,default,default` —
+because the over-extended block contained three provider lines from unrelated sections. The count was
+inflated, and the label repeated, which is how the bug became visible at all.
+
+**When a count exceeds the size of the set it is counting, the parser is wrong before the data is.**
+Cross-check every count against a denominator you know independently: `len(PROFILES)`, `len(SEATS)`,
+the number of files you walked. A count larger than its universe is proof of a parsing defect, not a
+discovery.
+
+---
+
+## 3 · Get the LABEL from the path with one helper
+
+A probe that names which file failed is only useful if the names are right. Deriving the label inline
+produces collisions that look like findings.
+
+```python
+# ❌ '/opt/data/config.yaml' -> 'data'; and every seat path has to be special-cased
+os.path.basename(os.path.dirname(p))
+
+# ✅ one helper, so the default and the seats are always distinguishable
+def _plabel(path: str) -> str:
+    parent = os.path.basename(os.path.dirname(path))
+    return "default" if parent == "data" else parent
+```
+
+**A label that repeats is a parser bug wearing a finding's clothes.** Before reporting "three profiles
+have this fault", check the three labels are distinct.
+
+---
+
+## 4 · Prove ONE probe can go GREEN before trusting any that are RED
+
+A probe that cannot be made to pass is indistinguishable from one that is always red — and an
+always-red probe is ignored in exactly the same way as a silent one. **Both failure directions ruin
+the report.**
+
+The cheapest possible proof, done once per probe:
+
+1. Take one real instance of the fault in one file (not a fixture — a live config).
+2. Fix only that instance.
+3. Re-run: the count must decrement **and that file must disappear from the list**.
+4. Restore the file.
+5. Re-run: the count must return and the file must reappear.
+
+```
+5 profile(s): default,gentech,arthur,gentech-treasury,protojay
+4 profile(s): default,gentech,gentech-treasury,protojay      ← arthur fixed, arthur gone
+5 profile(s): default,gentech,arthur,gentech-treasury,protojay  ← restored
+```
+
+**Assert both directions, and assert the identity as well as the number.** A count that moves while
+the wrong name leaves the list means the probe is grading something else.
+
+---
+
+## 5 · Store a baseline and report what MOVED
+
+A scorecard re-written from scratch each run cannot distinguish improvement from a change of mood.
+Persist the results and diff them.
+
+```json
+{ "baseline_at": "…", "score": "2/7", "results": { "01_stt_provider_valid": {"ok": true, "detail": "5/5 valid"}, … } }
+```
+
+Print `⬆️ improved since last baseline` and `⬇️ REGRESSED since last baseline`, listing probe names —
+not prose. **A regression line is the single most valuable output a scorecard produces**, and it only
+exists if the previous run was stored.
+
+**Save the baseline only after the probes are correct.** Saving a buggy run as the baseline makes the
+next honest run look like a regression (it will report `⬇️ REGRESSED` for a probe you just repaired),
+which teaches the reader to ignore the one signal worth having.
+
+---
+
+## 6 · A probe that shells out keeps the 0/2/3 contract
+
+Probes that invoke another script inherit its exit codes. Keep them distinguishable:
+
+- `0` — measured, and it passed
+- `2` — measured, and it found something
+- `3` — **could not measure** (`UNKNOWN`)
+
+A probe that returns `0` because the subprocess crashed has converted blindness into a clean bill.
+Treat a missing script, a non-zero-unexpected code, or a timeout as `UNKNOWN` with the reason attached
+— and never fold `UNKNOWN` into the passing count.
+
+---
+
+## 7 · A probe that fetches your own public hostname must send a real User-Agent
+
+**The default library UA is blocked at the edge, and the resulting error describes the endpoint, not
+the probe.** Measured: `urllib` with its stock `Python-urllib/3.x` UA got **HTTP 403** from Cloudflare
+on our own domain, while `curl/8.x` got **200** on the same URL from the same machine, seconds apart.
+
+The probe reported *"COULD NOT READ the manifest"* — which reads as **the endpoint is broken**, when
+the truth was **we were refused at the edge**. A future reader would have chased the service.
+
+```python
+# ❌ measures the client's UA policy, not the target
+urllib.request.urlopen(url)
+
+# ✅ a real UA + Accept, and the probe now measures the thing it names
+req = urllib.request.Request(url, headers={
+    "User-Agent": "<product>/1.0 (+https://your-domain)",
+    "Accept": "application/json",
+})
+urllib.request.urlopen(req, timeout=20)
+```
+
+**The general rule: when a probe fails, first ask whether it reached the application at all.**
+`403` and `429` are **edge** answers — WAF, bot policy, rate limit — not capability answers. Only a
+`4xx`/`5xx` from the application itself is evidence about the application. **A probe that cannot
+distinguish "blocked" from "broken" will report the wrong one forever.**
+
+Corollary: when `curl` works and your code does not, **diff the request, not the environment.** UA and
+headers first, TLS/proxy second, network last.
+
+---
+
+## 8 · A ratio above 100% proves the classifier is wrong, not that you had a good day
+
+**A derived rate is two counts divided. If the numerator can contain events the denominator cannot,
+the result can exceed 100% — and that number is a defect report, never a result.**
+
+Measured: a conversion probe reported **461%** and **468%** on two routes — *more sales than quotes*.
+Arithmetically impossible, therefore the classification was wrong. Both routes counted **HTTP 200 on a
+bare route** as a completed sale. Those 200s were **collection-root signposts** —
+`{"collection_root": true, "payable": false}` — served when a caller omits the required path parameter.
+A crawler reading a signpost is not a customer.
+
+```python
+# ❌ status code treated as the event
+if status == 200: served += 1
+
+# ✅ the event is a 2xx on a path that actually carried a transaction
+if status in (200, 202):
+    if not path_after_prefix.strip('/'):   # bare route = signpost, not a sale
+        signpost += 1
+    else:
+        served += 1
+```
+
+**Three rules that generalise:**
+
+1. **A status code is a protocol outcome, not a business event.** `200` covers a sale, a signpost, a
+   cached page, a health probe and a catch-all fallback. Classify on the SHAPE of the request (did it
+   carry the required parameters?) as well as the response.
+2. **Assert the denominator contains the numerator's universe, then check the arithmetic.** A rate above
+   100%, a count above its own set size, or a share of a whole that exceeds the whole are all the same
+   signal: **the two numbers are measuring different things.** Print the raw counts beside every rate so
+   the impossibility is visible to the reader too.
+3. **A category that silently absorbs traffic is worse than a wrong number.** The signposts were being
+   counted as revenue for as long as the probe existed. **Give a non-event its own column**
+   (`signpost`, `bot`, `self`, `unknown`) so it is subtracted from the story instead of inflating it.
+   **A total that reconciles to its parts is the receipt; a total alone is a guess.**
+
+---
+
+## The seven probes, as a starting set
+
+A worked implementation lives at `profiles/<seat>/scripts/self-reflect.py`; read it before writing
+another. The set is deliberately small and each one is a yes/no or a number:
+
+| probe | question | fails when |
+|---|---|---|
+| `stt_provider_valid` | does every profile's provider exist in the schema's list? | a value resolves to nothing |
+| `metered_fallback` | how many metered providers are armed as fallbacks? | a spend decision was never made |
+| `image_provider` | is there an uncommented, usable key anywhere? | the tool has no lane at all |
+| `seats_vs_core` | how many seat skills differ from the shared core? | a fix landed on one seat only |
+| `cron_explicit_model` | how many jobs are script-only (0 tokens), and does any instructed-script job still pay a model? | a one-command job runs through an LLM |
+| `tool_liveness` | did every tested tool answer a real call? | a tool is configured but dead |
+| `signoff_pending` | are any seats still unsigned past the floor? | agreement is claimed, not given |
+| `seat_identity` | does each seat's identity file name the seat, or open with the stock default? | the seat was never configured |
+
+**One probe class is easy to forget: DISTRIBUTION.** Config probes ask "is this value valid?" and
+miss "does every seat have one at all?" A private file that is never synced (an identity file, a
+memory file, a `.env`) cannot be checked by drift — drift compares seats to each other, and a file
+that is *absent in substance* on one seat still differs byte-wise from its siblings. Probe the
+substance: for identity, that the file names its own seat; for a memory file, that it is not empty;
+for a credential, that the value is uncommented and non-empty. **Difference proves nothing was
+overwritten. It does not prove anything was written.**
+
+**Add a probe only when it can be made to fail on demand.** A probe that has never been red is a
+line of output, not a measurement.

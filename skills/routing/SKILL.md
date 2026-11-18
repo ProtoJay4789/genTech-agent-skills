@@ -11,62 +11,88 @@ tags: [routing, smart-routing, model-selection, topic-detection, cost-optimizati
 # Unified Routing
 
 One routing system, two dimensions:
-1. **Topic** → which group (Labs, Strategies, Entertainment, HQ)
-2. **Complexity + Domain** → which model (MiMo, OpenCode Go, BlockRun)
+1. **Topic** → which group (**Gentech EDU**, Treasury, Social Media, HQ) — *Labs, gizmo and pixel are retired*
+2. **Complexity + Domain** → which model (OpenCode Go primary; see Dimension 2 for the measured live rail)
 
 ## Dimension 1: Topic Routing (Which Group)
 
 | Topic | Group | Chat ID |
 |-------|-------|---------|
-| Code, SDKs, smart contracts, technical dev | Labs | `-1003872552815` |
+| Learning, lessons, packs, sessions (EDU) | **Gentech EDU** | `-1003872552815` |
 | Finance, DeFi, portfolio, yield, market analysis | Treasury | `-1002916759037` |
-| Content, social media, hackathon submissions | Social Media | `-5289838765` |
+| Content, social media, post tracking — ⚠️ **run by Proto J, who is Jordan's own avatar, not an agent** | Social Media | `-1004298089413` |
 | Coordination, decisions, blockers, status | HQ | `-1003863540828` |
-| **Forge-domain tasks** (code builds, PRs, local git, email) | **→ Handoff via** `01-HANDOFFS/` | **Forge (Desktop) handles** |
+| **Forge-domain tasks** (code builds, PRs, local git, email) | **→ Handoff via** `01-HANDOFFS/gentech-to-forge/` | **Forge (Desktop) handles** |
 | **Gentech-domain tasks** (infra, cron, DeFi, research) | **→ Build on VPS** | **Gentech (VPS) handles** |
+
+### ⚠️ Retired — do NOT route here (Jordan, 2026-10-15)
+
+| Was | Status | Where the lane went |
+|---|---|---|
+| **Labs** `-1003872552815` | **RETIRED — the chat ID is now Gentech EDU** | EDU, owned by Arthur |
+| **gizmo** (technical) | **RETIRED** — folded, not rehomed | the build queue is a file; technical knowledge lives in the Agent Kit |
+| **pixel** (social/content) | **RETIRED** | social transferred **intact** to Proto J |
+| **`Entertainment/` folder** | **does NOT exist** (checked on disk) | the *inbox lane* `01-HANDOFFS/INBOX/entertainment/` still receives notes |
+
+**Two distinctions that must not blur:**
+1. **Labs' chat ID `-1003872552815` is still a live room — it is Gentech EDU now.** Routing to it is correct;
+   *calling it Labs* is not. The name changed, the ID did not.
+2. **"Entertainment" is a folder name, not a seat.** It survives only as a handoff lane. **Do not route a
+   topic to "Entertainment" as a group** — social content goes to **Social Media**.
+
 
 ## Dimension 2: Model Routing (Which Model)
 
-### Z.AI / GLM Provider Stack (June 26, 2026 — migrated from Xiaomi/OpenCode Go)
+> **⚠️ This section was WRONG for weeks and is rewritten from measurement (2026-10-27).** It previously said
+> *"Z.AI / GLM Provider Stack — migrated from Xiaomi/OpenCode Go… Z.AI (zai) | ALL — single provider with full
+> ladder."* **Measured: `ZAI_API_KEY` and `GLM_API_KEY` are ABSENT from the profile `.env`; `OPENCODE_GO_API_KEY`
+> is set.** The skill was instructing every loading agent to route all work to a provider we have no credential
+> for. **A misrouted topic gets corrected; a misrouted model just spends the wrong money.**
 
-| Provider | Models | Strategy |
-|----------|--------|----------|
-| **Z.AI (zai)** | GLM-5.2, GLM-5, GLM-5-Turbo, GLM-5.1, GLM-4.7, GLM-4.6, GLM-4.7-Flash, GLM-4.5-Flash | **ALL** — single provider with full ladder |
+**The live rail (measured):** **OpenCode Go, `deepseek-v4.1-flash` as the daily default.** The usage gate reads
+**monthly — currently at 92%, band CRITICAL, resetting 2026-10-30T00:43Z** (`backups/usage-gate-state.json`).
+**Check the gate before routing anything heavy.**
 
-### Routing Rules (GLM-optimized)
+| Role | Model | Rail |
+|---|---|---|
+| **Daily default** | `deepseek-v4.1-flash` | OpenCode Go |
+| **Auxiliary / vision** | `glm-5.3-flash` | OpenCode Go (pinned 2026-10-27) |
+| **Senior audit** | Kimi K2.7-code / K3 | the OTHER rail (resolved at call time) |
+| **Dormant fallback** | Nous | metered, limited credits |
 
-| Complexity | Primary | Overflow | Why |
-|-----------|---------|----------|-----|
-| **Trivial** | GLM-4.7-Flash, GLM-4.5-Flash | GLM-4.7 | Free for quick facts |
-| **Simple** | GLM-4.7-Flash, GLM-4.7 | GLM-4.6 | Flash for speed, 4.7 for quality |
-| **Medium** | GLM-4.7, GLM-4.6 | GLM-5 | Budget models first |
-| **Complex** | GLM-5, GLM-5-Turbo | GLM-5.2, GLM-5.1 | Premium for complex work |
+**Rules that actually bind:**
+- **The auxiliary lane is pinned, not auto-detected.** Without pinning, 9 auxiliary services fall back to
+  auto-detect and can silently drain the metered rail. **See `hermes-auxiliary-config`.**
+- **`glm-5.3-flash` is a REASONING model** — with `max_tokens` too low it returns HTTP 200 with **empty
+  `content`** and `finish_reason: length`. **Use `max_tokens >= 512` in probes, and read both `content` and
+  `reasoning`.** A broken test, not a broken model.
+- **Do not route to Z.AI until a key actually exists.** Re-verify with
+  `grep -c ZAI_API_KEY /opt/data/profiles/<seat>/.env` — the absence is the point.
 
-### Domain Affinities (GLM-optimized)
 
-| Domain | Best Models | Why |
-|--------|------------|-----|
-| **Code** | GLM-5.2 → GLM-5.1 → GLM-4.7 | **GLM-5.2 always** — #1 open-source coder, 1M context |
-| **Finance** | GLM-5 → GLM-5-Turbo → GLM-5.2 | GLM-5 strong reasoning |
-| **Analysis** | GLM-5 → GLM-4.7 → GLM-4.6 | GLM-5 analysis, 4.7 good value |
-| **Content** | GLM-4.7 → GLM-4.6 → GLM-4.7-Flash | 4.7 good writing, Flash for simple |
-| **Research** | GLM-5 → GLM-5.1 → GLM-5.2 | Premium models for deep research |
-| **Quick QA** | GLM-4.7-Flash → GLM-4.5-Flash | Free, fast |
-| **Creative** | GLM-4.7 → GLM-4.6 → GLM-5 | 4.7/4.6 creative, 5 for complex |
-| **Technical** | GLM-5.2 → GLM-5.1 → GLM-5 | GLM-5.2 1M context for technical |
+### Routing Rules
 
-### Cost Savings (GLM vs always GLM-5.2)
+**⚠️ This block previously carried a full GLM-4.x/5.x ladder (Trivial→Complex, domain affinities, and a cost
+table down to "$2.60/month") for a provider with no credential on this box.** It is replaced rather than
+annotated: **a stale ladder with precise dollar figures reads as authoritative and is the most dangerous form of
+a dead rule.**
 
-| Model | Tasks (1000) | Cost |
-|-------|--------------|------|
-| GLM-4.7-Flash (free) | 200 | $0.00 |
-| GLM-4.7 | 600 | $1.68 |
-| GLM-5 | 150 | $0.63 |
-| GLM-5.2 | 50 | $0.29 |
-| **Total** | **1,000** | **$2.60** |
+**What actually routes today — two levers, not a ladder:**
 
-**vs always GLM-5.2:** $5.80/month → **55% savings**  
-**vs always Claude Sonnet 4:** $18.00/month → **85.6% savings**
+| Lever | Value | How to check |
+|---|---|---|
+| **Daily default** | `deepseek-v4.1-flash` | `grep -A2 '^model:' /opt/data/profiles/<seat>/config.yaml` |
+| **Auxiliary / vision** | `glm-5.3-flash` (pinned) | `hermes-auxiliary-config` |
+| **Rail health** | OpenCode Go usage gate | `backups/usage-gate-state.json` — **read it before heavy work** |
+| **Escalation** | senior audit on the OTHER rail | resolved at call time, per `develop-and-verify` |
+
+**The cost control that matters is not model choice — it is whether the gate is near its ceiling.** Measured
+2026-10-27: **monthly 92%, CRITICAL, 44h to dry.** **At that level the correct action is to pause non-essential
+crons, not to hunt for a cheaper model.**
+
+**When a heavier model is warranted:** money-code audits, security review, architecture decisions. **Route those
+deliberately and say which rail answered.** Everything else rides the daily default.
+
 
 ### Task-Aware Scheduler (TAS) Implementation
 
@@ -80,7 +106,7 @@ from model_router import route_task
 
 # Coding always gets GLM-5.2
 result = route_task("run the build list", context="coding")
-# → {'model': 'glm-5.2', 'provider': 'zai', 'reasoning': 'Code task → GLM-5.2 (best coding model)'}
+# → {'model': 'glm-5.2', 'provider': 'zai', ...}   ← STALE OUTPUT, not routable here (see the note below)
 
 # Finance gets GLM-5
 result = route_task("analyze LP position ROI")
@@ -105,7 +131,13 @@ Build Hermes middleware that:
 3. Updates model/provider dynamically
 4. Routes to optimal model automatically
 
-**Provider name:** `zai` (exact match to config)
+**Provider name:** the provider is **`opencode-go`** — verify against your own config rather than trusting this
+line: `grep -A5 "custom_providers\|^provider" /opt/data/profiles/<seat>/config.yaml`. **`zai` is NOT a configured
+provider on this box (no key exists) — see Dimension 2.**
+
+> ⚠️ **The Python examples above are ILLUSTRATIVE and their outputs are stale** — they return `provider: 'zai'`
+> and `model: 'glm-5.2'`, neither of which is routable here. **The module they call (`model-router`) may still
+> exist; treat its *output values* as unverified until re-run.** What actually routes is in Dimension 2.
 
 ## Dimension 3: Auto-Hub Detection
 
@@ -170,19 +202,20 @@ Message → Topic Detection → Group Selection
 
 User: "Debug this Python race condition"
 
-1. **Topic:** Code → Labs group
+1. **Topic:** Code → **HQ** (*Labs retired 2026-10-15; build work happens wherever the agent is awake*)
 2. **Domain:** Code
 3. **Complexity:** Complex
-4. **Model:** GLM-5.2 (best coding) or MiMo (subscribed)
-5. **Execute:** Build in Labs, report to HQ
+4. **Model:** escalate deliberately, and **say which rail answered** — see Dimension 2. **Do not route to
+   GLM-5.2/Z.AI; no key exists.**
+5. **Execute:** build in HQ, report to HQ
 
 User: "What's the AVAX price?"
 
-1. **Topic:** Finance → Strategies group
+1. **Topic:** Finance → Treasury
 2. **Domain:** Finance (quick check)
-3. **Complexity:** Trivial
-4. **Model:** Step 3.5 Flash (free) or DeepSeek Flash
-5. **Execute:** Quick answer, no MiMo credit burn
+3. **Complexity:** Trivial → rides the **daily default** (`deepseek-v4.1-flash`)
+4. **Model:** no escalation needed
+5. **Execute:** quick answer; **state the feed rung and timestamp** per the market-data ladder
 
 ## Delegation Layer v2 (Aug 29, 2026 — Jordan directive: route work, don't hoard it)
 
@@ -190,9 +223,9 @@ When a message in HQ clearly belongs to a specialist group, HQ does NOT absorb t
 
 | Topic surfaces in HQ | Delegate to | Mechanism |
 |----------------------|-------------|-----------|
-| Code/SDK/contract/build tasks | **Labs** (gizmo) | Handoff note → `01-HANDOFFS/gentech-to-labs/` |
+| Code/SDK/contract/build tasks | **HQ** — *Labs retired 2026-10-15; the build queue is a file and work happens wherever the agent is awake* | `01-HANDOFFS/INBOX/hq/` |
 | Finance/DeFi/yield/portfolio analysis | **Treasury** (Steward) | Handoff note → `01-HANDOFFS/gentech-to-treasury/` |
-| Content/social/video/hackathon submissions | **Entertainment** (pixel) | Handoff note → `01-HANDOFFS/gentech-to-entertainment/` |
+| Content/social/video/hackathon submissions | **Social Media** (Proto J — Jordan's avatar, not an agent) | Handoff note → `01-HANDOFFS/gentech-to-protojay/` |
 | Local builds/PRs/desktop work | **Forge** (desktop, human-gated) | Handoff note → `01-HANDOFFS/gentech-to-forge/` |
 
 **Why it works now (Aug 29 rollout):** every agent's wake trigger sweeps its lanes every 10 min (silent when clear), and the PA Suite enforces ACK→act→report with 6h-stall escalation to Jordan. Early delegation attempts failed from unseen handoffs — that failure mode is closed.
@@ -205,10 +238,12 @@ When a message in HQ clearly belongs to a specialist group, HQ does NOT absorb t
 
 **Route automatically when:**
 - Message clearly fits a specialist topic
-- User says "continue in Labs" / "go to Strategies"
-- Build task completed → Labs
-- Financial decision needed → Strategies
-- Content creation discussed → Entertainment
+- Build task completed → **HQ** (*Labs retired; work happens wherever the agent is awake*)
+- Financial decision needed → **Treasury**
+- Content/social discussed → **Social Media** (*was Entertainment — retired*)
+- Learning/lesson/pack work → **Gentech EDU**
+
+**Never route to:** Labs, gizmo, pixel, or "Entertainment" as a group — **all retired 2026-10-15.**
 
 **Stay in HQ when:**
 - Topic is coordination/meta
@@ -317,11 +352,11 @@ Right: `custom:Token-plan-sgp.xiaomimimo.com` ✅
 | Cron Type | Delivery Group | Rationale |
 |-----------|---------------|-----------|
 | PR monitoring (PR Scout) | HQ | Inbox duty + decisions — needs Jordan's attention |
-| Compliance/listing (x402 Compliance) | Labs | Technical work, auto-queue to build list |
-| Build status (Build Queue Snapshot) | Labs | Team visibility on active builds |
-| Finance (Portfolio, Market, LP) | Strategies | Financial analysis |
+| Compliance/listing (x402 Compliance) | **Gentech EDU** *(was Labs — retired)* | Technical work, auto-queue to build list |
+| Build status (Build Queue Snapshot) | **HQ** | Team visibility on active builds |
+| Finance (Portfolio, Market, LP) | **Treasury** *(was Strategies)* | Financial analysis |
 | Revenue (Revenue Monitor) | HQ | Bottom-line status for founder |
-| Content (Shop, Social) | Entertainment | Content creation and distribution |
+| Content (Shop, Social) | **Social Media** *(was Entertainment — retired)* | Content creation and distribution |
 | Research (Ecosystem, Opportunity) | HQ or Origin | Depends — scanning for Jordan vs technical audit |
 
 **Conflict detection:**
@@ -332,29 +367,58 @@ Right: `custom:Token-plan-sgp.xiaomimimo.com` ✅
 
 **Auto-consolidation rule:** If a new job overlaps with an existing one, consolidate instead of creating a duplicate. Update the surviving job's prompt to absorb the new job's responsibility.
 
-## Rules\n## Cross-Channel Message Forwarding
 
-When you need to send a message to a different channel (e.g., from Entertainment to HQ), use `hermes send`:
+## Cross-Channel Message Forwarding
+
+**Two different mechanisms — do not confuse them.** `hermes send` posts *a message to a chat*; `hermes peer dm`
+*walks a seat and wakes it*. **Only the second is agent-to-agent.**
+
+### 1. Post to a channel — `hermes send`
 
 ```bash
-# Forward to Jordan in HQ
 hermes send --to telegram:-1003863540828 "Message here"
-
-# Pipe content from a file
 cat /tmp/message.txt | hermes send --to telegram:-1003863540828
-
-# Send to any channel by chat ID
-echo "Status update" | hermes send --to telegram:<chat_id>
+hermes send --list          # every configured target
 ```
 
-**Key points:**
-- Works without the agent running — reuses gateway credentials directly
-- Format: `hermes send --to telegram:<chat_id> <message>`
-- Can pipe from file: `cat file.txt | hermes send --to telegram:<chat_id>`
-- Available targets: `hermes send --list` shows all configured channels
+**Key point:** works without the target agent running — it reuses gateway credentials directly.
 
-## Pitfalls
-**Channel IDs with cron routing (established Jul 17, 2026):**\n| Channel | Chat ID | Cron Deliveries |\n|---------|---------|----------------|\n| HQ | `-1003863540828` | PR Scout (8/14/20 ET), Revenue Monitor (8 AM/PM), Morning Digest, Context Snapshot, Marketplace Scout, Opportunity Scanner |\n| Labs | `-1003872552815` | x402 Compliance Scout (8:10/14:10/20:10 ET), Build Queue Snapshot (8:30/12:30/18:30 ET) |\n| Treasury | `-1002916759037` | Portfolio Health Check, CMC Watchlist, Tradesta Signal, Narrative Rotation, Fed/FOMC, LP Monitor v2 |\n| Entertainment | `-5289838765` | GenTech Shop Sales/Releases, Social Media Engine, Game Intelligence |
+### 2. Reach a SEAT — `hermes peer dm` (⚠️ addressing corrected 2026-10-27)
+
+```bash
+hermes peer list                       # → fleet  http://127.0.0.1:8642  [key set]
+hermes peer dm fleet/arthur "you have a handoff"
+hermes peer dm fleet/gentech-treasury "…"
+hermes peer dm fleet/protojay "…"
+```
+
+- **`fleet` is the single registered peer**, not one peer per seat. **The working form is
+  `hermes peer dm fleet/<seat>`.** The **old per-seat form (`hermes peer dm arthur`) resolves nothing** —
+  the seat is the *suffix*, not the peer name.
+- **A DM wakes the seat and is not a record.** Delivery must be **verified** — by the reply it prints, or, when
+  the client times out, by the seat's own activity in `profiles/<seat>/logs/agent.log`.
+- **The vault handoff in `01-HANDOFFS/` remains the delivery of record.** **DM to wake, vault to record.**
+- **Never report a wake that did not land.**
+
+### 3. The transport trap: the vault is NOT a git repo (measured 2026-10-27)
+
+`git -C /opt/data/.obsidian-vault rev-parse --git-dir` → **`fatal: not a git repository`**.
+**Vault sync is Obsidian (`ob`), not git.** Any instruction saying *"commit and push the vault"* is currently
+**unexecutable** — including the ACK rule in `01-HANDOFFS/INBOX/README.md`. **That is why the ACK lane went
+quiet: not neglect, a missing mechanism.** See `00-HQ/process-audit-2026-10-27.md`.
+
+### Channel IDs (⚠️ re-measured 2026-10-27 — the old table named retired groups)
+
+| Channel | Chat ID | Notes |
+|---|---|---|
+| HQ | `-1003863540828` | coordination, decisions, blockers |
+| **Gentech EDU** | `-1003872552815` | **this ID was "Labs" — the room remained, the name changed** |
+| Treasury | `-1002916759037` | finance, DeFi, yield |
+| Social Media | `-1004298089413` | ⚠️ **unverified** — the bot cannot see this room; confirm before relying on it |
+
+**Do NOT list cron deliveries here.** A channel's job list changes weekly and a stale list is worse than none —
+**read the live job list instead: `hermes cron list`, or `profiles/<seat>/cron/jobs.json`.** The old table in
+this file named *Labs* and *Entertainment* deliveries and was wrong on both.
 
 ## Rules
 1. Always announce routing decision — don't silently route
@@ -367,6 +431,12 @@ echo "Status update" | hermes send --to telegram:<chat_id>
 8. **Telegram links must be tappable** — bare URLs on own line, not in tables
 9. **Split long messages** — under 1500 chars each (Telegram hard limit is 4096, but 1500 is safe for formatting)
 10. **Cron job creation** — ALWAYS check existing jobs first for duplicates/conflicts
+11. **A one-word reply is not an instruction to run your own next step.** "Done", "ok", "sure" frequently
+    close a thread *other than the one you just spoke in*. When the planned follow-up is a whole workstream
+    (a four-seat round, a sweep, a build), spend one cheap move resolving the subject first — measure the
+    thing the ack claims (the record, the DB, the file), or ask one short question. **Answer Jordan's last
+    question, not your last plan.** Getting this backwards costs a full turn and reads as not listening,
+    even when every number in the reply is correct.
 
 ## Pitfalls
 
@@ -390,13 +460,35 @@ curl -s -X POST "https://opencode.ai/zen/go/v1/chat/completions" \
 NEVER assume the agent controls a wallet. Always ask the user for their wallet addresses. Agent-generated wallets are unowned unless the user confirms they have the private keys. Fund only wallets the user explicitly provides.
 
 ### Model routing for cron jobs
-- **Simple tasks** (script-only, summarization): use free/cheap models (qwen3.6-plus via OpenCode Go)
-- **Medium/Complex tasks** (analysis, research): use subscribed models (mimo-v2.5 via Xiaomi Custom)
-- **Code-heavy tasks** (audits, security, smart contracts): GLM-5.2 via BlockRun (pay-per-use, #1 coding benchmarks) — only if quality matters more than cost
-- **Script-only jobs** (no_agent=True): no model needed
 
-### Known routing gap (Jun 2026)
-Code-heavy cron jobs (Project Audit, code reviews) currently use MiMo-V2.5 instead of GLM-5.2. MiMo is solid at code but GLM-5.2 is top-rated for coding benchmarks. Consider upgrading code-domain jobs to GLM-5.2 via BlockRun when quality matters — it's pay-per-use so only costs when it runs.
+**⚠️ The rows that used to live here named Xiaomi Custom, BlockRun and a free OpenCode Go tier — none of which
+matches the measured rail.** What binds today:
+
+- **Script-only jobs** (`no_agent=True`): **no model needed** — the cheapest correct answer.
+- **Everything else**: rides the **daily default** (`deepseek-v4.1-flash` on OpenCode Go).
+- **Heavy/escalated**: money-code audits and security review only — **route deliberately and record which rail
+  answered.**
+- **Before assigning a model to a job, check the rail gate** (`backups/usage-gate-state.json`). At CRITICAL the
+  answer is fewer jobs, not a different model.
+
+**Verify a model before trusting it in a job** — `glm-5.3-flash` is a reasoning model and returns **empty content**
+under a low `max_tokens`; use `>= 512` and read both `content` and `reasoning`:
+```bash
+API_KEY=$(grep OPENCODE_GO_API_KEY /opt/data/profiles/gentech/.env | cut -d= -f2-)
+curl -s -X POST "https://opencode.ai/zen/go/v1/chat/completions" \
+  -H "Content-Type: application/json" -H "x-opencode-session: probe" \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"model":"MODEL_NAME","messages":[{"role":"user","content":"Say hi"}],"max_tokens":512}'
+```
+**⚠️ The `x-opencode-session` header is REQUIRED** — without it OpenCode Go returns
+`400 MissingSessionID`. A probe without it reports a failure that is not real.
+
+
+### Known routing gap (Jun 2026) — ⚠️ OBSOLETE, kept only so it is not re-derived
+
+**This described a MiMo-vs-GLM-5.2 trade-off. Both sides are moot: `GLM-5.2` has no provider on this box, and
+MiMo is no longer the assigned model on any job.** **Do not act on this section.** For what routes today, see
+Dimension 2 and "Model routing for cron jobs" above.
 
 ### Fix routing gaps on discovery
 When a routing mismatch is found (wrong model for domain, suboptimal provider for task type), fix it immediately — don't just flag it in a report. Jordan's directive: "Less troubleshooting, fix all issues." Update the cron job model/provider on the spot, verify it works, then report what was fixed.

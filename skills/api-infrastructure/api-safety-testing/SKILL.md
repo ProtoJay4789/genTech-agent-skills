@@ -206,6 +206,42 @@ The agent kit ships `services/api-audit.py` (in `Gentech-Labs/genTech-agent-kit`
 PLACEHOLDER / STUB / REDIRECT. Add targets, run, fix placeholders, re-run.
 Full worked incident + detection-token list: `references/api-placeholder-audit.md`.
 
+## Testing a gateway code fix when you cannot import the app
+
+A paid gateway usually runs in a container whose runtime deps (`fastapi`, `httpx`) are absent on the agent
+host, so `import server` proves nothing and a syntax check proves less. Execute **the patched functions
+themselves**, read out of the source by AST, against the **real manifest** — never a hand-written fixture:
+
+```python
+import ast, json, re
+tree = ast.parse(open("server.py").read())
+want = {"_static_leaf_prefix", "_svc_cfg", "_subpath_rejection", "_path_param_names"}
+nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in want]
+ns = {"SERVICES": json.load(open("x402.json"))["services"], "re": re}
+exec(compile(ast.Module(body=nodes, type_ignores=[]), "<f>", "exec"), ns)
+```
+
+**A fix to "wrong paths are accepted" needs a two-sided matrix, and both halves are mandatory:**
+
+| side | expectation |
+|---|---|
+| every declared endpoint, concretised (`{address}` → real address, `{symbol}` → real ticker) | **allowed** — 0 false rejections |
+| a nonsense tail under every service (wrong leaf, and right-leaf-plus-junk) | **rejected** — 0 misses |
+
+Print the per-case verdict, not a total. A prefix-only rule passed every "wrong leaf" case and still let
+`/v1/nft/search/nope` through — the matrix caught it; reading the diff did not.
+
+**Then test the live pair, from outside, after the restart.** For each service: the nonsense tail must go
+`402 → 404`, and the **real leaf must stay `402`**. A fix verified only on the negative direction can happily
+404 a paying customer's path.
+
+**A bind-mounted file is not live until the process restarts.** Ship the change with a timestamped copy and
+print the rollback beside the restart command — on a paid path the operator needs the undo in the same
+message as the change, not one round-trip later.
+
+Full defect shape and fix (param-less services accept any tail; settle-before-proxy means the buyer pays for
+a 404): the `x402-api-compliance` skill, in its `path-validation-before-challenge` reference file.
+
 ## Pitfalls
 
 - **User-Agent required:** Many gateways (behind Cloudflare) block Python urllib requests that lack a User-Agent header. Always set `User-Agent: SafetySuite/1.0`.

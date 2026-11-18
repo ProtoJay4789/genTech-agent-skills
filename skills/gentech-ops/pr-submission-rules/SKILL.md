@@ -1,7 +1,7 @@
 ---
 name: pr-submission-rules
 description: "Hard rules for submitting GitHub PRs to external repos. Every agent (Gentech, Forge, cron jobs) must follow this before opening any PR. Prevents bot-rejected PRs due to missing template sections, wrong format, or skipped contribution rules."
-version: 2.12.0
+version: 2.13.0
 author: gentech
 hermes:
   tags: [pr, github, contribution, template, rules, automation]
@@ -11,6 +11,182 @@ trigger: "Before opening any GitHub PR to an external repository. Also when chec
 # PR Submission Rules — Hard Gate
 
 > ⚠️ **DO NOT SKIP ANY STEP.** Every step is mandatory. Bot-rejected PRs waste reviewer time and damage our reputation.
+
+## 🔴 THE GITHUB IDENTITY RULE (Jordan, 2026-11-12) — read before any write
+
+**We hold two GitHub accounts. `ProtoJay4789` is the default. `GentechLabs` is a backup and is being retired.**
+
+| Account | Role | Use for |
+|---|---|---|
+| **`ProtoJay4789`** | ✅ **DEFAULT — use for everything** | every PR, issue, comment, fork, repo, listing |
+| `GentechLabs` | ⛔ backup only, **slated for deletion** once reinstated | nothing new. Do not open work here. |
+
+**Both spellings refer to the same two accounts; do not invent a third.** The org `Gentech-Labs` is a separate
+thing (an organisation, not an account) and is unaffected by this rule.
+
+### Why — measured, not assumed (2026-11-12)
+
+The reverse is what got us stuck for four months. `GentechLabs` is **invisible to logged-out readers and even to
+authenticated self-search** — GitHub returns *"The listed users cannot be searched either because the users do not
+exist or you do not have permission to view the users"* for our own account. Consequences already observed:
+
+- All **8** of our open PRs under `GentechLabs` read as *never submitted* to any logged-out reader, judge or crawler.
+- Our Internet Court PR #25 is open, unmerged, and effectively invisible to the stewards reviewing it.
+- Two of our own registry rows carried **fabricated "✅ MERGED" receipts** beside genuine open PRs.
+
+**`ProtoJay4789` does not have this problem.** Measured the same day:
+
+- `GET /users/ProtoJay4789` **anonymous → HTTP 200**, 118 public repos, 15 followers.
+- **113 PRs authored**, including two merged into `Gentech-Labs/genTech-agent-kit` (#3, #4).
+- `BankrBot/skills#840` shows its author as **`ProtoJay4789`** to a logged-out reader.
+
+**So before opening anything: check the identity, not the intention.** Run
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://api.github.com/users/ProtoJay4789
+```
+
+**Anything other than `200` is a stop-work signal** — every contribution made under an unverifiable identity will be
+scored as absent, no matter how good the code is.
+
+### The one rule that must not drift
+
+**Never reuse a `GentechLabs` PR number, branch or receipt as if it were `ProtoJay4789`'s.** They are different
+accounts with different histories. When migrating a listing, move the *reference*, never the *claim*.
+
+## 🔴 THE VENUE RULE — a true statement in the wrong place is still spam (Jordan, 2026-11-14)
+
+> *"we gotta make sure we're reading the contribution MD that they have. We don't wanna come off as spam."*
+
+**Before replying to ANY issue or opening ANY PR, read that repo's `CONTRIBUTING.md` AND its
+`.github/ISSUE_TEMPLATE/config.yml`.** The second file is the one everyone skips, and it is the one that routes
+cases away from the repo entirely. Reading CONTRIBUTING alone is half the check.
+
+**What this cost us (measured):** our stuck-developer scanner drafted a reply for `x402-foundation/x402` #4267
+("CDP Bazaar never indexes") and was one paste from posting. Their `config.yml` opens with a contact link titled
+**"My service is not indexed in the Bazaar catalog — … please do not open an issue here"**, and CONTRIBUTING
+says issues are **bug reports only** (questions → Slack). The draft was accurate, on-topic, and would have been
+spam-by-venue. The issue also already had its answer from another commenter.
+
+**The three venue verdicts to decide before drafting:**
+
+| verdict | test | where the reply belongs |
+|---|---|---|
+| **REPO-SPECIFIC** | the defect is in *this* repo's code or spec | in-thread, as a comment |
+| **VENDOR / FACILITATOR** | the defect is a third party's behaviour (catalog indexing, settlement vendor) | the vendor, or the project's chat — **never the issue tracker** |
+| **UNKNOWN** | you could not read their rules | **do not draft.** A guess is how a true sentence becomes spam |
+
+**Two CONTRIBUTING clauses that specifically catch agents (both in x402's, and common):**
+- *"Do not batch-generate low-effort PRs"* — several narrow machine-generated PRs in a row is the signal.
+- *"Disclose significant AI usage"* — say it in the PR description; it is not a mark against the PR, it is what
+  lets a reviewer calibrate.
+
+**Rule:** an issue whose failure mode the repo routes elsewhere is not a reply opportunity — it is a referral.
+When we have real first-hand evidence but the venue is wrong, say `WITHHELD BY POLICY`, name where it belongs,
+and do not post. **Silence with a reason beats a correct sentence in the wrong room.**
+
+### The case behind the rule — read the bar, not the mood (xenia #2356)
+
+Our PR **#2356** to `xenia-project/xenia` (Xbox 360 emulator) was opened 2026-07-10 and **closed 2026-10-15 with
+0 comments, 0 review comments, 0 reviews.** It was never argued with. It was ignored and closed — a silent close costs
+the same as a refusal and teaches less.
+
+**But their CONTRIBUTING does accept code.** What it enforces is **provenance and format**:
+*"All information in xenia has been derived from reverse engineering legally-owned games, hardware, and tools made
+public by Microsoft… The official Microsoft Xbox Development Kits (XDKs) are not to be used… Posting any information
+directly from an XDK will result in a project ban"*, plus *"run `xb format` before you add a commit"* and
+*"repeated misuses will result in a permanent project ban."*
+
+**So read the bar as a contract, not a personality.** The wrong conclusion is *"emulator projects hate outside help."*
+The right one is *"this project has a hard provenance + format contract — meet it exactly or do not submit."*
+
+**Three files, not one, before contributing anywhere:**
+
+| file | what it tells you |
+|---|---|
+| `CONTRIBUTING.md` | the contract: format, provenance, style, AI disclosure |
+| `.github/ISSUE_TEMPLATE/config.yml` | where they **route cases away** from the tracker |
+| **recent CLOSED PRs** | what they actually reject — and whether they argue (comments) or just close (silence) |
+
+> **We only contribute where the contract is readable and we can meet it exactly. Where the answer is "read the docs
+> and don't ask us," that is not a community we pitch — it is a community we read.**
+
+## 🔴 THE LIVENESS RULE — check that the repo MERGES anything at all
+
+**Rule: before opening a PR, count the repo's merges in the last 60 days.** Not commits, not stars, not how good
+the project is — **merges**.
+
+```bash
+# count merged PRs inside the window
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.github.com/repos/{owner}/{repo}/pulls?state=closed&per_page=30&sort=updated&direction=desc" \
+  | jq --arg cut "$(date -u -d '60 days ago' +%Y-%m-%dT%H:%M:%SZ)" '[.[] | select(.merged_at != null and .merged_at >= $cut)] | length'
+```
+
+**Two repos look identical in an age-sorted PR list and need opposite actions:**
+
+| repo state | what an old PR means | the action |
+|---|---|---|
+| **merging** (≥1 merge / 60d) | a person is working here; the PR is waiting on attention | **nudge** — one courteous line, never @-spam |
+| **dormant** (0 merges / 60d) | nobody is merging anything; the PR is in a backlog | **withdraw** — closing ours is a courtesy |
+
+**Measured on our own open PRs: 11 of 15 sat in repos with ZERO merges in 60 days; 4 sat in repos actively
+merging.** All 15 reported identically as "silent PR, ~120 days old". That is the whole lesson: an age-sorted
+report can say *how stale* something is and never *what to do about it*, so the split must be computed, not
+inferred.
+
+- **A dormant repo is not a community we are joining — it is a list we are adding our name to.** The information
+  was delivered by opening the PR; leaving it open does not make us present.
+- **A nudged dead PR is worse than a quiet one.** It spends attention on a queue nobody reads and makes the next
+  contribution look automated.
+- **Check liveness in the SAME pass as the contract.** `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/config.yml`,
+  recent **closed** PRs, and merge cadence are one question: *is this a place where work actually lands?*
+- **Read `merged_at`, not `state`.** A closed PR is not a merged one, and `state: closed` on a PR we did not merge
+  is a rejection, not a signal to retry.
+
+### ⚠️ `pushed_at` is BOT NOISE — a renovate branch is not a maintainer
+
+**A repo whose `pushed_at` is today can be four months dead.** Measured: one repo in the withdraw set reported
+`pushed_at` = *the same day*, which reads as a live project and nearly kept a 123-day PR open. Its **default
+branch head had not moved in ~6 months**; every recent push was a `renovate[bot]` dependency branch. The merge
+count (zero) was right and the timestamp would have been wrong **in the direction that keeps a dead PR alive.**
+
+⇒ **Judge liveness by the DEFAULT BRANCH, and discount bot authors.** Never by `pushed_at`, never by
+`updated_at`.
+
+```bash
+# 1 · default-branch head date, not pushed_at
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.github.com/repos/{owner}/{repo}/commits?sha=<default_branch>&per_page=1" \
+  | jq -r '.[0].commit.author.date'
+
+# 2 · name who is committing — bots do not merge
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.github.com/repos/{owner}/{repo}/commits?sha=<default_branch>&per_page=10" \
+  | jq -r '.[] | "\(.commit.author.date[:10])  \(.commit.author.name)"'
+```
+
+- **A branch with commits is not a branch with MERGES.** Automation (`renovate`, `dependabot`, CI bots) pushes on
+  a schedule regardless of whether a human has reviewed anything for a year.
+- **`pushed_at` covers *all* branches.** It is the repo's newest ref of any kind, so one bot branch resets it
+  while the trunk sits frozen — the single most misleading field in the repo object.
+- **The merge count is the primary signal; the trunk date is the corroboration.** When they disagree, the trunk
+  wins — and say which you read, because "recently pushed" is the sentence that stops a withdraw.
+
+### Withdrawing: one courteous note, then close — and verify BOTH
+
+**A withdrawal that argues is worse than silence.** The note states the withdrawal and leaves the door open; it
+asks nothing, pings nobody, and mentions no maintainer.
+
+- **Comment, then close.** Not the reverse — a close with no comment leaves the maintainer guessing.
+- **No `@`-mention and no follow-up question.** Anything asking for a reply turns a withdrawal into one more
+  thread somebody has to triage.
+- **Say the age and the reason once**, then stop. "N days without activity, no action needed, happy to reopen
+  or rebase if you want it later" is the whole message.
+- **Verify with a RE-READ, and check both halves:** `state == "closed"` **and** `comments >= 1`. A write that
+  returns success is a claim; a closed-but-uncommented PR looks like a drive-by close.
+- **Never withdraw a thread where a human replied.** That is a conversation to answer, not a deposit to reclaim
+  — a silent close into an answered thread costs more than leaving it open.
 
 ## Phase 0: Pre-Flight — Token & Account Health Check (Mandatory — Run Before Anything)
 
@@ -22,7 +198,7 @@ Before ANY GitHub operation, verify the authentication token and account are val
 gh auth status 2>&1
 ```
 
-**Expected:** `✓ Logged in to github.com account GentechLabs`
+**Expected:** `✓ Logged in to github.com account ProtoJay4789` — **if it says `GentechLabs`, stop: see the identity rule above.**
 **Failure signals:**
 - `X Failed to log in` + `The token in ... is invalid.` → Token was revoked or expired
 - `HTTP 401` or `HTTP 403` on any `gh api` call → Token is dead
@@ -64,7 +240,7 @@ Both must contain the same valid token. If one is stale, update both.
 When the session cannot proceed due to token/account issues, update the rotation file to mark the current batch as checked (so the next run doesn't retry the same repos with the same dead token):
 
 ```bash
-# Write to /root/.pr-maintainer-rotation.txt
+# Write to /opt/data/profiles/gentech/state/pr-maintainer-rotation.txt
 # Set repos_checked to the current batch
 # Leave repos_pending as-is
 ```
@@ -798,7 +974,7 @@ If a repo's format rules are unclear:
 
 **Current PR cron:**
 - PR Maintainer: `30 8,12,16,20 * * *` (8:30am, 12:30pm, 4:30pm, 8:30pm ET)
-- 4 repos per run, tracked in `/root/.pr-maintainer-rotation.txt`
+- 4 repos per run, tracked in `/opt/data/profiles/gentech/state/pr-maintainer-rotation.txt`
 - ~8-12 API calls per run — well within 5,000/hr budget
 
 **What the consolidated cron does:**
@@ -806,7 +982,7 @@ If a repo's format rules are unclear:
 2. **Inbox Maintenance** — Check existing PRs for comments, CI failures, mergeability. Respond to reviewer feedback. Do NOT open new PRs to random projects.
 3. **Rate Limit Management** — Start with inbox check (5-10 calls), then ecosystem discovery via web search (free, no API cost). Only scan repos if budget allows. If rate limited, report it and stop — next run picks up where you left off.
 
-**Rotation file format** (`/root/.pr-maintainer-rotation.txt`):
+**Rotation file format** (`/opt/data/profiles/gentech/state/pr-maintainer-rotation.txt`):
 ```
 last_run: 2026-07-21 14:30
 repos_checked: repo1, repo2, repo3, repo4
@@ -863,7 +1039,7 @@ Zero bot-rejected PRs. Every submission passes template checks on first try.
 
 - **Rate limit management for 50+ PR batch scans:** See `references/rate-limit-management.md` — tiered REST→GraphQL fallback strategy
 - **YAML catalog repo submissions (projects.yaml format):** See this skill's "YAML Catalog Repos" subsection under Awesome Lists for the worked best-of-mcp-servers example
-- **Full PR compliance sweep (when bot feedback triggers a full audit):** See `open-source-contribution` skill → "PR Compliance Sweep" section and `references/pr-compliance-sweep-checklist.md`
+- **Full PR compliance sweep (when bot feedback triggers a full audit):** See `open-source-contribution` skill → "PR Compliance Sweep" section and `references/pr-compliance-sweep-checklist.md`   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `open-source-contribution` exists on this seat -->
 - **Curated-list PR workflow (awesome lists, pay-skills catalog):** See `open-source-contribution` skill → "GitHub Curated-List Campaign" section
 - **Greptile handling (pricing, categories, specs):** See `open-source-contribution` skill → "Dealing with Auto-Review Bots" section
 - **Pay-skills catalog fix workflow (per-service OpenAPI, Algorand sync, multi-branch git):** See `references/pay-skills-catalog-fix-patterns.md`

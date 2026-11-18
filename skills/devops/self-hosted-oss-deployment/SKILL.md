@@ -29,6 +29,8 @@ echo "=== Cargo ===" && cargo --version 2>/dev/null || echo "MISSING"
 echo "=== FFmpeg ===" && ffmpeg -version 2>/dev/null | head -1 || echo "MISSING"
 echo "=== Docker ===" && docker --version 2>/dev/null || echo "MISSING"
 echo "=== Disk ===" && df -h / | tail -1
+echo "=== unzip ===" && unzip -v 2>/dev/null | head -1 || echo "MISSING"
+echo "=== curl/tar ===" && curl --version 2>/dev/null | head -1 && tar --version | head -1
 ```
 
 **Common prerequisites by project type:**
@@ -38,6 +40,26 @@ echo "=== Disk ===" && df -h / | tail -1
 - **Go projects:** golang-go (`apt-get install -y golang-go`). Build with `go build -o binary-name .` from repo root. Check `go.mod` for module path.
 - **Media projects:** FFmpeg (usually pre-installed)
 - **Storage projects:** Docker (for MinIO)
+
+**Pitfall — vendor install scripts assume `unzip`, and it is often absent on minimal hosts.**
+`curl -fsSL https://<vendor>/install | sh` installers ship the CLI as a zip and shell out to `unzip`;
+without it they die at extraction (`error: unzip is required`) or throw a `FileNotFoundError` naming
+their own stub. Installing the real package needs root a container agent usually lacks — drop a Python
+zipfile shim on PATH instead (`scripts/unzip-shim.py` in this skill):
+
+```bash
+mkdir -p /opt/data/tools/bin
+cp <skill>/scripts/unzip-shim.py /opt/data/tools/bin/unzip && chmod +x /opt/data/tools/bin/unzip
+export PATH=/opt/data/tools/bin:$PATH     # must be exported before the installer runs
+```
+
+⚠️ **Installers pass combined short flags** (`-oqd <dir>`), so a shim that only understands a bare `-d`
+treats `-oqd` as the archive name and fails with `No such file or directory: '-oqd'`. The shim handles
+both forms — check that before blaming the vendor script.
+
+**Prefer the vendor's own CLI once installed.** Its auth path outranks hand-built HTTP: `login`
+subcommands both prove a credential in one call and print the exact error the API is actually
+returning, instead of five header permutations that each fail differently.
 
 ### Capacity Gate (before committing to deploy)
 

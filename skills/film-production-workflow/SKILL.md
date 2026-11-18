@@ -6,6 +6,15 @@ category: film-production
 
 # Film Production Workflow
 
+## ⛔ WALLET STATUS — 2026-11-03
+
+`0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (F8) is **RETIRED** — key lost in the Oct 12 wipe; its 0.4868 USDC is unspendable.
+**Do not fund it; do not expect it to work.** Current BlockRun wallet:
+`0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0` — one shared key file at `/opt/data/.blockrun/.session`, symlinked into every seat.
+It holds 0.9687 USDC and **0.000000 ETH** on Base: calls fail until gas is funded.
+Detail: `gentech-wallet-management` → WALLET STATUS.
+
+
 > Class-level umbrella for Seedance 2.0 music video production. Covers the full pipeline from wallet check to final merge.
 
 ## Pre-Production Checklist
@@ -18,7 +27,7 @@ category: film-production
 
 ## Wallet Management
 
-**BlockRun wallet (Base):** `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (the FUNDED wallet)
+**BlockRun wallet (Base):** `0xebc8c719…72f8 (RETIRED)` (the FUNDED wallet)
 ⚠️ An earlier version of this skill listed `0x8B1a1B98376B5e4A057a69847C26d738BefBf99f` — that is a
 DIFFERENT wallet BlockRun MCP created on a fresh profile. Funds live on the old address.
 
@@ -283,11 +292,11 @@ When the user says they "saw" a reference character use a particular technique (
 ### 1. BlockRun wallet swap (funds "missing" after top-up)
 A fresh Hermes profile can create a NEW BlockRun key at
 `${PROFILE_DIR}/home/.blockrun/.session` while the FUNDED wallet key lives at
-`/root/.blockrun/.session`. `blockrun_wallet` then reports $0.00 even after a top-up, because the
+`/opt/data/.blockrun/.session`. `blockrun_wallet` then reports $0.00 even after a top-up, because the
 MCP signs with the new (empty) key.
 FIX:
 ```bash
-cp /root/.blockrun/.session ${PROFILE_DIR}/home/.blockrun/.session
+cp /opt/data/.blockrun/.session ${PROFILE_DIR}/home/.blockrun/.session
 ```
 Then verify `blockrun_wallet(action=status)` shows the funded address `0xebc8c...`.
 

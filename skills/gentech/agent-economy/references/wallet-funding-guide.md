@@ -1,5 +1,14 @@
 # Wallet Funding Guide
 
+## ⛔ WALLET STATUS — 2026-11-03
+
+`0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (F8) is **RETIRED** — key lost in the Oct 12 wipe; its 0.4868 USDC is unspendable.
+**Do not fund it; do not expect it to work.** Current BlockRun wallet:
+`0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0` — one shared key file at `/opt/data/.blockrun/.session`, symlinked into every seat.
+It holds 0.9687 USDC and **0.000000 ETH** on Base: calls fail until gas is funded.
+Detail: `gentech-wallet-management` → WALLET STATUS.
+
+
 ## Multi-Chain Wallet Strategy
 
 GenTech operates across multiple chains. Same EVM address works on all EVM chains (just switch network in MetaMask). Solana uses a different address.
@@ -8,7 +17,7 @@ GenTech operates across multiple chains. Same EVM address works on all EVM chain
 
 | Chain | Address | Current Balance |
 |-------|---------|----------------|
-| Base/BNB/Avax (EVM) | `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` | Check with script |
+| Base/BNB/Avax (EVM) | `0xebc8c719…72f8 (RETIRED)` | Check with script |
 | Solana | `z7ww986T74koL9Cvnc31LFpwCP8ue1UupJX3KCAbB5Q` | Check with script |
 
 ### Funding Requirements

@@ -54,3 +54,66 @@ The earlier `revenue-listing-map.md` said x402scan "auto-indexes from /openapi.j
 That is FALSE as the listing path — settlement/openapi crawling does NOT list us
 (0.015 USDC settled Aug 19, stayed 0). The working path is the **manual "Add API"
 form** (see `platform-registration` skill → `references/x402scan-manual-registration.md`).
+
+---
+
+# DIAGNOSING ZERO CONVERSION — segment the traffic by what each caller SAYS it is
+
+Before concluding "our price is wrong", measure who is knocking. The gateway already logs a
+`User-Agent` per request, and on x402 a large share of callers describe themselves in it — including,
+literally, that they do not pay.
+
+## The classification (do this first, it costs one script)
+
+Group every request in the traffic log by self-declaration:
+
+| caller kind | how you spot it | can it pay? |
+|---|---|---|
+| **monitor / uptime / liveness / healthcheck** | `uptime-probe`, `liveness check`, `monitor`, `beat`, `watch` | **no — by design** |
+| **directory / crawler / list-observer** | `crawler`, `list-monitor`, `router`, `directory`, `catalog`, `observer`, `archive` | **no — indexing, not buying** |
+| **conformance tester** | `Conformance`, `validator`, `checker`, `spec` | **no — verifies the spec** |
+| **raw HTTP client, no identity** | `python-requests`, `axios`, `node`, `curl`, `okhttp` | unknown |
+| **other** | anything left | possibly |
+
+**Measured on one live catalogue:** **72% of 7,612 requests came from self-declared non-payers** —
+uptime probes ~3.2k, directories/crawlers ~2.3k, conformance testers ~0.4k. Two of them say it in the
+header itself: `... (unpaid liveness check, never settles)` and `... (independent endpoint monitor;
+never pays)`. A single uptime prober produced 703 requests, 703 × 402, and zero served calls.
+
+## The numbers that decide the verdict
+
+```
+quotes (402) for the period     : 50,185
+served on PAID routes           :     15   ← the only figure that is a sale or a keyed call
+served on public/free routes    : 30,124   ← index, manifest, docs, MCP handshake: NOT sales
+```
+
+- **A 402 is a QUOTE, not a decline.** Counting knocks as demand makes a crawler look like a market.
+  Reporting "50,000 requests" as traction is the flattering number that hides the gap for weeks.
+- **Check WHO the served-on-paid-route traffic came from.** Measured: all 585 of the "deep route" 2xx
+  came from exactly two agents — a list-monitor and a conformance tester. Both are infrastructure.
+- **The verdict when 0% of quotes convert on healthy backends: there are no buyers in the funnel.**
+  Not a broken price, not a broken route — an empty room. Every backend reporting `ok` is evidence
+  *against* an outage explanation.
+
+## Rule pricing OUT with evidence, before touching a price
+
+- **If the CHEAPEST route converts at zero, price is not the gate.** Measured: a market route priced
+  **5× under** a household-name competitor ($0.001 vs $0.005) took ~800 quotes and sold zero. A price
+  war cannot fix an empty room, and discounting to impress crawlers only destroys margin.
+- **Do not buy more listings.** If directories are already crawling you, more listings reaches the
+  same non-buying layer. Distribution to the discovery layer is not distribution to buyers.
+- **State what would falsify the price theory** and check it: does any route, at any price, convert at
+  all? If nothing converts anywhere, the variable is not price.
+
+## Where to look instead (the three questions that actually move it)
+
+1. **Where do agents WITH BUDGETS live?** That is a sales problem, not an SEO one. A **facilitator**
+   appearing in your own traffic is a lead — facilitators settle for others and therefore see which
+   agents actually pay. Ask them what buyers are requesting, not what you should list.
+2. **What do they buy that you already have?** A buyer with a budget buys **a decision it cannot make
+   itself** — not a feed it can get free from a public API. The routes priced like *judgement* (verdicts,
+   risk, blast-radius) are the right shape; raw lookups are the commodity floor.
+3. **Is the free → paid on-ramp designed at all?** Tens of thousands of free serves is enormous
+   distribution converting to nothing. Either the free tier is too generous to ever need the paid one, or
+   the upgrade moment was never built. Audit that before adding another route.

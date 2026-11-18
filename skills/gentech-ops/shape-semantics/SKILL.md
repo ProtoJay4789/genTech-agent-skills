@@ -1,3 +1,10 @@
+---
+name: shape-semantics
+description: "Use when discussing what a trading shape IS — CURVE vs BID_ASK semantics, not regime mapping."
+category: gentech-ops
+tags: [shape, lp, semantics, treasury]
+---
+
 # shape-semantics
 > *Use when the user talks about an agent understanding what a trading shape is and does — CURVE vs BID_ASK, knowing the shape not just the trigger. Shape selector that reasons about semantics, not just regime mapping.*
 

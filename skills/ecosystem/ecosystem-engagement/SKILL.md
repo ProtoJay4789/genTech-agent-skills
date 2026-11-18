@@ -11,6 +11,13 @@ description: >-
 
 Standard playbook for engaging with open-source projects in GenTech Labs' ecosystem.
 
+## When to Use
+
+- A repo, org or issue appears in the ecosystem and the question is what to do with it (contribute, integrate,
+  fork, adopt, connect).
+- The task is finding **work to do** — portfolio PRs, listings, or **paid bounties**.
+- A contribution is about to be posted publicly under our name.
+
 ## Six-Way Engagement Scan
 
 For every new repo or org encountered, classify into one of these engagement types:
@@ -64,6 +71,28 @@ When a project's ecosystem has a skill/passport/plugin distribution model (skill
 - **Pitfall:** Some repos block API forking. Check `allow_forking` before attempting automated fork. If blocked, save code locally and note "manual fork needed" in handoff.
 - **Multi-issue PRs:** When a repo has several related issues (e.g. Xona Labs #5 Zod validation, #2 tweetnacl fix, #3 fail closed), batch them into one PR on one branch. Saves review cycles.
 - **PR-ready handoff:** Save code + instructions to `10-Labs/<project>-pr-ready.md` for manual submission.
+
+### 💰 Paid Bounties — the contribution channel that pays, and clears in hours
+
+When the goal is **paid** work rather than a portfolio PR, the surface is priced issues (`label:bounty`,
+`Help Wanted`, platform labels), and the rules differ from ordinary contribution. Full depth:
+`references/paid-bounty-vetting.md`. The four that change decisions:
+
+- **`assignee: null` proves nothing.** Bounty economies claim by *commenting* (`/claim`, "I'm taking this",
+  a linked open PR). Read the thread of every shortlisted issue and reject on those signals **with the
+  evidence line attached** — a claim you cannot show is a claim nobody will believe.
+- **Credibility is a hard reject, not a score penalty.** No licence, a repo days old with many priced
+  issues, or near-zero stars = a bounty farm paying in promises. The headline price is what makes a farm
+  win any ranking that rewards price, so farms must be removed before scoring.
+- **The window beats the fit.** Best-matching bounties are claimed the same day by people who live on that
+  issue feed; a day-old strong match is usually gone. For a first attempt, weight recency and low comment
+  count above lane fit — a modest unclaimed ticket beats a large prize with three open PRs under it.
+- **Match the ticket to an artifact that already exists.** The winnable ones describe work already shipped,
+  so the PR is a port of a proven mechanism rather than a research project. If nothing matches, decline
+  rather than recommend.
+
+Reject rules read the **title only** — a body naming a platform gets an issue filtered out over a surface it
+is not about, and a false reject hides real work.
 
 ### 🔗 Integrate — Cross-pollinate tools
 - Does their tooling complement ours? (Solana tools → our EVM gateway, their SDK → our stack)
@@ -134,6 +163,44 @@ When Jordan says **"eat the meat"** (or "eat the meat, spit out the bones") on a
 - **Requirements:** US-based Robinhood account, Agentic account opened via desktop browser, funded with dedicated budget
 - **Safety:** review_equity_order / review_option_order before placement, push notifications on every trade, disconnect anytime
 - **Comparison vs Base DeFi:** Robinhood = traditional assets (equities, options, SIPC insured, regulated, market hours). Base = on-chain (permissionless, 24/7, composable, self-custody, global). They're complementary — Agentic Treasury routes capital to whichever market offers best risk-adjusted return.
+
+## Contributing Into an Issue Thread (public voice)
+
+Answering in someone else's tracker is the cheapest credibility available and the easiest to lose. It is a
+public act under our name, so it follows the same standard as a paid deliverable: measured, attributed, disclosed.
+
+**Procedure:**
+
+1. **Read the whole thread first, then reproduce the claim yourself.** The comment must rest on a measurement taken
+   *for this reply* — a status code, a transaction hash, a line of code, a DNS lookup. "We have seen this" is not
+   evidence.
+2. **Verify the REMEDY, not just the complaint.** A report that an endpoint is dead very often recommends a
+   replacement that is *also* dead. Check the proposed host/path resolves and answers (`getent hosts`, then a real
+   request) before endorsing it, and if it does not resolve, say so with the output. **Correcting a wrong fix is
+   worth more than confirming the bug** — it is the difference between one person losing an hour and losing a week.
+3. **Disclose the commercial interest in the first two lines.** We are a seller describing our own production
+   behaviour. Advice from an account with a hidden stake reads as marketing the moment it is discovered.
+4. **Contribute the failure mode nobody asked about.** A test case the maintainer does not have changes their suite;
+   an answer they already half-knew changes nothing. Frame it as "add this to the conformance set", with the receipt
+   that proves it — never as "we do it better".
+5. **One substantive comment per issue. No cross-posting the same text, no link-dropping to pricing.** Count the
+   threads you have touched and keep them distinct; a campaign is visible and costs more than it buys.
+6. **Offer to be a test target.** "Run your alpha against our gateway, we can reproduce both cases on demand"
+   converts a comment into a relationship, which is the actual objective.
+7. **Check back once, do not nag.** If ours is the only reply on a spec question, that reply is now the reference
+   answer — record it as an asset and watch for a reply rather than posting a follow-up to look responsive.
+8. **Cadence beats eloquence: scan DAILY, reply within hours.** A stuck developer who gets an answer the same day
+   becomes a contact; the same person four days later has been helped by someone else or has abandoned the
+   integration. **Opportunity decays in hours, so a weekly scanner measures a market that no longer exists** — set
+   the monitor's schedule from the counterparty's patience, not from how much effort the scan costs. Verification,
+   not speed, is what makes the reply worth posting; the two are not in conflict.
+9. **Verify the comment landed by reading it back.** A 201 from the comments API is a claim: re-fetch the thread and
+   confirm the id, the author and the body length. An empty thread that now shows one comment from us is the only
+   proof that the reference answer exists where other people will find it.
+
+**Where the material comes from:** every answer should be a wound we actually healed on our own surface. Keep the
+pairing in mind — *the bug we fixed is the question someone else is about to ask* — and the contribution pipeline
+stays full without inventing anything.
 
 ## Star → Analyze → Engage
 
@@ -231,7 +298,7 @@ The PR Maintainer runs 4x daily (8:30am, 12:30pm, 4:30pm, 8:30pm ET) and checks 
 
 ### Rotation File
 
-Maintain a tracking file at `/root/.pr-maintainer-rotation.txt`:
+Maintain a tracking file at `/opt/data/profiles/gentech/state/pr-maintainer-rotation.txt`:
 
 ```
 last_run: 2026-07-21 20:30
@@ -333,6 +400,13 @@ This is the preferred method for bulk PR portfolio sweeps. Save `gh` for operati
 
 ## References
 
+- `references/paid-bounty-vetting.md` — discovery queries that carry signal (and the body-phrase query that
+  returns ~20k false positives), the credibility gate that removes bounty farms, price handling where UNSTATED
+  is not $0, comment-thread claim detection because `assignee` proves nothing, and the work-shape filters that
+  stop an engagement farm or a wrong-language ticket from ranking. Filter order: reject → score → verify claims.
+- `references/demand-radar.md` — measuring what an ecosystem actually needs from its issue trackers: phrase
+  queries, the specificity-over-volume ranking rule, and the degeneracy guard that catches a query which has
+  collapsed into returning the same total for every hypothesis.
 - `references/solo-builder-outreach.md` — Solo builder outreach pattern: star → analyze → open issue introducing yourself. For 0-5 star repos where the play is a relationship, not a PR.
 - `10-Labs/hyre-mcp-integration-plan.md` — Example integration plan
 - `10-Labs/dexter-dao-pr-ready.md` — Example PR-ready handoff

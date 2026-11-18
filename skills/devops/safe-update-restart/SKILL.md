@@ -1,7 +1,7 @@
 ---
 name: safe-update-restart
 description: "Update/restart a production VPS safely; never blind-restart."
-version: 1.1.0
+version: 1.3.0
 author: Gentech
 tags: [update, restart, deployment, operations, hermes, gateway, verification, backup, safety]
 ---
@@ -23,6 +23,20 @@ a live connection or take down a service with no warning. Always: **backup → c
 window → restart each service → verify everything after.**
 
 ## Topology Assumption You Must Verify First
+
+> ### ⚠️ FIRST: WHICH HOST ARE YOU ON? (measured 2026-10-17)
+>
+> **The systemd instructions below do NOT apply to the current Docker/s6 host**, where `systemctl` does not
+> exist. On that host the restart mechanism is **`s6-svc`**, there are **seven gateway slots of which exactly
+> one is live** (`gateway-default`, the multiplexer; the other six are held `down`), and there is a
+> **fleet-decapitation footgun** in the obvious-looking command.
+>
+> **→ Go to `references/s6-restart-protocol.md` and follow that instead.** It carries the measured topology,
+> the commands, the footgun, and the end-to-end order.
+>
+> Everything from here down assumes a systemd host. Use it for a systemd box; **do not run it against this
+> container.**
+
 The instructions below default to **one multiplexer unit per host**, NOT the old one-unit-per-profile
 shape. On this fleet the per-profile `hermes-gateway-<seat>.service` units were retired in favour of
 a single **`--user` unit `hermes-gateway.service`** that serves all profiles and ticks all cron
@@ -55,7 +69,7 @@ systemctl --user is-active hermes-gateway.service
 systemctl --user show hermes-gateway.service -p MainPID -p ExecMainStartTimestamp -p ActiveState
 python3 - <<'PY'
 import json, pathlib, datetime
-st = json.loads(pathlib.Path('/root/.hermes/gateway_state.json').read_text())
+st = json.loads(pathlib.Path('/opt/data/profiles/gentech/gateway_state.json').read_text())   <!-- ⚠️ NOT PRESENT (checked 2026-11-17): this file does not exist on this seat. Do not assume it; verify before relying on it. -->
 print('gateway_state:', st.get('gateway_state'))
 for k, v in (st.get('platforms') or {}).items():
     print(f'  {k}: {v.get("state")}')
@@ -93,8 +107,38 @@ If the update/restart was ordered right after (or alongside) a provider change, 
 
 **Expect your own session to drop mid-run.** A fleet update restarts ALL 4 gateways including the one serving this conversation — the live session dies and rebuilds on the new code. Plan around it: (a) preflight with `fleet_update.py --check`, (b) run the real update via `terminal(background=True, notify_on_complete=True)` — the detached process survives the session loss and completes all phases, (c) dispatch notices/prep work BEFORE launching, and (d) hand off a "when you're back" verification checklist in the final message, since post-restart verification happens on the NEXT live turn.
 
+> **THE PROCESS DIES — THE CONVERSATION OFTEN DOES NOT. A restart that reuses the session id has cleared NOTHING.**
+> "The session dies and rebuilds" is true of the *process*; the *conversation* is a row in `state.db`, and it
+> survives the bounce with its full message history. Measured on an `api_server`-driven seat: after a fleet
+> restart the newest session was **still the same id, still carrying every message from before**, and the
+> start-of-session `MEMORY.md`/`USER.md` snapshot was still the version frozen days earlier. Nothing was reset.
+> - **Measure it before reporting it:** record `session_id` and message count (or start time) before and after —
+>   from `state.db` (`SELECT session_id, max(timestamp) ... GROUP BY session_id`) or `sessions`. An unchanged id
+>   is proof the restart did not touch this conversation, regardless of what was restarted.
+> - **Never answer a post-restart probe with "back on fresh code / fresh context" without that measurement.**
+>   A seat that believes a bounce refreshed it will keep reasoning from a stale memory snapshot it cannot see.
+> - **Only a new session (`/new`, a user action) clears context.** Say that plainly when a restart was meant to
+>   clear something and did not; do not silently imply the bounce did it.
+
 > **PRE-RESTART CHECKPOINT (Jordan, Sep 7 — MANDATORY ORDER BEFORE ANY FLEET RESTART):**
 > Before restarting ANY gateway (fleet or single-profile), send a **checkpoint handoff** so in-flight agents can save progress instead of losing mid-session work. Sequence: (1) dispatch a handoff to every affected profile asking "checkpoint your work in the vault now — confirm you're safe to restart" (the handoff goes to `01-HANDOFFS/gentech-to-<profile>/` and the gateway delivers it). (2) WAIT for each profile to return an ACK (a return note in `01-HANDOFFS/<profile>-to-gentech/` or an INBOX note) confirming it has saved state. (3) Only once ALL affected agents have ACKed do you run `fleet_update.py --restart-only`. Do NOT restart on a timeout or assume silence = safe — if an agent is mid-task you either wait for its ack or explicitly confirm with Jordan. In-flight cron jobs and subagents snapshot config at gateway start; a restart drops their current session and they resume blind. This is the difference between "controlled window" and "surprise reboot." `fleet_update.py --checkpoint` automates the handoff+wait+verify for single-profile use; for a real fleet restart dispatch the handoffs yourself to all 4 profiles (there is no single agent that owns all 4 sessions) and await all acks.
+
+> **THE ASK MUST DEMAND A FINISH, NOT A SAVE (Jordan, 2026-10-17):** *"all agents in order to give an
+> acknowledgement they have to finish their current task, save and log whatever their progress is in the
+> brain — whether it's going to the Mess Hall or to notes — and then they can give the acknowledgement…
+> so that way once we do a restart or accept a new update we want to make sure that there's nothing left
+> behind, nothing pending that we have to come back to."*
+>
+> So the checkpoint handoff you dispatch must say **finish → log in the brain → verify → then ACK**, and
+> must ask the seat to report **what it parked and where**, not just "saved." Consequences for the
+> dispatcher:
+> - **"Nothing was in flight" remains a valid return** — the rule tightens what an ACK *means*; it
+>   does not invent work to save.
+> - **A seat that cannot finish must return `NOT READY — mid-<task>`, not an ACK.** Treat that as a **gate
+>   that has not opened**, never as a soft yes.
+> - **Read the ACKs for resume points, not just the phrase.** A parked item with no named resume file and
+>   next step is a loss with a timestamp — send it back before you restart.
+> - Receiver-side procedure: `checkpoint-ack` (canonical).
 
 > **WHO GATES A RESTART (Jordan, Sep 21):** the **four VPS seats** gate it — gentech, gentech-treasury, gizmo, pixel. Jordan: *"the acknowledgement for you probably never going to be in this unless we're at home working on something. So it's just going to be the four agents that are on the VPS who can give an acknowledgement right now or most times."* **Forge (Desktop) is contact-as-available, NOT a blocker** — if it doesn't ACK, do not wait and do not read silence as refusal; **save the ask and hand it over later as catch-up** ("here's what you need to update"). If Forge IS up and has work in flight, it gates the restart like any other seat.
 >
@@ -302,7 +346,7 @@ multiplexed host, use the gateway's own state file:
 ```bash
 python3 - <<'PY'
 import json, pathlib
-st = json.loads(pathlib.Path('/root/.hermes/gateway_state.json').read_text())
+st = json.loads(pathlib.Path('/opt/data/profiles/gentech/gateway_state.json').read_text())
 print('gateway_state:', st.get('gateway_state'))
 for k, v in (st.get('platforms') or {}).items():
     print(f'  {k}: {v.get("state")}')
@@ -357,18 +401,96 @@ run tells you whether the condition is current.
 See `references/gateway-unit-vs-process-desync.md` for the exact probe, the systemd timestamp
 reconstruction, and the manual rerun pattern.
 
+### Step 4b — Deploying a CODE change to a live service: three-way identity, and the rollback trap
+
+**A restart that exits 0 is not a deployment.** When the change is a code edit to a file a running
+service serves (a bind-mounted `server.py`, a config it reads at import), the deploy is a chain and
+every link needs its own check:
+
+```bash
+cmp -s <live/file> <patched/copy>      || echo '❌ deployed file is NOT the patched copy'
+cmp -s <live/file> <prepatch/backup>   && echo '❌ live file is still the PRE-PATCH copy'
+grep -c '<symbol the patch introduced>' <live/file>   # 0 = the patch is not in the served file
+curl -s -o /dev/null -w '%{http_code}' <the-behaviour-that-must-have-changed>
+```
+
+**Four independent signals — behaviour, marker count, patched-identity, prepatch-difference.** Any
+one alone can lie: a stale process serves old code after a clean restart, and a file on disk can be
+correct while the process still holds the previous import.
+
+**⚠️ THE ROLLBACK TRAP — the undo will be run as if it were a repair.**
+
+Measured: a deploy was verified working, then the operator re-ran a rollback command that had been
+supplied in the same message as the deploy. The `cp <backup> <target>` succeeded (a hygiene sweep had
+just restored the file it needed), the service restarted, and the fix was **silently undone** — the
+next probe found the original defect back. Nobody did anything wrong; the two commands were simply
+presented as peers.
+
+- **Never put the deploy and the undo in the same code block.** A block implies a sequence.
+- **Name the undo by its EFFECT, not its mechanism:** `UNDO — restores the pre-patch file and
+discards the fix; run only if <specific symptom>`. `cp x.bak x` looks like housekeeping.
+- **`cp <backup> <target>` is destructive and deserves the destructive-write rules** — check what it
+  overwrites, and say out loud that it reverts.
+- **Validate the undo command before handing it over** — a missing file or a wrong directory makes it
+  fail harmlessly, and the operator reads that failure as "the rollback is unavailable" rather than
+  "my path was wrong". Resolve the real path first (`docker inspect … Mounts`) and give the HOST path;
+  a container path like `/opt/data/...` usually does not exist on the host that binds it.
+- **After ANY `cp` over live code, re-run the identity checks** — the deploy is not "done" until the
+  live file is provably the patched one, not merely until a restart succeeded.
+
+**Keep the post-change copy OUTSIDE the tree the change lives in.** A `.bak` beside a file that a
+cleanup job sweeps is one glob away from gone; the durable copy belongs in a backups directory no
+sweep rule reaches.
+
 ## Pitfalls
 - ❌ **Reading `systemctl is-active` without also checking for a live process** — or checking for a process without checking unit state. After a partial restart the two can disagree for hours; both signals are required.
 - ❌ **Dismissing a liveness alert because "it looks fine now"** — the alert may have caught a real desync that already self-healed. Re-run the monitor by hand to know whether the condition is current.
 - ❌ **Trusting a monitor that checks units that no longer exist.** After a topology change, a script that asks for `hermes-gateway-<seat>.service` will report every seat `inactive` forever, even when the fleet is healthy. A monitor that can only ever be wrong trains the reader to ignore the real red. Verify the unit topology first; see `references/gateway-multiplexer-topology.md`.
 - ❌ **Restarting from a script that names the wrong unit topology.** A loop over retired per-profile units on a multiplexed host exits nonzero but restarts nothing, and the operator thinks the fleet bounced when it did not. Assert the gate (the unit exists), never the outcome ("script ran").
 - ❌ **Assuming `active (running)` systemd status means the monitored process is healthy** — a watchdog can be actively killing and restarting the service on a false "down" reading, producing short uptimes and apparent crash loops while the unit repeatedly returns to `active`. Always check the *uptime* (`systemctl --user status` shows `Active:` since...) and the *restart count*; uptimes of a few minutes on a long-running daemon indicate a remediation loop, not a crashing daemon.
+- ❌ **Handing over a copy-paste block that contains `...` — a block is executed VERBATIM.** Measured: a
+  `docker run` was given as a skeleton with the image and volume args elided as `...`; the operator pasted the
+  whole block, the preceding `docker rm -f` destroyed the container, and `docker run … ...` died with
+  `invalid reference format`. **Production went down from a command that was never runnable**, and the first
+  loss was not the service — it was the container's *specification*, which `docker inspect` can no longer
+  read once the container is gone.
+  - **Recover the recreate spec BEFORE removing anything.** The authoritative source is the runbook entry or
+    deployment script that last worked, not memory: `grep -rn 'docker run' <vault>/00-HQ/*RUNBOOK*.md`. Write
+    the full command out first, confirm it is complete, and only then hand over the destroy step.
+  - **If you cannot produce a complete command, say what is missing instead of shipping a placeholder.** "I
+    need the container's image and mounts before I can give you the command" is a finished answer; a skeleton
+    is a trap with an ellipsis in it.
+  - **Never put the destroy step in the same block as the recreate.** Same family as the rollback trap above:
+    the operator runs the block as a unit, so a failure in the second command leaves the first one applied.
+  - **An env var the app already supports is the cheap fix; a container recreate is the expensive one.** Check
+    for a documented override (e.g. `X402_TRAFFIC_DIR`, an `--config` path, a `*_DIR` variable) before
+    proposing a recreate — and if the override points at a path, remember it must be a MOUNTED path, or the
+    data lands in the container's writable layer and vanishes at the next recreate (the bug, relocated).
+  - **THE POSITIVE SHAPE — when the operator runs it and you cannot, BUILD → VERIFY → SWAP. Never remove
+    first.** `rm` then `run` is a one-step outage if the second fails; the zero-step equivalent is:
+    1. `docker run` the replacement under a **temporary name** (`<svc>-new`). **This step removes nothing.**
+    2. Probe it out-of-namespace: `docker exec <svc>-new curl -sf localhost:<port>/<known-path>`. **Not `200` →
+       stop.** The old container is untouched, so a failed build costs nothing but the temp container.
+    3. Only then `docker rm -f <svc> 2>/dev/null; docker rename <svc>-new <svc>`.
+    **`--restart unless-stopped` is not a rollback** — `docker rm -f` deletes the restart policy along with
+    the container, so any crash-protection argument for a risky command is void.
+  - **Validate the block before it leaves your message.** `python3 scripts/command-readback.py --file <runbook>`
+    (shipped with this skill) refuses a bare `...`/`…` used as an argument, `<placeholder>` tokens, and
+    destructive-before-constructive ordering; on a markdown file it scans **only the fenced code blocks**, so
+    prose angle-brackets do not cry wolf. Exit 0 means runnable as written — that is the read-back, and the
+    paste is the deploy.
+- ❌ **Treating a 404 as "no such route" when that route used to answer.** A dead backend behind a live proxy
+  returns the **proxy's own 404**, not 502/503. Measured during a container outage: the paid API's
+  `/.well-known/x402` answered `404 page not found` for 35 minutes while every static site on the same edge
+  stayed `200`. **A liveness check that alerts only on 5xx is blind to the most common container outage** —
+  compare against the Step 1 baseline code, and treat any endpoint whose code **changed** as down, whatever it
+  changed to.
 - ❌ **Blind `hermes update`** on a box with other live agents — can drop their sessions. Backup + controlled window first.
 - ❌ **Full backup when you only need rollback state** — `-q` snapshot is enough; full zip is 30-40GB and slow.
 - ❌ **Killing the update during gateway drain** — the drain is the graceful handoff; killing it mid-drain can orphan gateways.
 - ❌ **Truncating a 402 body with `head -c`** then failing JSON parse — a 402 PaymentRequired response is correct; parse the *full* body to verify the rail.
 - ❌ **Assuming a service is broken when it was `inactive` in the baseline too** — compare against the Step 1 baseline, not an assumed "should be active" list.
-- ❌ **`git rev-list --count <old>..origin/main`** counts all upstream commits; the actual update jump may differ (see `hermes version`).
+- ❌ **`git rev-list --count <old>..origin/main`** counts all upstream commits; the actual update jump may differ (see `hermes --version` — verified 2026-11-17: `hermes version` is NOT a command).
 - ❌ **A separately-managed profile keeps old code/PID** — the update only drains/restarts *managed* gateways; a profile started independently (e.g. yoyo on this box) stays on old code until manually restarted. Flag it explicitly.
 - ❌ **Reading systemd in the wrong scope.** The gateway is a `--user` unit; a bare `systemctl is-active hermes-gateway.service` from root (system scope) returns `inactive` while it is healthy. Always export `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` and use `systemctl --user`.
 - ❌ **Scheduling a recovery action from inside a gateway to start a dead gateway is blocked by design** (gizmo, Sep 30). The platform-level restart guard refuses gateway-lifecycle commands issued from a supervised gateway regardless of the target unit — and any script the gateway spawns is still inside the gateway's process tree. Even `systemd-run` is intercepted when the launcher validates the process tree (cron dispatcher, agent job runner). The sanctioned out-of-tree path is a `no_agent` cron job that runs in a systemd user **scope**, or a human shell that is not inside any Hermes gateway process tree. **The guard is process-scoped, not unit-blind** — a `hermes cron --no-agent --script` job executes as an external worker, so it can take the lifecycle action; that is the break-glass route, and it must be a deliberate decision, not an accident.

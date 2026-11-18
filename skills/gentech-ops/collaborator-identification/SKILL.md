@@ -754,6 +754,35 @@ Expected:
 
 ---
 
+## Critical Pitfall: A Collaborator Profile Is a Record, Not the Truth
+
+**A profile note is what somebody wrote down once. It is not evidence.** The dangerous entries are the
+*relational* ones — "X is also known as Y", "X and Y are the same person", "address as either" —
+because they are prose, they are never re-checked, and they silently merge two people's histories,
+folders, permissions and work.
+
+**A wrong note reads exactly like a right one.** Nothing in the file marks it as stale, no probe fails,
+and every downstream artifact built from it inherits the error.
+
+**Rules:**
+
+1. **Treat a shared name, a shared room, a shared tone of voice, or a shared surname as a coincidence,
+   not a match.** Two people in one group who both write in lowercase are two people.
+2. **Verify a load-bearing relational claim before acting on it** — one question to the owner settles
+   it. The test for "load-bearing": if it were false, you would address someone wrongly, or give one
+   collaborator's permissions to another.
+3. **When the owner contradicts the record, the owner wins, immediately and everywhere.** Correct the
+   profile note itself — with their words and a line saying the old text was wrong — then sweep anything
+   derived from it. A correction applied only to today's answer leaves the trap armed for the next
+   session.
+4. **Never merge two collaborators' permissions, folders, memories or output on the strength of a
+   note.** Data isolation between collaborators is the whole point of this skill; a note is not a
+   reason to break it.
+5. **Distinguish role from identity.** "Collaborator, most active in <group>" is a role you can verify
+   from behaviour. "Same person as the owner" is an identity claim that only the owner can confirm.
+
+---
+
 ## Critical Pitfall: Assuming All "Jordan" Messages Are From Jordan
 
 **Session 2026-07-06 Incident:**

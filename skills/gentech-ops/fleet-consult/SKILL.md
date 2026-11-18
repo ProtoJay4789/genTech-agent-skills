@@ -38,16 +38,29 @@ Write ONE shared context block (what prompted this, what's already decided, the 
 Default seats (our 4-profile fleet):
 | Seat | Profile | Asks from |
 |---|---|---|
-| **Labs / mesh** | gizmo | transport, concurrency, integration, what breaks in the plumbing |
-| **Creative / human** | pixel | how it feels to a human, review/proof, brief→deliverable |
-| **Money / risk** | gentech-treasury | spend authority, accountability, economic guardrails |
+| **The learning engine** | arthur | whether a learner could actually use it, pack/session fit, what confuses a human being taught |
+| **Money / risk** | gentech-treasury | spend authority, accountability, economic guardrails, what is irreversible |
+| **Content / public surface** | protojay | how it reads to an outside human, what we would have to publish, what we cannot claim |
 | **HQ / synthesis** | gentech | coordination, routing, what the decision costs us |
+
+**Check the roster before fanning out.** This table named two seats that have since retired; a consult built from a
+stale table dispatches into nothing and returns silence that reads like agreement. Confirm every profile you are
+about to message is live before writing the asks.
 
 ### 2. Ask for the same shape from everyone (so returns are comparable)
 - Top 1–3 gaps/options, **ranked**, each with a one-line "why it matters."
 - **What you've personally hit** — a real failure from their own lane. Concrete beats abstract; this is where the value is.
 - **What you'd deliberately NOT build/do** (anti-patterns).
 - **Disagreement with HQ is explicitly welcome** — say so in the handoff, in those words.
+- **Ask for a NUMBER, not a verdict.** "What do you think" returns opinions; "run this and report what it says"
+  returns evidence. Measured: three seats each asked for one config value returned hard numbers that **falsified the
+  proposal HQ had already written** — the consult paid for itself because the questions were phrased so a
+  contradiction could come back.
+- **Ask each seat to run the check on ITS OWN seat.** A fleet-wide defect is usually per-seat config, so one HQ
+  measurement is one data point and four seats re-measuring is four corroborating ones. Phrase it "report the number
+  you find", never "confirm that ours is N".
+- **State the read-only constraints and make them hard** — do not change config, do not install anything, do not
+  draft the design doc. Without that last clause a consult returns three incompatible plans and HQ inherits a merge.
 - A word cap (~400 words) and a named reply path.
 
 ### 3. Fan out in parallel — handoff + peer-DM
@@ -73,4 +86,4 @@ Default seats (our 4-profile fleet):
 - **Don't skip the real-failure ask.** Generic opinions are cheap; "here's the failure I personally hit" is the whole point.
 
 ## Worked example (Sep 11 2026)
-Question: *what's missing for a good agent-to-agent coordination experience in the agent kit?* → Labs: shared-state concurrency (single-writer leases + conflict detection) + loud routing + shared registry. Pixel: visual review surface + brief contract + human approval gate. Treasury: spend-authority ledger + loss attribution + fleet-wide policy. **Result:** HQ's "governance first" was replaced by "shared-state substrate → ledger with guardrails → review surface → Company Mode." Green Room `09-Green Room/ideas.md`; commits `fa541c16` (asks) → `8209a866` (synthesis).
+Question: *what's missing for a good agent-to-agent coordination experience in the agent kit?* → Labs: shared-state concurrency (single-writer leases + conflict detection) + loud routing + shared registry. Pixel: visual review surface + brief contract + human approval gate. Treasury: spend-authority ledger + loss attribution + fleet-wide policy. **Result:** HQ's "governance first" was replaced by "shared-state substrate → ledger with guardrails → review surface → Company Mode." Green Room `09-Green Room/ideas.md`; commits `fa541c16` (asks) → `8209a866` (synthesis). *(The two seats named in that example have since retired and their lanes moved; the format carried over unchanged.)*

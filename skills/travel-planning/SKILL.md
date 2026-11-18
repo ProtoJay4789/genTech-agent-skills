@@ -95,6 +95,41 @@ recommend booking** — rule 11 governs.
 
 3. **Route intelligence: flightconnections.com** — Not a booking site, but excellent for understanding route structure: which airlines serve the route, typical stops, flight duration, alliances. Search snippets from this domain contain rich metadata.
 
+### 2b. Bookings, cancellations and credits — a credit is an asset with an expiry
+
+**The moment a ticket is cancelled, record it.** An unrecorded fare credit behaves exactly like a lost one, and
+the trip file is where the next session looks.
+
+```json
+"bookings": {"items": [{
+  "what": "round-trip ticket to <city>",
+  "state": "CANCELLED <date>",
+  "value": "credit held — AMOUNT NOT RECORDED YET",
+  "credit_expiry": "UNKNOWN — must be confirmed",
+  "airline": "UNKNOWN — decides whether the credit can touch the transpacific leg",
+  "source": "<who said it, and when>"
+}]}
+```
+
+**Four unknowns, named rather than guessed — write them into the file, not into a reply.**
+
+1. **Carrier.** This decides everything. A **Philippine-carrier credit generally cannot pay for a CVG→MNL
+transpacific leg**; its realistic use is the intra-Asia flights or a future trip. Assuming otherwise inflates the
+credit into money it cannot become.
+2. **Amount.** Never netted against the budget until confirmed — the estimate stands, and the credit is upside.
+3. **Expiry, and which date it runs from.** From *cancellation* gives roughly a year from now; from the *original
+purchase* it can expire **before** the trip it was meant to fund. Ask, do not assume.
+4. **Passenger-binding and splittability.** A credit locked to one named passenger cannot cover four separate legs.
+
+**A companion name in the trip file reads as a booking.** When a relationship changes, set `companion` to null
+with a one-line note saying it was cleared and why — leaving the name in place tells every later reader (and
+every generated page) that someone is travelling who is not.
+
+**When a new entry point appears, compare DOOR TO DOOR, never fare to fare.** Adding a second arrival city is not
+a routing tweak: landing in Bangkok deletes the Manila→Bangkok leg entirely, so the two options are only
+comparable once that leg is removed from one side. Record it as an OPEN decision in `decisions[]` with the
+reason, so the comparison is not quietly settled by whichever number was quoted last.
+
 ### 3. Hotel Platform Comparison
 
 **Key platforms for Southeast Asia:**
@@ -150,6 +185,15 @@ recommend booking** — rule 11 governs.
 - Safety tips and common scams
 - Food recommendations
 - Weather and packing list
+
+**Neighborhood breakdown as a MAP, not only prose (Jordan's ask, 2026-11-02).** A district list in
+markdown does not answer "where am I staying relative to the beach, the pier, the highway" — a
+labelled map does, and it is the artifact he actually wants for a destination. Build it from real geo
+data (aerial base + OSM road geometry + district overlays), never from an image model, which invents
+streets a traveler will then look for. **Full recipe and the licensing rules (Google basemap tiles may
+not be cached, scraped or shipped in a printed/electronic document — Esri imagery and OSM may, with
+attribution):** `maps` skill → `references/static-map-rendering.md`. Pin TRIP destinations and the
+city's tourist districts, not the whole country — the strip is what a visitor navigates.
 
 ### 5. Shopping Lists & "Pack Light, Shop Local" Philosophy
 
@@ -325,7 +369,8 @@ web_search("cheapest flights Cincinnati to Manila summer [year]")
 The travel dashboard is the visual output of trip planning data. Same pattern as the gaming dashboard — JSON data + HTML renderer.
 
 **Dashboard URL:** `https://protojay4789.github.io/Travels/travel-dashboard.html`
-**Data source:** `Travels/travel-jordan.json` (same directory as HTML)
+**Data source:** `00-HQ/01-Travel/travel-jordan.json` (canonical since 2026-10-17 — the old `Travels/` name
+never existed and `Travel/` was removed on 2026-10-15)
 **Vault copy:** `09-Green Room/travel/{traveler}/{trip-name}.json`
 
 **What it shows:**
@@ -346,7 +391,7 @@ The travel dashboard is the visual output of trip planning data. Same pattern as
 - Shows flight companion (e.g., "Flying with: Vanito") and special dates (e.g., "Christel's Birthday")
 - Status badges: Planning (blue), Dreaming (pink), Active (green)
 
-**Theme system:** Each trip can have its own color palette via `theme.colors` in JSON. Philippine Sunset = warm cream, gold, orange, blue. Thai Islands = ocean blue, green, gold. Songkran Splash = blue, yellow, orange. See `gentech-hub` skill references for palette templates.
+**Theme system:** Each trip can have its own color palette via `theme.colors` in JSON. Philippine Sunset = warm cream, gold, orange, blue. Thai Islands = ocean blue, green, gold. Songkran Splash = blue, yellow, orange. See `gentech-hub` skill references for palette templates.   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `gentech-hub` exists on this seat -->
 
 **Workflow:**
 1. Plan trip → generate JSON data
@@ -375,7 +420,7 @@ Travala's MCP server enables AI agents to search and book 2.2M+ hotels autonomou
 ### Agent Registration
 Register at 8004scan.io/agents for ERC-8004 agentId. Set `rewardWallet` in skill file. Earn cbBTC on completed bookings.
 
-### Integration with GenTech Travels
+### Integration with GenTech Travel
 Travala MCP = data + booking engine. Our x402/Q402 = payment layer. Privacy wrapper = our moat. Telegram/Discord/X = distribution.
 
 **Full spec:** `Strategies/travala-mcp-integration-spec.md` in vault.
@@ -449,6 +494,6 @@ Agoda, Airbnb, Booking.com, and most booking sites use heavy JavaScript + aggres
 - `references/booking-platforms.md` — Agoda vs Booking.com vs Airbnb comparison
 - `references/cost-of-living-in-worker.md` — Embed city cost-of-living data in Cloudflare Workers (zero-API-cost alternative to Numbeo's $260/mo plan)
 - `references/flight-monitoring.md` — Cron job flight price monitoring methodology, report template, alert logic
-- `references/travala-mcp-integration.md` — Travala Travel MCP: 6 API tools, x402 payments, agent registration, GenTech Travels integration plan
+- `references/travala-mcp-integration.md` — Travala Travel MCP: 6 API tools, x402 payments, agent registration, GenTech Travel integration plan
 - `references/travala-mcp.md` — Travala Travel MCP integration: tools, setup, x402 payments, agent rewards
 - `references/theme-park-tickets.md` — Theme park & entertainment ticket research: Groupon/reseller comparison, deal structures, Universal Orlando specifics, blockout date handling

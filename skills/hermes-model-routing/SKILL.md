@@ -6,6 +6,26 @@ tags: [hermes, cost-optimization, model-selection, cron, ollama]
 
 # Hermes Model Routing
 
+## ✅ LIVE STATE — measured 2026-10-19 (authoritative — trust this over any block below)
+
+- **Primary rail (all 4 seats):** `opencode-go` · `deepseek-v4.1-flash` · `https://opencode.ai/zen/go/v1` · `chat_completions`
+- **Fallback rail (all 4 seats):** `nous` · `deepseek/deepseek-v4.1-flash-1017` · `https://inference-api.nousresearch.com/v1`
+- **Subagents:** **no `delegation` config exists on any seat — subagents INHERIT the parent seat's model.** Set `delegation.provider`/`delegation.model` only if you deliberately want to change that.
+- **Cron jobs (23 fleet-wide):** **19 are `no_agent` — pure scripts, zero LLM.** 4 inherit the seat model. **0 declare an explicit model or provider.** There is no per-job routing tier to maintain.
+- **Newest DeepSeek model:** V4.1-Flash (released 10 Sep 2026) — **we already run it.** A newer *build*, `-1017` (17 Oct 2026), is what our fallback points at. V4.1-**Pro** is named but not announced.
+- **Metering:** `GET /usage` on the OpenCode Go rail. Gate on the **monthly** percent — it binds before weekly/rolling. See `provider-quota-diagnosis`.
+
+**Re-measure rather than trust this block:**
+```bash
+python3 -c "import yaml;d=yaml.safe_load(open('profiles/gentech/config.yaml'));print(d['model'],d.get('fallback_providers'))"
+```
+
+**Two measured traps:**
+- `https://opencode.ai/zen/go/v1/models` returns **403 `error code: 1010`** (Cloudflare bot block) on a bare request. **A 403 from this API is usually your User-Agent, not your key** — send a browser UA.
+- The Nous rail serves **427 models** (20 DeepSeek). Its `/v1/models` needs the auth header from `/opt/data/shared/nous_auth.json`.   <!-- ⚠️ NOT PRESENT (checked 2026-11-17): this file does not exist on this seat. Do not assume it; verify before relying on it. -->
+
+---
+
 **Strategy:** Route each task to the most cost-effective model that can handle it. Local models for simple/repetitive tasks. Paid models for complex reasoning.
 
 ---
@@ -17,14 +37,14 @@ Jordan explicitly requests model switches mid-session. When he says "switch to O
 1. **Set the active session model** via `hermes config set model "opencode-go"` — this changes the current session immediately
 2. **Keep DeepSeek Flash V4 as the fallback** — do NOT change the default or remove DeepSeek. Jordan explicitly wants both available.
 3. **Document the session default** so you know what to revert to:
-   - Default daily driver: `deepseek/deepseek-v4-flash` via Nous
-   - Build/coding session: `opencode-go` (stronger reasoning for active building)
-   - Revert when session switches back to daily ops: run `hermes config set model "deepseek/deepseek-v4-flash"`
+   - Fleet default (all 4 seats, measured 2026-10-19): `opencode-go` / `deepseek-v4.1-flash`
+   - Fallback: `nous` / `deepseek/deepseek-v4.1-flash-1017`
+   - To revert: `hermes config set model "deepseek-v4.1-flash"`. **There is no separate "daily ops" model** — the old "normal ops = Nous" split is retired; OpenCode Go is the default, not the exception.
 
 **Pattern:**
 ```
-Normal ops → `hermes config set model "deepseek/deepseek-v4-flash"`
-Build session → `hermes config set model "opencode-go"`
+Any session → `hermes config set model "deepseek-v4.1-flash"`   (provider `opencode-go` — the fleet default)
+The fallback switches itself — do not hand-route to it.
 ```
 
 **Why this pattern:** Jordan doesn't want to change the permanent default. He wants the ability to flip between models for the current session as tasks change. The session-level `hermes config set model` overrides the default without changing it.
@@ -82,13 +102,19 @@ fallback_model to ALL profiles, then repins every cron job pinned to a dead-prov
   same class of trap as the stale-`base_url` cron repin: the tool reports success while disk
   config is still wrong.
 - **Provider naming:** Ollama Cloud = provider `ollama-cloud` (Hermes built-in), base_url
-  `https://ollama.com/v1`, key `OLLAMA_API_KEY` (per-profile .env). Z.AI's GLM-5.3-flash is
-  served THROUGH it. OPENCODE_GO_API_KEY is invalid on ollama.com (401); OpenCode Go rail
-  (opencode.ai/zen/go/v1) is a separate suffocated provider (429 weekly) — never a default.
+  `https://ollama.com/v1`, key `OLLAMA_API_KEY` (per-profile .env). Z.AI's GLM-5.3-flash was served
+  THROUGH it. OPENCODE_GO_API_KEY is invalid on ollama.com (401). ⛔ **The claim that the OpenCode Go
+  rail (`opencode.ai/zen/go/v1`) is "never a default" is FALSE as of 2026-10-19 — it IS the default on
+  all four seats.**
 
-## Current Routing Directive (Sep 7, 2026 — Jordan: Ollama Cloud primary, Hermes portal fallback, OpenCode Go retired)
+## Current Routing Directive — ⛔ SUPERSEDED, history only (was Sep 7, 2026)
 
-**Fleet-wide model wiring as of Sep 7, 2026:** All 4 profiles on `deepseek-v4-flash:0731` via `ollama-cloud` (primary). Fallback is `deepseek/deepseek-v4-flash` on `nous` (Hermes portal). OpenCode Go is RETIRED — do not route to it.
+> **This directive is dead — it says the opposite of reality.** It made Ollama Cloud primary and declared
+> OpenCode Go retired; both are reversed. **Measured 2026-10-19: all 4 seats run `opencode-go` /
+> `deepseek-v4.1-flash`, fallback `nous` / `deepseek/deepseek-v4.1-flash-1017`. Ollama Cloud is not a live
+> provider.** Kept below so the reversal is auditable — do not act on it.
+
+**Original (Sep 7, 2026):** All 4 profiles on `deepseek-v4-flash:0731` via `ollama-cloud` (primary), fallback `deepseek/deepseek-v4-flash` on `nous`. OpenCode Go retired.
 
 **The routing picture today:**
 
@@ -224,22 +250,23 @@ if error_type == "RateLimitError" and provider == "zai":
 
 3. **Fall back to a DIFFERENT provider when the current one is fully exhausted:**
 
-**Our current fallback path (Sep 7, 2026):**
+**Our fallback path — corrected 2026-10-19 (the Sep 7 version is dead):**
 ```python
-# Primary: Ollama Cloud
-# When Ollama Cloud can't handle the task → Hermes portal (Nous) fallback
-# OpenCode Go is RETIRED — never route to it
+# PRIMARY = opencode-go (opencode.ai/zen/go/v1), per the LIVE STATE block at the top.
+# The block that used to sit here listed ollama-cloud as primary and directly
+# contradicted it — read config, not this file, when the two disagree.
 
 FALLBACK_CHAIN = [
-    ("ollama-cloud", "deepseek-v4-flash:0731"),        # primary
-    ("ollama-cloud", "glm-5.3-flash"),                 # same provider, AUDIT pair
-    ("nous", "deepseek/deepseek-v4-flash"),           # Hermes portal fallback, free
+    ("opencode-go", "deepseek-v4.1-flash"),            # primary (monthly allowance)
+    ("ollama-cloud", "deepseek-v4-flash:0731"),        # proven failover target
+    ("nous", "deepseek/deepseek-v4-flash"),           # portal fallback, free
     ("nous", "upstage/solar-pro4:free"),              # second Nous fallback, free
 ]
 
-# NEVER set fallback to the same exhausted provider — that's the stuck-agent trap
-# PRIMARY (Ollama Cloud, weekly reset) and FALLBACK (Nous, free) are on different
-# providers with different reset cycles
+# NEVER set fallback to the same exhausted provider — that's the stuck-agent trap.
+# Switching primary <-> ollama-cloud is a PROVIDER change with a different reset cycle;
+# that is why it is a legitimate failover and a same-provider model swap is not.
+# The governed procedure is in "Governed failover" below — do not improvise it.
 ```
 
 ### Why This Matters
@@ -760,6 +787,77 @@ When migrating cron jobs to optimized routing:
 
 ---
 
+## Governed failover — when the primary rail's allowance fills
+
+**A rail switch is a fleet-wide configuration change, not a retry.** Doing it by feel produces
+the worst state on this fleet: some seats on one model, some on another, and no one able to tell
+whether a difference in output is the model or a fault.
+
+### R1 — read the primary from config, never from this file
+
+```bash
+python3 -c "import yaml;d=yaml.safe_load(open('/opt/data/profiles/gentech/config.yaml'));print(d['model'],d.get('fallback_providers'))"
+```
+
+**Any document that names the primary rail is stale within weeks** — this file has held three
+different answers. A monitor that watches a hardcoded provider reports on a rail nobody is on,
+so it can be green while the live rail is exhausted. Derive the provider from config in the
+same run that measures it.
+
+### R2 — the trigger is a measured allowance window, not a hunch
+
+Switch when **any** allowance window (rolling / weekly / monthly) is **≥95%**, or on **two
+consecutive failed completions** on the primary. Monthly usually binds first, so read all three
+and gate on the highest — a low rolling number beside a nearly-spent monthly is a rail about
+to stop, and a 429 is already too late to leave cleanly.
+
+`GET /usage` on the provider is the instrument; percentages, not error strings.
+
+### R3 — a raw probe of the opencode-go rail needs two headers, or it lies
+
+```bash
+curl -s https://opencode.ai/zen/go/v1/chat/completions \
+  -H "Authorization: Bearer $KEY" \
+  -H 'x-opencode-session: health-probe' \
+  -H 'User-Agent: Mozilla/5.0' \
+  -d '{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"reply OK"}],"max_tokens":8}'
+```
+
+- **Without `x-opencode-session` it returns `400 MissingSessionID` on a perfectly healthy rail.**
+  That reads as "the rail is down" and will move the whole fleet off a working provider — the
+  probe's own defect presented as the provider's outage.
+- **A bare Python/curl User-Agent gets `403` with Cloudflare `error code: 1010`.** A 403 from this
+  API is usually your UA, not your key.
+- **Prove the TARGET before switching**: one real completion, content returned. A `/models` 200 or
+  a key being accepted proves the endpoint exists, not that it can generate.
+
+### R4 — all seats or none, same model id
+
+- **Switch every seat in one pass**, then prove it per seat by reading each profile's config back.
+  A partial switch is the outage: two seats answering from different models look like drift,
+disagreement or a broken seat, and nothing in the transcript tells you which.
+- **Same model id on the target, not a "best equivalent"** — a switch that changes answer quality
+  mid-conversation is a recovery that costs you a second investigation.
+- **A failed switch must restore the previous rail, not leave the fleet split.** Record the prior
+  provider/model before writing the new one.
+
+### R5 — return only when the window actually resets
+
+Compare the **measured percent** against the declared reset timestamp, not against elapsed days.
+The fleet returns when the number is low, not when the calendar says it should be. Until then the
+fallback is the rail.
+
+### R6 — never silent
+
+State, in the order a reader needs it: **the rail that failed, the window and percent that
+triggered it, when it resets, what the fleet is running now, and what would return it.** A
+failover nobody announced is indistinguishable from a model behaving strangely.
+
+**Executable form:** `profiles/gentech/scripts/rail-failover.py --check | --to <provider> | --return`.
+`--check` with no action prints the verdict and switches nothing; run it before every switch and
+use `--threshold` to falsify the trigger (a threshold below the current percent must recommend a
+switch, one above it must not). The current numbers belong in a dated HQ doc — the rule lives here.
+
 ## Provider Balance Awareness (Tank Model)
 
 **The insight:** every provider has a "tank" — a balance, subscription, or free tier that can run dry independently of every other provider. Smart routing checks the tank *before* sending a job there, not after it hits a 429.
@@ -888,7 +986,7 @@ The rate limit monitor runs automatically as a cron job:
 - **Workdir:** `${PROFILE_DIR}/scripts`
 
 What the cron job does automatically:
-1. Scans `/root/.hermes/logs/errors.log` and `/root/.hermes/logs/agent.log` for rate limit patterns
+1. Scans `/opt/data/profiles/gentech/logs/errors.log` and `/opt/data/profiles/gentech/logs/agent.log` for rate limit patterns
 2. If rate limit detected → Escalates to next Z.AI tier within the hierarchy
 3. Updates status file at `~/.hermes/profiles/gentech/.rate-limit-status.json`
 4. Writes escalation events to logs

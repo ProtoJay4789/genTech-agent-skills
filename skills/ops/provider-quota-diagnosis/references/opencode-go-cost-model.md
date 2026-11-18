@@ -23,7 +23,10 @@ price is already low.
 | Qwen3.7 Plus | 4,300 | 10,800 | 21,600 |
 
 ## Key per-token prices (to pick the cheap rail)
-- **DeepSeek V4 Flash** off-peak: $0.22 in / $0.66 out per 1M (peak $0.44/$1.32)
+- **DeepSeek V4 Flash** off-peak: **$0.15 in / $0.60 out per 1M** (peak **$0.30/$1.20**) — prices verified
+  against OpenCode's live tables 2026-10-15; the older $0.22/$0.44 figures here were stale
+- **We are on Go Plus** ($40/mo). Allowances are **per model**, not pooled: DeepSeek V4.1 Flash **$160/mo**,
+  GLM-5.3-Flash **$180/mo**. Token prices are identical on Go and Go Plus — the plan buys allowance.
 - **GLM-5.3-Flash**: $0.15 / $0.50 — cheapest of the GLM family, near-MiMo cost
 - **Kimi K2.7 Code**: $0.95 / $4.00 (but high monthly usage bucket = good auditor value)
 - MiMo-V2.5: $0.14 / $0.28 — the bargain rail, 150K requests/mo
@@ -53,3 +56,9 @@ be queued into off-peak windows.
   account-flagging risk. Use a specific UA like `GentechLabs-Hermes/1.0`.
 - Model ids are bare (`deepseek-v4.1-flash`); config uses `opencode-go/<model-id>`.
 - Probe model: `minimax-m3` (non-China-hosted, reliable liveness check).
+
+## Verified: our crons already land off-peak (2026-10-15)
+Peak = **01:00–04:00 and 06:00–10:00 UTC, Mon–Fri**. Our overnight fleet runs **04:00, 04:30, 05:00,
+05:15, 05:30, 05:45, 05:50 UTC** — i.e. in the **04:00–06:00 gap between the peak blocks → off-peak.**
+The weekday Job Scanner at **12:00 UTC** is also off-peak (after 10:00). **So every scheduled job
+already gets off-peak pricing; nothing needs re-queueing.** Re-check this whenever a job's hour moves.

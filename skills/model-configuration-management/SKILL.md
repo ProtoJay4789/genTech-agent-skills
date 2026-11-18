@@ -198,6 +198,53 @@ Also: `git show origin/main:<file>` assumes `main`. Use the repo's actual defaul
 `git fetch` first, or the comparison silently reads a stale ref and can make a local fix look upstream
 when it is not.
 
+## ⚠️ Timezone is a config key, and when it is ABSENT the agent silently speaks UTC
+
+**Hermes resolves the agent's timezone from the profile's `config.yaml` `timezone:` key.** No key means **no
+configured zone**, and `hermes_time.now()` falls back to **server-local** — which in a container is **UTC**.
+The failure is silent and looks like nothing is wrong: `date -u` works, the clock is correct, and every stated
+time is simply in the wrong zone.
+
+**Diagnose by asking the resolver, not by reading a timestamp:**
+
+```bash
+HERMES_HOME=/opt/data/profiles/<seat> python3 -c \
+  "from hermes_time import get_timezone_name, now; print(get_timezone_name() or '(none)', now())"
+```
+
+`get_timezone_name()` returning `""` / `None` is the defect — a date string that *looks* plausible is not
+(`2026-11-15 03:02 UTC` and `2026-11-14 22:02 EST` are the same instant and a different answer to the user).
+
+**Fix per profile, then verify through the real loader:**
+
+```bash
+for s in <seats>; do
+  HERMES_HOME=/opt/data/profiles/$s hermes config set timezone America/New_York
+done
+for s in <seats>; do
+  printf '%-18s ' "$s"
+  HERMES_HOME=/opt/data/profiles/$s python3 -c \
+    "from hermes_time import get_timezone_name, now; print(get_timezone_name(), now().strftime('%H:%M %Z'))"
+done
+```
+
+**Set it on EVERY seat, not just the one you are in.** A fleet where one seat reasons in UTC and another in local
+time produces two different answers to *"is it too late to bother the user?"* — the same class of defect as seats
+on different rails.
+
+**`HERMES_HOME` is accepted by `hermes config set` as a write selector** — measured: the command prints
+`✓ Set timezone = … in /opt/data/profiles/<seat>/config.yaml`, and a per-seat load confirms it. `HERMES_PROFILE`
+remains the one that does NOT select a profile (see the pitfall above). **Still verify per seat with a value that
+necessarily differs** — a loop that prints the same output for every seat has verified one seat N times.
+
+**Two things a `timezone` key does NOT change:**
+- **Cron still fires in the scheduler's own zone.** Config timezone governs how agents *speak* about time, not when
+  jobs run — convert explicitly when scheduling against a user's working day, and **state which conversion you
+  used** (`16:00 ET = 21:00 UTC` in EST, `20:00 UTC` in EDT).
+- **It gives the agent no internal clock.** It corrects the *zone* of a clock the agent must still read with a tool
+  on every occasion. The standing rule is unchanged: **a stated time or date comes from a tool call, never from
+  memory**, and the session header only refreshes on a context rebuild.
+
 ## Providers vs `custom_providers` — When to Use Each
 
 Hermes has **two distinct patterns** for adding LLM providers. Choosing the wrong one causes config drift, gateway crashes, or silent routing through unintended providers.
@@ -1224,7 +1271,57 @@ curl -s --max-time 30 -X POST https://ollama.com/v1/chat/completions \
 
 **⚠️ PITFALL — `HERMES_PROFILE=<name> hermes config set ...` does NOT target that profile.** Reads and writes silently go to the CALLING profile (verified: three HERMES_PROFILE-prefixed sets all wrote gentech's config while claiming success). Only the `--profile` CLI flag targets another profile: `hermes --profile gizmo config get model.provider`. Always re-verify with `--profile` gets after any cross-profile set.
 
+**The WRITE selector and the READ selector are different, which is why the two checks disagree.** `hermes config set` needs `--profile`; but when you verify by LOADING a profile's config in a subprocess (`hermes_cli.config.load_config()`), the selector is **`HERMES_HOME=/opt/data/profiles/<seat>`** — `HERMES_PROFILE` is ignored there, so a verification loop that sets `HERMES_PROFILE=<seat>` reads the SAME profile on every iteration and reports all four seats identical while three were never touched. **Always print a value that differs per seat** (a write path, a seat-specific root, a row count) and confirm it changes between iterations — a loop whose output is identical for every seat has verified one seat four times.
+
 **⚠️ Unpinned-cron warning on provider change (new format Aug 30):** Hermes prints `⚠️ N enabled unpinned cron jobs have stored provider_snapshot values that differ from the new global provider. They will fail closed on their next run`. Pin them: `hermes cron edit <job_id> --provider <provider> --model <model>` — **cron edit DOES support these flags now** (supersedes the Jul 5 note below).
+
+## ⚠️ A provider switch is not done until the KEY is in each profile's `.env` — and a passing smoke test can be the WRONG rail
+
+**Keys are read per-profile, not from the root `.env`.** Pointing `model.provider` at a rail whose key exists
+only in the root env produces a **silent fallback**, not an error at the point of the change:
+
+```
+WARNING runtime_provider: Primary provider auth failed (No usable credentials found for provider 'X'.
+  KEY is set in this server's environment, but profile 'Y' reads keys only from its own .env …)
+INFO run_agent: … provider=<fallback_provider> model=<fallback_model>
+```
+
+**The trap is that the verification lies.** `hermes -p <seat> -z "reply OK"` returns `0` and the text you asked
+for — answered by the FALLBACK provider. It proves the agent is alive, not which rail served it. Several seats
+"passed" that way while none was on the new provider, and the only reason it surfaced is that the new rail's own
+usage meter had not moved.
+
+**Assert provenance, never liveness:**
+```bash
+grep -oE 'API call #[0-9]+: model=[^ ]+ provider=[a-z-]+' profiles/<seat>/logs/agent.log | tail -2
+```
+Only `provider=<expected>` is a pass. Second, provider-independent check: read the new rail's OWN usage meter
+before and after and require the counter to move (`request_count` / `usd`). A 200 from somewhere moves nothing on
+the account you believe you switched to.
+
+**Order:** set provider/base_url per profile → write the key into EVERY `profiles/<seat>/.env` (mode 600; copy the
+value, never print it) → run one turn per seat → grep each log for the expected provider → confirm the meter moved.
+Skip the key step and every later check reads green for the wrong reason.
+
+## ⚠️ A seat config change does not move SCRIPTS that hardcode a provider URL
+
+`model.provider` governs Hermes' own inference calls. Cron scripts that POST directly to a provider endpoint keep
+billing the retired rail regardless of config — so the fleet is "switched" everywhere a human looks and not where
+the money is spent.
+
+- **Follow the wrapper hop.** A `.sh` cron script that greps clean often `exec`s a canonical `.py` that does not.
+  Resolve each job's `script`, then the `.py`/`.sh` it references, then repeat once more. Grepping only the
+  registered script reports "no hardcoded provider" about the wrapper and the reader believes it about the job.
+- **One resolver, not N patches.** Keep a single module (a `scripts/rail.py`-style resolver) answering
+  `base_url() / key() / model() / headers()` from the profile's own `config.yaml`, with a per-rail table for
+  endpoint, env-var name and any REQUIRED extra header (some rails 400 with a `MissingSessionID`-shaped error
+  when their session header is absent — a transport costume on a payload fault). Every script imports it; a rail
+  change becomes a config change, not a six-file edit.
+- **A resolver that reads config must say WHICH rail it chose.** Log the resolved `provider`/`base_url` at call
+  time. A silent provider switch is how a rail change looks like it worked when it did not.
+- **Retire the old rail visibly, not silently.** Leave the old key in place and keep reading it as a
+  "retired rail — readable only" row in the usage ledger. Deleting the key makes a stale caller fail invisibly;
+  keeping it readable makes the stale caller show up.
 
 ## Sep 2 Fleet Migration — Verified Refinements (2026-09-02)
 

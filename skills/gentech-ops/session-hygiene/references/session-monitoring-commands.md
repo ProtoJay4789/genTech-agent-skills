@@ -1,158 +1,89 @@
-# Session Monitoring Commands
+# Session & memory monitoring — verified against the live schema
 
-## Quick Context Check
+Every command here was run against a real Hermes deployment and returns what it claims. If a
+path or column name below disagrees with the host, **the host wins** — re-derive with
+`PRAGMA table_info(sessions)` before trusting an old copy of this file.
 
-Check message count and compression status across all active sessions:
+## Where the truth lives
 
-```bash
-${INSTALL_DIR}/venv/bin/python3 -c "
-import sqlite3, os
-from datetime import datetime, timedelta
+| Thing | Path |
+|---|---|
+| Session + message store, per seat | `/opt/data/profiles/<seat>/state.db` (table `sessions`) |
+| Memory / user profile | `/opt/data/profiles/<seat>/memories/MEMORY.md`, `USER.md` |
+| Agent activity log | `/opt/data/profiles/<seat>/logs/agent.log` |
+| Gateway in/out + resets | `/opt/data/profiles/<seat>/logs/gateway.log` |
 
-db_path = '${PROFILE_DIR}/sessions/sessions.sqlite3'
-if not os.path.exists(db_path):
-    print('No session database found')
-    exit(0)
+⚠️ There is **no** `sessions/sessions.sqlite3` and no `memory_entries` table in this engine.
+Queries built for those fail as "no such file" / "no such table" and can be misread as "no
+sessions" — a false clean. Read the schema first.
 
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
+## Is a seat's memory snapshot FROZEN, and for how long?
 
-# Get sessions active in last 24 hours
-threshold = datetime.now() - timedelta(hours=24)
-cursor.execute('''
-    SELECT id, title, message_count, created_at, last_message_at
-    FROM sessions
-    WHERE last_message_at >= ?
-    ORDER BY last_message_at DESC
-''', (threshold.isoformat(),))
+Hermes injects MEMORY.md/USER.md as a snapshot **at session start** and never refreshes it. On a
+messaging platform the session never ends on its own, so the age of the live session **is** the
+age of the memory the agent is working from.
 
-sessions = cursor.fetchall()
-if not sessions:
-    print('No active sessions in last 24 hours')
-    exit(0)
-
-print(f'{"Title":<40} | {"Msgs":>5} | {"Last Msg":<20}')
-print('-' * 75)
-
-for sid, title, msg_count, created_at, last_msg in sessions:
-    title = title[:38] if title else 'Untitled'
-    last_msg_time = datetime.fromisoformat(last_msg).strftime('%Y-%m-%d %H:%M')
-    print(f'{title:<40} | {msg_count:>5} | {last_msg_time:<20}')
-
-conn.close()
-"
+```python
+import sqlite3, datetime, sys
+seat = sys.argv[1]
+con = sqlite3.connect(f"file:/opt/data/profiles/{seat}/state.db?mode=ro", uri=True)
+r = con.execute("""SELECT id, started_at, message_count, last_activity_at
+                    FROM sessions WHERE source='telegram' AND ended_at IS NULL
+                    ORDER BY started_at DESC LIMIT 1""").fetchone()
+print(r[0], datetime.datetime.fromtimestamp(float(r[1]), datetime.UTC), r[2], "msgs")
+print("frozen days:", round((datetime.datetime.now(datetime.UTC).timestamp()-float(r[1]))/86400, 1))
 ```
 
-## Memory Status Check
+Emit **UNKNOWN, never a silent zero**, when the row is missing. A seat you cannot measure is the
+finding, not the absence of one.
 
-Check if memory is approaching 85% limit:
+## Did a `/new` actually LAND? (the only reliable proof)
 
-```bash
-${INSTALL_DIR}/venv/bin/python3 -c "
-import sqlite3, os
+A reset is a *state change in the DB*, not a guess from a log:
 
-db_path = '${PROFILE_DIR}/sessions/sessions.sqlite3'
-if not os.path.exists(db_path):
-    print('No session database found')
-    exit(0)
-
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
-
-# Check memory tables
-cursor.execute('SELECT COUNT(*) FROM memory_entries')
-mem_count = cursor.fetchone()[0]
-
-cursor.execute('SELECT COUNT(*) FROM user_profile_entries')
-user_count = cursor.fetchone()[0]
-
-print(f'Memory entries: {mem_count} (limit: 2200)')
-print(f'User profile entries: {user_count} (limit: 1375)')
-print(f'Memory usage: {mem_count / 2200 * 100:.1f}%')
-print(f'User profile usage: {user_count / 1375 * 100:.1f}%')
-
-if mem_count / 2200 > 0.85 or user_count / 1375 > 0.85:
-    print('WARNING: Approaching memory limit - clean up required')
-
-conn.close()
-"
+```python
+# closed sessions and why
+con.execute("SELECT id, started_at, ended_at, end_reason FROM sessions "
+            "WHERE source='telegram' AND ended_at IS NOT NULL "
+            "ORDER BY ended_at DESC LIMIT 3")
+# sessions opened today
+con.execute("SELECT id, source, started_at FROM sessions WHERE started_at > ?", (midnight,))
 ```
 
-## Context Compression Status
+- **Landed** = an old `source='telegram'` row with `end_reason='session_reset'`, whose `ended_at`
+  immediately precedes a **new** telegram row `started_at`. Two rows, one handoff.
+- **Did not land** = no new telegram row at all, and the old one still open. The bot never received
+  the command — the room/gateway is the problem, not the user's typing.
+- **Also check the gateway log** for `Invalidated run generation … (session_reset)` — it prints at
+  the instant the reset is accepted and is the closest thing to a receipt.
 
-Check which sessions have been compressed:
+⚠️ **NEVER infer a reset from the newest/most-frequent session id in `agent.log`.** Right after a
+reset the *old* id still fills the log tail, so a mode-of-ids heuristic keeps reporting the dead
+session and the seat looks frozen when it is not (measured: reported 23.4d stale minutes after a
+successful reset). A heuristic that reads a log is a hypothesis; the `sessions` table is the record.
 
-```bash
-${INSTALL_DIR}/venv/bin/python3 -c "
-import sqlite3, os
+## Memory capacity, in the unit the limiter uses
 
-db_path = '${PROFILE_DIR}/sessions/sessions.sqlite3'
-if not os.path.exists(db_path):
-    print('No session database found')
-    exit(0)
-
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
-
-cursor.execute('''
-    SELECT title, message_count, compressed_message_count,
-           CASE 
-             WHEN compressed_message_count IS NULL THEN 0
-             ELSE compressed_message_count
-           END as actual_compressed
-    FROM sessions
-    WHERE last_message_at >= datetime('now', '-24 hours')
-    ORDER BY message_count DESC
-''')
-
-sessions = cursor.fetchall()
-if not sessions:
-    print('No recent sessions')
-    exit(0)
-
-print(f'{\"Title\":<40} | {\"Msgs\":>5} | {\"Compressed\":>10} | {\"Ratio\":>6}')
-print('-' * 70)
-
-for title, msg_count, compressed_count, actual_comp in sessions:
-    title = title[:38] if title else 'Untitled'
-    ratio = actual_comp / msg_count * 100 if msg_count > 0 else 0
-    print(f'{title:<40} | {msg_count:>5} | {actual_comp:>10} | {ratio:>5.1f}%')
-
-conn.close()
-"
-```
-
-## Context Bridge Status
-
-Check which context-bridge files exist and their recency:
+Budgets are **characters**, not bytes. A UTF-8 arrow or em-dash costs more bytes than chars, so
+`wc -c` overstates usage:
 
 ```bash
-ls -lt ${VAULT_DIR}/09-Green\ Room/context-bridge/
+wc -m /opt/data/profiles/<seat>/memories/MEMORY.md   # -m = characters
 ```
 
-The `latest-context.md` symlink always points to the most recent bridge. If missing, no auto-save has been triggered yet this session.
+Health target is headroom, not "not yet rejected": at 98–99% of budget a new fact is refused at
+write time, silently, so a seat at the wall is one lesson away from being unable to remember it.
+Report `chars / budget`, `headroom`, and `entries` per seat — and treat a seat with no archive
+pointer in its memory as unable to cut safely when it hits the wall.
 
-## Usage Notes
+## Bloat and compression
 
-- **Run from gateway terminal or system cron** — not from within an active session
-- **Check daily** — before morning standup to spot bloat early
-- **Alert threshold** — memory > 85%, messages > 30 per session
-- **Bridge urgency** — memory ≥85% triggers auto-save; memory ≥90% is emergency
-- **When to act** — if multiple sessions exceed thresholds, suggest `/new` or gateway restart
+```python
+con.execute("SELECT id, message_count, tool_call_count, started_at, last_activity_at "
+            "FROM sessions WHERE source='telegram' AND ended_at IS NULL "
+            "ORDER BY message_count DESC LIMIT 10")
+```
 
-## Integration with Session Hygiene
-
-These commands are the monitoring side of the session-hygiene skill's triggers:
-- Memory pressure (>85%) → clean duplicates, remove stale entries
-- Context bloat (>25 messages) → suggest fresh session, save context bridge
-- Topic switch → detect via title patterns or manual `/new`
-- Context bridge → script at `scripts/context-save.py` generates bridge in `09-Green Room/context-bridge/`
-
-## Integration with Session Startup
-
-After `/new`:
-- `session-startup` reads `09-Green Room/context-bridge/latest-context.md` at step 4
-- If a bridge exists, the agent resumes projects, decisions, and blockers
-- If no bridge exists, falls back to handoffs folder, then session search
-
-Use these commands to verify the skill's automated behaviors are working correctly.
+Signal to suggest `/new`: a live session past ~25 messages **or** any session whose memory
+snapshot is older than the newest `MEMORY.md` mtime — the second one always matters, the first is
+a comfort threshold.

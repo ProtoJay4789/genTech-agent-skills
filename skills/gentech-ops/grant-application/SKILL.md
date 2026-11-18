@@ -314,6 +314,59 @@ Let's build the agent economy on Avalanche.
 
 ## Grant Program Research
 
+### What "grant" means in this fleet — builder programmes, never federal RFPs
+
+**When the user says "find grants" / "we used to have a grants job", they mean programmes that pay BUILDERS for
+shipping something: Solana Foundation, Superteam Earn, Ethereum Foundation ESP, Base Builder Grants, Optimism
+Retro Funding, Arbitrum, Polygon, Avalanche Retro9000, Chainlink BUILD.** They do **not** mean federal research
+solicitations.
+
+**A grant scanner pointed at grants.gov is answering a question nobody asked.** Federal RFPs are written for
+universities and research institutions with a grants office, a PI, and an indirect-cost rate; "unrestricted"
+eligibility there still means a research programme, not a product. **Confirm the universe before building the
+tool**, and if a scanner already exists in the wrong universe, repoint it rather than tuning its filters.
+
+**Related self-check that applies to any funding search: a keyword hit is not a fit.** Measured: an
+"artificial intelligence" query returned 18 "eligible" opportunities that were all medical research awards whose
+**bodies mention AI in passing** — orthopaedic, breast cancer, rare cancers. Judge relevance on the **TITLE**, and
+disqualify by discipline explicitly (a title about medicine is not our grant however the body reads). On the same
+run, a title filter removed 229 of 245 rows — that ratio is normal, not a sign the filter is too strict.
+
+### Watching programmes — a curated register, not a discovery engine
+
+**A recurring grants job should watch the programmes we would actually apply to, and report when one CHANGES.**
+It should not claim to "discover grants": aggregator sites lag by weeks and invent deadlines, while the
+programme's own page is the only source that cannot be stale.
+
+- **Keep the register in a JSON file** (id, name, url, fit, status) so the list is reviewable and editable
+  without touching code, and so a reader can see what is NOT being watched.
+- **A change is a signal to go read the page — never a claim that a round opened.** Write that in the script's
+  header and in the report, because the temptation to dress "the page changed" as "new funding" is strong.
+- **Strip volatile noise before hashing** (build ids, nonces, epoch stamps, `__NEXT_DATA__`). A modern SPA
+  changes its hash hourly; without stripping, the job reports a change every run and gets switched off within a
+  week, and then it protects nothing.
+- **Silent when nothing moved**; one log line, no message. **Exit 2 when every page fails** — a scanner that
+  reports quiet when it is broken is worse than no scanner.
+- **Record unreachable programmes as unread, never as closed.** A `429`, a DNS failure or a bot wall says
+  nothing about the programme's status.
+- **Surface deadlines only from text actually on the page**, parsed with a stated set of formats — and say which
+  formats you accept, because an unparsed date silently becomes "no deadline".
+- **Seed the register with the ones we already know**, then ask the user to name the ones we are missing. A
+  curated list is only as good as its curator, and that limit belongs in the reply, not just in your head.
+
+### Read a funder's eligibility CODES from the source, never from memory
+
+Any filter that keys on an external enumerated field — applicant types, region codes, category ids — is
+**contract data**. Recalling it produces a confident, wrong filter.
+
+Measured: applicant-type `07`/`08` were assumed to mean "small business / for-profit". They are **tribal
+governments**. The scanner therefore marked a grant open to "Native American tribal governments" as eligible for
+us — the kind of error that burns a session of drafting on a disqualifying application.
+
+**Rule: fetch one record, dump the enumeration, and put the real codes in the code with a comment saying they
+were verified.** Same discipline for category ids, status strings and region lists. If you cannot read the
+enumeration, do not filter on it — report the record as unverified instead.
+
 ### Before Applying: Know the Program
 
 **Research checklist:**
@@ -329,6 +382,50 @@ Let's build the agent economy on Avalanche.
 - **What do they care about most?** (Shipping vs vision vs ecosystem impact vs open source)
 - **What's the acceptance rate?** (Competitive vs straightforward)
 - **What's the typical grant size?** (Are we asking for too much or too little?)
+
+### Gate 0 — eligibility and cheque size, before you score anything
+
+**Two disqualifiers are printed on the listing and both are cheaper to check than to score.** Check them
+first, or a fit score becomes a well-argued waste of a session:
+
+- **Region / residency.** Listings carry a regional badge (`REGIONAL GRANT`) and a line in the body —
+  *"only open for people in <country>"*. Measured: a $200 agentic-tooling grant scored well on stack fit and
+  was **closed to us by a single sentence**. **Read the eligibility line before the description**, and
+  report it as *disqualified* with the clause quoted — not as "low fit", which implies a fix exists.
+- **Cheque size vs cost of applying.** A small cheque still costs a narrative, a demo, sometimes KYC and a
+  receipt trail. Compare the amount against the real hours and say plainly when the honest answer is *"this
+  is not worth an application"* — a $200 grant that consumes a day of work is a coupon, not funding.
+- **Eligibility also gates on what you can PROVE, not only where you live** — "live products with real
+  users", "verifiable onchain activity", "active in the community". If the proof does not already exist,
+  the grant is a future item with a named precondition, not a candidate; write the precondition down beside
+  it rather than scoring it.
+
+### After the verdict — close the item, then price the retry
+
+**An application is not `pending` unless the record says what would end the wait.** A row reading
+"applied, awaiting decision" with no submission date, no programme/cohort name, no expectation window and no
+copy of what was submitted cannot age, cannot be checked, and cannot be learned from — it is a checkbox
+wearing a status. Measured: one such row sat for four months, and the first durable evidence that the
+application had ever existed was the rejection email itself.
+
+- **Every application row carries five things at submission:** date submitted · programme **and cohort** · what
+  was submitted (path to the text) · the window a verdict should arrive in · the release condition. If a form
+  gives no window, write the date you will chase it.
+- **On any verdict — accept, decline or silence past the window — close the row the same day**, with the
+  verdict, the date, and the source (the email, the portal). "Pending" that can never resolve hides whether
+  the pipeline is winning or losing, which is the only thing the list is for.
+- **Separate NOT SELECTED from INELIGIBLE.** A cohort that funded other applicants is capacity; a clause you
+  failed is a disqualifier. They need opposite next actions, and collapsing both into "rejected" throws away
+  the only actionable output of the whole application.
+- **Write the reapplication gate at the moment of rejection, from the reviewer's likely read — not from what
+  we wish we had said.** Ask what evidence would have made this competitive (a paying customer, a sale on the
+  funder's own rail, a live demo on their platform) and make that the gate. **Re-applying with the same
+  evidence buys the same answer** and spends the credibility of a second attempt.
+- **Record the inference honestly.** If no feedback was given, say the reason is inferred from our own
+  measurements and label it as inference — never present a guess as the funder's stated rationale.
+- **A declined programme can still hand you the community.** Where the rejection letter names a builder
+  community, forum or next cohort, that is the cheapest durable win available: it is where the next reviewer
+  comes from.
 
 ### Fit Scoring (4-5 star bar)
 
@@ -718,6 +815,48 @@ Expect 200. Flag 404/301 and swap in a working URL before the user pastes.
 - `ProtoJay4789.github.io` → **404** — GitHub Pages is not serving. Do NOT link portfolio/dashboard pages there until fixed.
 - Working: `api.gentechlabs.net`, `gentechlabs.net`, `github.com/Gentech-Labs/agent-credit-score`.
 - Rule: for SPC/grant artifact fields, always use `Gentech-Labs/<repo>` links and re-verify before pasting — the artifact text and the link must both be in the final paste block.
+
+**A working link is not a working product.** Pitfall 8 checks that pages load; the reviewer checks whether the
+thing *does* something. Before submitting, exercise the estate the way a reviewer will — the paid routes, the
+status surface, the manifest — and treat a `503` on a paid route as a defect you are about to ship to the person
+deciding your funding:
+
+```bash
+curl -s https://api.example.net/status | python3 -m json.tool | head -40      # what is actually up
+for p in /v1/routeA /v1/routeB; do printf '%s ' "$p"; curl -s -o /dev/null -w '%{http_code}\n' "https://api.example.net$p"; done
+```
+
+Expect `402` (selling) — not `503`, and not `200` on something advertised as paid. **Submit against a working
+estate, or state plainly in the application which services are not yet servable.** Never let the narrative quote
+a service count the reviewer can disprove with one command.
+
+**Never fabricate the required artifact (demo video, usage receipt, traction screenshot).** If the form wants a
+1-minute demo and none exists, either render one from output you actually measured (see
+`demo-video-production` → "Demo From Measured Output") or submit the field blank and say so. A fabricated demo is
+the one defect that turns a rejection into a trust problem.
+
+**An artifact is a snapshot — re-measure it against live reality immediately before submitting.** A demo rendered
+in the morning and submitted in the afternoon can already be wrong: measured here, one caller count moved
+1,268 → 1,279 in about twenty minutes, and two more claims (a bucket labelled "all crawlers", a service count
+that conflated advertised services with registered backends) were true when written and loose by submission time.
+Build a short **claims sheet** — one row per number that appears in the artifact, with the verified value and
+status — and diff it against a live probe before the form is sent. Correct the artifact, not the memory of it.
+
+- **Prefer a rounded floor to an exact count** in anything that will live for months ("over 1,200 distinct
+  callers" survives; "1,268" is wrong by lunchtime). Precision that decays is a liability, not credibility.
+- **State the weak number yourself, measured.** Zero paid revenue, zero conversions, unclassified traffic — say
+  it in the artifact with its measurement, because a reviewer can check in one command and discovering it reads as
+  concealment while declaring it reads as discipline.
+- **Pair every drawback with its named fix.** "Three backends are down" alone is an admission; "down while we move
+  them behind a failover queue, plus a health gate that refuses traffic rather than reporting healthy" is a plan.
+  The same rule applies to a spoken close as to a budget line.
+- **Pick the count you mean when two exist.** Advertised services, registered backends and servable routes are
+  three different numbers on the same estate; saying "nine of fourteen" while the status surface shows fifteen
+  backends hands a reviewer an inconsistency in the first minute.
+
+**Verify the programme's own page live; a `403` to us is not "closed".** Bot walls, WAFs and stale mirrors return
+codes that say nothing about the programme's status. Re-fetch the page and the form URL before quoting a deadline
+or an amount, and when the page is unreachable say *unverified* rather than re-quoting a vault figure as current.
 
 ---
 

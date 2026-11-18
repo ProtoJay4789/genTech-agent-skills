@@ -1,6 +1,10 @@
 ---
 name: model-optimized-cron-config
-description: "Two-tier model routing: DeepSeek V4 Flash (OpenCode Go) for routine runs, GLM-5.2 (OpenCode Go) for audits/builds. Nous Research fallback. Jordan sets provider — don't change without his say-so."
+description: "Two-tier model routing for cron jobs. Jordan sets provider/model — never change routing without his say-so."
+# ⚠️ The model NAMES in the examples below are historical (Jul 2026: GLM-5.2 + DS V4 Flash).
+# Measured current state 2026-10-31: default = deepseek-v4.1-flash (opencode-go);
+# auxiliary/vision PINNED = glm-5.3-flash (same provider — the standing rule). Read the live
+# values from config.yaml before citing a model name; do not copy one out of this file.
 tags: [cron, model-optimization, cost-efficiency, agent-kit, devops]
 trigger: "When creating or updating cron jobs, or when concerned about AI token usage in automated workflows."
 related_skills:
@@ -31,7 +35,14 @@ Gentech (VPS) and Forge (Desktop) use the same model stack through different gat
 
 ## The Solution
 
-**Two-tier model strategy (current as of Jul 2026):**
+> ⚠️ **SUPERSEDED 2026-10-31 — the ROUTING PRINCIPLE still holds; the MODEL NAMES do not.**
+> Measured from `config.yaml` on 2026-10-31: `model.default = deepseek-v4.1-flash` on
+> `opencode-go`, and auxiliary/vision **pinned** to `glm-5.3-flash` (same provider — the
+> standing "stay on one provider" rule). Also live: `auto`-detect for the auxiliary services
+> is BANNED, and `glm-5.3-flash` needs `max_tokens >= 512`. The names below are kept as the
+> original record; **read the live values before you cite one.**
+
+**Two-tier model strategy (AS DOCUMENTED Jul 2026 — see the banner above):**
 - **Build/Audit Layer**: Use GLM-5.2 via OpenCode Go (Gentech) or Ollama Cloud (Forge) for creating cron jobs and auditing results (high-value, occasional)
 - **Run Layer**: Use DeepSeek V4 Flash via OpenCode Go (Gentech) or Ollama Cloud (Forge) for routine cron execution (cost-efficient)
 

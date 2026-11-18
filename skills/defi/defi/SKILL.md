@@ -36,8 +36,8 @@ All DeFi LP management in one skill — monitoring, rebalancing, dashboard sync,
 | Routing layer / mode decisions | §11 Routing Layer | references/routing-layer-quick-ref.md |
 | Training data schema | §12 DeFi Model | references/training-data-schema.md |
 | Prompt-to-yield / Agent rebalance service | §13 Prompt-to-Yield | references/prompt-to-yield-service.md |
-| AAE app architecture, rank/prestige | §19 AAE DeFi Hub | references/defi-operations.md (AAE sections) |
-| Meteora DLMM pool analysis | §20 Meteora DLMM | references/defi-operations.md (Meteora section) | references/entry-price-il-fix-protocol.md |
+| AAE app architecture, rank/prestige | §19 AAE DeFi Hub | references/defi-operations/defi-operations.md (AAE sections) |
+| Meteora DLMM pool analysis | §20 Meteora DLMM | references/defi-operations/defi-operations.md (Meteora section) | references/entry-price-field-sync-fix.md |
 | Entry price sync issues after rebalance | §16b Sync Issue Protocol | references/entry-price-sync-issue-fix.md |
 | Cron jobs running during quiet hours | §6 LFJ Orchestration | references/cron-quiet-hours-enforcement.md |
 | Agentic Treasury / Yield Farm Command Center | §21 Agentic Treasury | references/agentic-treasury-architecture.md |
@@ -1334,3 +1334,19 @@ Where `price_ratio = current_price / entry_price`.
 ---
 
 *Consolidated from 7 skills into 1 unified umbrella. Version 2.7.1 — Oct 2, 2026. Added "not earning" as a first-class MATERIAL alert, distinct from shape geometry and from advisory low-efficiency. Updated the threshold-multi-file pitfall. CMC-primary for price fetching. User preference: show cron 2x/hour when things are good, not just silent.*
+
+## Consolidated references
+
+These were separate skills until 2026-10-19. Their triggers duplicated this one, so the bodies moved here rather than being rewritten — **the original text is preserved verbatim**, because a merge that paraphrases a procedure loses the details that made it work.
+
+- **`defi-lp-monitoring`** — absorbed, full text at `references/defi-lp-monitoring/defi-lp-monitoring.md`. Trigger: "defi lp monitoring" questions that used to resolve to a separate skill.
+- **`defi-operations`** — absorbed, full text at `references/defi-operations/defi-operations.md`. Trigger: "defi operations" questions that used to resolve to a separate skill.
+
+
+## Missing references (verified 2026-10-19)
+
+This skill pointed at two reference files that **do not exist**. They are listed here instead of
+being silently repointed at something similar, because a wrong pointer is worse than a known gap:
+
+- `references/bid-only-hybrid-shape.md` — never present; `lp-shape-detector` covers bid-ask/hybrid shapes.
+- `references/fee-history-tracker.md` — never present; `lp-venue-fee-mechanisms` covers fee accounting.

@@ -180,6 +180,49 @@ After model creation, update:
 
 ---
 
+## Quota exhaustion — the real failure shape (measured 2026-10-12)
+
+The subscription endpoint is NOT a reliable go/no-go test. Measured: `/v1/user/subscription` reported
+**362,959 / 363,000 (100.0%)** while a **53-character** synthesis still returned `200` with a valid MP3.
+The counter rounds; a few credits can remain.
+
+What actually fails, and how:
+
+```
+POST /v1/text-to-speech/{voice_id}  ->  HTTP 401
+{"detail":{"type":"invalid_request","code":"quota_exceeded",
+ "message":"This request exceeds your quota of 363000. You have 13 credits remaining,
+  while 58 credits are required for this request."}}
+```
+
+**So: probe with a SHORT line before assuming you can't speak, and read `code: quota_exceeded` — not the HTTP
+status — to tell "out of quota" apart from "bad key" (both are `401`).** The message states the exact
+credits remaining and required, which is the only precise number available. Reset is a Unix timestamp:
+`next_character_count_reset_unix` (measured `1792263651` = **2026-10-17 19:00 UTC**).
+
+**Do not ask the user to paste the key into chat.** Store it in a `600` file and have the script read it
+in-process. A chat-pasted key persists in `state.db` **including the FTS index** plus `gateway.log` and
+`agent.log` — see `Treasury/agent-vault-treasury-walkthrough-2026-10-12.md` §8. Rotation is the only control
+after exposure.
+
+## Council voice — confirmed present (2026-10-12)
+
+`/v1/voices` on the Creator-tier account returns **34 voices**: 21 premade, 9 cloned, 4 professional.
+
+- **Council Chair - Elder Statesman** — `GbIhmrBVVhwMhzHyMjJW` (**cloned**) — *this is "the council voice"*.
+- **Joe Davis - Elder Statesman** — `ch0vU2DwfJVmFG2iZy89` (professional) — the other elder-statesman option.
+- Cloned set: `dwPf6y3q42Kdh7xBSGKx` Jocelyn-English · `R8Nmfj7gteuYpqJBPrMD` Christel ·
+  `ToA54GQ3jBRB2zt0fBXj` IvanOnTech · `kb3G0tkYW7pEGVlHEdu5` Christel-TrustGuard · `Rxk9LQxvNFEplpjjsjuN`
+  Steve Harvey · `eMQtaKLvw87ksRqmQVpS` Vanito · `n2icbiwmCen7udwM65GS` D-Mob · `NqA7ncEPGGt1nDbCrDex` Uncle Iroh.
+- Professional: `tpbS1suUR3ke5cIZG2E3` Anderson (DR) · `XaEUesE01wKIKaa0xI0h` Alex · `NQJnREzQtnAHHZnia0tY` Alexei.
+
+Verify with a live `/v1/voices` call rather than trusting this list — voice IDs are account-specific.
+
+## Key format (2026)
+
+Keys must start with **`sk_`** and are ~51 chars (`sk_` + 48 hex). Older raw-64-hex keys are rejected with
+`invalid_api_key_prefix`. A `sk_`-prefixed Stripe key mis-copied into an ElevenLabs slot is a known trap.
+
 ## Content Pipeline Integration
 
 The content pipeline at `scripts/content-pipeline.py` + `scripts/elevenlabs-narrate.py` generates automated build report voiceovers:
@@ -311,6 +354,48 @@ Default settings (stability 0.75, similarity 0.90) are a starting point only. Cl
 | Warm / Storyteller (Iroh) | 0.55–0.70 | 0.72–0.85 | 0.20 | `eleven_multilingual_v2` |
 
 > **Steve Harvey v2 note:** Stability 0.85 is higher than typical expressive voices because it eliminates background noise artifacts from the Desmond-SteveHarvey clone. The script at `steve-harvey-tts.py` uses stability 0.85 + similarity 0.75 + style 0.15 with post-processing (highpass filter + noise gate + loudnorm) for clean broadcast-grade output. See that script for the full verified pipeline.
+
+### Pace — `speed` is a real voice_settings field, and it must be MEASURED
+
+`speed` is accepted inside `voice_settings` on the synthesis endpoint (confirmed live, HTTP 200 with a
+valid MP3 at `speed: 0.90`). It is the pace knob; do not reach for text hacks or ffmpeg `atempo` first.
+
+**Measure the delivered pace from the AUDIO, never from the script's own estimate.** A script's
+`words / 2.6` guess is not a measurement — ffprobe the produced file and compute words-per-minute
+directly:
+
+```bash
+ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 out.mp3
+# wpm = words / duration * 60
+```
+
+| delivery | wpm | reads as |
+|---|---|---|
+| 160–180 | newsreader — too fast for dense financial copy |
+| 150–160 | conversational |
+| **130–145** | **measured, easy to follow — the target for briefings** |
+| <120 | drags; listeners stop tracking |
+
+**Slowing one knob is not the same as slowing the read.** Lower `speed` alone produces drag. To make a
+synthetic voice *understandable*, raise `stability` and lower `style` at the same time — expressiveness,
+not word count, is what makes a clone hard to parse. Measured: `speed 0.90 + stability 0.60 + style 0.20`
+took a briefing from ~157 to 142 wpm and stayed clear.
+
+### Council / briefing voice — the register is a standing preference
+
+The council voice (`GbIhmrBVVhwMhzHyMjJW`, "Council Chair - Elder Statesman") is read by non-technical
+listeners who must answer questions from it. Required register:
+
+- **Serious in substance, business-casual in wording.** Say *"nothing has gone in yet, and nothing goes
+  in until the book is big enough to be worth it"* — not *"nothing has been deployed… until the book
+  clears its minimum size."* Same fact, no jargon, no memo cadence.
+- **Slower than default, steadier than default.** ~140 wpm, stability raised, style lowered.
+- **Short sentences, one idea each.** A spoken line that needs re-reading is a failed line.
+- **Never read a table or a raw number string aloud** (`$1.22e-07`, `7d -7.35%`). Normalise to speech
+  first — "bitcoin is at seventy-seven thousand dollars, down four percent on the week."
+- **Say names as the person says them.** Never generate a spoken name with `.capitalize()` on a registry
+  key — it only works by luck and mangles names with internal capitals. Keep an explicit spoken-name map
+  (`cuzzo → "Cuzzo"`, two U's).
 
 For complete pacing templates, script formatting rules, and a reusable voice config template, see **`gentech/voice-agent-config`** skill.
 

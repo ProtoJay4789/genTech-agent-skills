@@ -7,7 +7,7 @@ license: MIT
 metadata:
   hermes:
     tags: [MCP, Tools, Integrations]
-    related_skills: [mcporter]
+    related_skills: [mcporter]   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `mcporter` exists on this seat -->
 ---
 
 # Native MCP Client
@@ -527,11 +527,11 @@ Disable sampling for untrusted servers with `sampling: { enabled: false }`.
 
 ## Editing config.yaml (Adding MCP Servers)
 
-The `patch` tool is **denied** on `/root/.hermes/config.yaml` — it's a protected system file. Use Python with `pyyaml` instead:
+The `patch` tool is **denied** on `/opt/data/profiles/gentech/config.yaml` — it's a protected system file. Use Python with `pyyaml` instead:
 
 ```python
 import yaml
-with open('/root/.hermes/config.yaml', 'r') as f:
+with open('/opt/data/profiles/gentech/config.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
 config['mcp_servers']['new_server'] = {
@@ -541,13 +541,13 @@ config['mcp_servers']['new_server'] = {
     'sampling': {'enabled': False}
 }
 
-with open('/root/.hermes/config.yaml', 'w') as f:
+with open('/opt/data/profiles/gentech/config.yaml', 'w') as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 ```
 
 **After any config change**, restart the gateway: `hermes gateway restart --profile gentech`
 
-**Always verify** the change took effect: `grep <server_name> /root/.hermes/config.yaml`
+**Always verify** the change took effect: `grep <server_name> /opt/data/profiles/gentech/config.yaml`
 
 ## Hermes MCP Catalog — Submitting Your Own Entry
 

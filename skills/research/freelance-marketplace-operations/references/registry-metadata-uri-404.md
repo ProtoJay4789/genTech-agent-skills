@@ -28,7 +28,7 @@ was the problem.
 ## The fix
 Host the metadata at a **publicly reachable** URL, then point the registry's `metadata_uri`
 at it. Steps:
-1. Push the metadata JSON to a **public** repo (e.g. `Gentech-Labs/programmable-money-x402`).
+1. Push the metadata JSON to a **public** repo — **verify WHICH account holds it**: `github.com/Gentech-Labs/gentechlabs.github.io` 404s while `github.com/GentechLabs/gentechlabs.github.io` is 200 (measured 2026-11-01), and the agent-kit exists on both. **There is no blanket account preference — check the exact URL with a content check, not a status check.**
    Verify the raw URL returns HTTP 200 unauthenticated:
    `curl -s -o /dev/null -w "%{http_code}" https://raw.githubusercontent.com/<org>/<repo>/main/<file>`
 2. Update the registry's `metadata_uri` to the new public URL.

@@ -5,9 +5,33 @@ category: gentech-ops
 version: 2.0.0
 author: Gentech
 tags: [self-evolution, harness, constitutional-ai, witness-log, fix-dont-just-report, bootstrap]
+
+related_skills:
+  - ../harness-self-evolution/SKILL.md
+  - ../harness-critic/SKILL.md
 ---
 
 # Self-Evolution Harness
+
+## This skill is ONE of three — the harness family
+
+**They describe a single system: one runtime, two agents (Evolution + Critic) and a constitution.**
+
+| skill | role |
+|---|---|
+| `harness-self-evolution` | how to RUN a cycle correctly — the gate, the metrics, the audit trail |
+| `harness-critic` | the adversary — audits the Evolver for stagnation, self-dealing, monoculture |
+| `self-evolution-harness` | the design — constitution, witness log, bootstrap |
+
+⚠️ **Loading one without the others gets you half the machine.** The Critic's counter-recommendations
+are binding on the Evolver (INVARIANT), and the Evolver's cycle is meaningless without the Critic's
+audit. **Start here → `harness-self-evolution/SKILL.md`.**
+
+⚠️ **The three carry independent version numbers (1.5.0 / 1.8.0 / 2.0.0) for one runtime.** Treat the
+version as *document* version, not system version — they are not in lockstep.
+
+⚠️ **The runtime was lost in the Oct 2026 wipe** (`/root` → gone). The doctrine is intact; the code is
+not. See `00-HQ/harness-audit-2026-10-31.md` before citing any behavioural claim as verified.
 
 ## Overview
 
@@ -39,9 +63,9 @@ All jobs use `opencode-go → ollama-cloud` as the model provider (switched from
 ## Location
 
 **Canonical harness home: `${PROFILE_DIR}/harness/`** — this is the tree
-all four crons use as Workdir. The `/root/.hermes/harness/` path that earlier versions of
+all four crons use as Workdir. The `${HERMES_HOME}/harness/` path that earlier versions of
 this skill documented was a **split-brain duplicate** with its own git history and its own
-`facts/`; it was archived to `/root/.hermes/harness.orphan-20260731` in evolve-21 after
+`facts/`; it was archived to `${HERMES_HOME}/harness.orphan-20260731` in evolve-21 after
 confirming zero crons referenced it. Do not recreate it.
 
 - Constitution: `harness/constitution.md`
@@ -85,7 +109,7 @@ Five articles, all binding:
 Each cycle follows this exact sequence:
 
 1. **Read constitution** — load `${PROFILE_DIR}/harness/constitution.md`
-   (the old path `/root/.hermes/harness/constitution.md` does not exist; each profile owns
+   (the old path `${HERMES_HOME}/harness/constitution.md` does not exist; each profile owns
    its own copy under `profiles/<name>/harness/`)
 2. **Read critique log** — if last 3 entries are unaddressed, address them; new hypothesis disallowed
 3. **Generate goal** — ask "What concrete user-facing capability is currently weak?"; write to recommendation.md BEFORE reading existing files
@@ -99,9 +123,9 @@ Each cycle follows this exact sequence:
 
 - **Empty witness log** — if no friction is recorded, Evolution has nothing to act on. Seed the witness log with current-state evidence on first cycle.
 - **No execution loop** — the harness is a static directory without `execution-loop.sh`. Always create the loop before running cycles.
-- **Phantom paths** — the original skill documented `${PROFILE_DIR}/harness/` but the actual harness lives at `/root/.hermes/harness/`. Always verify the actual path with `ls /root/.hermes/harness/` before referencing. **Fixed Jul 29, 2026** — all paths in this skill now correct.
+- **Phantom paths** — the original skill documented `${PROFILE_DIR}/harness/` but the actual harness lives at `${HERMES_HOME}/harness/`. Always verify the actual path with `ls ${HERMES_HOME}/harness/` before referencing. **Fixed Jul 29, 2026** — all paths in this skill now correct.
 - **Silent fallback to phantom path** — all 5 harness scripts originally used `HERMES_HOME="${HERMES_HOME:-$HOME/hermes-harness}"` as a fallback when auto-detect failed. The path `$HOME/hermes-harness` does not exist on this system. When auto-detect failed (e.g., script copied outside the harness tree), the script silently created phantom directories and wrote data to a location no one ever checks. **Fixed evolve-8 (Jul 28, 2026)** — replaced with a hard error: `echo "FATAL: cannot determine HERMES_HOME" >&2; exit 1`. See `references/auto-detect-hard-fail.md` for the full pattern and verification steps.
-- **No cron trigger (RESOLVED Jul 29, 2026)** — the harness had no cron entry and only ran when manually invoked. Cycle 2 added `0 8 * * * cd /root/.hermes/harness && bash execution-loop.sh evolve >> /root/.hermes/harness/facts/cron-output.log 2>&1`. The cron sits between the gateway restart (06:25) and the opportunity scanner (09:00).
+- **No cron trigger (RESOLVED Jul 29, 2026)** — the harness had no cron entry and only ran when manually invoked. Cycle 2 added `0 8 * * * cd ${HERMES_HOME}/harness && bash execution-loop.sh evolve >> ${HERMES_HOME}/harness/facts/cron-output.log 2>&1`. The cron sits between the gateway restart (06:25) and the opportunity scanner (09:00).
 - **Proposal-only amendments** — Evolution cannot modify constitution.md directly. It writes proposals to `facts/amendment-proposal.md` for human review.
 - **Awk field-index bug in `read-external-feedback()`** — When parsing `- Verdict: HEALTHY` lines with `awk '{print $2}'`, the result is `Verdict:` (the label), not `HEALTHY` (the value). The value is at `$3`. This affects any bash function that parses `key: value` format lines with awk. **Fix (evolve-14, Jul 29 2026):** Use `$3` for the value field. The `read-external-feedback()` function in `execution-loop.sh` had all three field extractions (verdict, severity, action) using `$2` instead of `$3`, meaning the abort-on-high-severity guard never worked. Verify with: `grep -c 'awk.*print $3' scripts/execution-loop.sh` — must return 3.
 - **`skill-automation.sh` was a stub for `facts-cleanup` (FIXED evolve-17, Jul 29 2026)** — The `facts-cleanup` action type dispatched to `skill-automation.sh` which had no real handler — it printed "no specific skill wired for facts-cleanup" and returned success. Every `facts-cleanup` cycle required the Evolution agent to execute the actual work manually. **Fixed evolve-17:** `skill-automation.sh` now has a real `facts-cleanup` handler that updates `harness-state.md` header, adds the latest critique entry to the Critique Status section, and updates the Last Action section. The handler is verified working — it updated the header from evolve-16 to evolve-17, added the evolve-16 critique to status, and committed to git. Other action types (`update_script`, `create_skill`) still need handlers wired in, but `facts-cleanup` covers 9 of the last 10 recommendations.

@@ -6,6 +6,15 @@ tags: [blockchain, erc-8004, x402, agentscan, agent-economy, revenue, infrastruc
 
 # Agent Economy Infrastructure
 
+## ⛔ WALLET STATUS — 2026-11-03
+
+`0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (F8) is **RETIRED** — key lost in the Oct 12 wipe; its 0.4868 USDC is unspendable.
+**Do not fund it; do not expect it to work.** Current BlockRun wallet:
+`0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0` — one shared key file at `/opt/data/.blockrun/.session`, symlinked into every seat.
+It holds 0.9687 USDC and **0.000000 ETH** on Base: calls fail until gas is funded.
+Detail: `gentech-wallet-management` → WALLET STATUS.
+
+
 Participating in the AI agent economy — registering agents on-chain, listing services on payment rails, researching the ecosystem, and modeling revenue.
 
 ## Three-Pillar Business Model (Jul 2026)
@@ -117,7 +126,7 @@ Register an AI agent as an on-chain NFT via the ERC-8004 Identity Registry.
 - **Created:** June 21, 2026 @ 11:40 PM UTC
 - **Verification:** `GET https://agentscan.info/api/agents?search=Gentech`
 
-**Note:** Jordan has TWO wallets. The EVM address `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` was funded with $11 USDC on Base, but the actual registration used `0x7ebff188f2Eba16518C02864589b1403a5d1296a` (nonce 5213 on Avalanche — his active trading wallet). Always verify which wallet the user is connecting in MetaMask.
+**Note:** Jordan has TWO wallets. The EVM address `0xebc8c719…72f8 (RETIRED)` was funded with $11 USDC on Base, but the actual registration used `0x7ebff188f2Eba16518C02864589b1403a5d1296a` (nonce 5213 on Avalanche — his active trading wallet). Always verify which wallet the user is connecting in MetaMask.
 
 **Pitfalls:**
 - Metadata URL must be a raw GitHub URL (not blob view) — the on-chain URI points here
@@ -139,7 +148,10 @@ Register an AI agent as an on-chain NFT via the ERC-8004 Identity Registry.
 - **Cloudflare Workers KV placeholder:** Never deploy with `id = "your-kv-namespace-id"` — it causes `code: 10042` error. Either create the KV namespace first (`wrangler kv:namespace create "NONCE_STORE"`) or disable the binding entirely with a comment. Graceful degradation pattern: if `env?.NONCE_STORE` is undefined, skip nonce replay protection — core x402 verification still works.
 - **Cloudflare CI worker name mismatch:** GitHub Builds expects `gentechlabs-api` (from repo name), but `wrangler.toml` had `gentechlabs`. The CI auto-overrides but warns: "Worker name mismatch. Overriding using the CI provided Worker name." Match the CI name to avoid confusion.
 - **setTokenURI vs setAgentURI:** `setTokenURI(tokenId, "ipfs://...")` updates the public metadata that AgentScan displays. `setAgentURI(tokenId, "...")` updates internal contract metadata (for custom storage implementations). For AgentScan updates, always use `setTokenURI()`.
-- **AgentScan shows EMPTY skills/domains even when the metadata JSON is fully populated — check the metadata_uri resolves.** The metadata file can have 41 skills + 15 domains + 10 services, but if the on-chain `metadata_uri` points at a URL that 404s (e.g. a `gentechlabs.github.io` raw URL on a flagged/private account), AgentScan fetches it, gets 404, and renders the structured fields blank — while the description still shows. **Diagnostic:** `curl -s -o /dev/null -w "%{http_code}" <metadata_uri>` — if not 200, that's the cause, not missing data. **Fix:** host the metadata in a public `Gentech-Labs/<repo>` raw URL (e.g. `https://raw.githubusercontent.com/Gentech-Labs/programmable-money-x402/main/gentech-avax-metadata.json`), then update the on-chain URI to point there. Note: `gentechlabs.github.io` raw URLs 404 even when the GitHub API reports the repo public — the flagged-account web-404 quirk applies to raw.githubusercontent too, not just the repo page. Confirmed Aug 7, 2026.
+- **AgentScan shows EMPTY skills/domains even when the metadata JSON is fully populated — check the metadata_uri RESOLVES *AND SERVES JSON*.** ⚠️ **The status code alone is not the test.** Measured 2026-11-01: our on-chain `tokenURI` (tokenId **1770**) pointed at `https://gentechlabs.net/.well-known/gentech-avax-metadata.json`, which returns **HTTP 200** and serves **the website's HTML** (`<!DOCTYPE html>`). A `%{http_code}` check calls that healthy; the directory fetches it, cannot parse the structured fields, and renders skills/domains **blank** while the description still shows. **Correct diagnostic — two checks, not one:**
+    1. `curl -s -o /dev/null -w "%{http_code} %{content_type}" <metadata_uri>` — expect `200` and a JSON type, not `text/html`.
+    2. `curl -sL <metadata_uri> | python3 -c 'import json,sys;json.load(sys.stdin)'` — **must parse.** A 200 that does not parse as JSON is the failure.
+  ⚠️ **Which ACCOUNT holds a repo is PER-REPO — there is no blanket preference.** Measured 2026-11-01: `github.com/Gentech-Labs/gentechlabs.github.io` **404s** while `github.com/GentechLabs/gentechlabs.github.io` is **200** (and serves valid JSON at `raw.githubusercontent.com/GentechLabs/gentechlabs.github.io/main/...`); meanwhile the agent-kit is 200 on **both** accounts. **So verify the exact URL, every time — and verify by CONTENT, not status.** **Also: a valid JSON can still be a lie.** Measured the same day: the hosted metadata listed **17 services including four we could not serve**, so it oversold. Generate the published metadata from the SAME inventory the readiness gate uses (`scripts/build-registry-metadata.py`) so a service we cannot serve cannot appear. **A directory entry is an advertisement.**
 
 ### 2. Agentscan Ecosystem Research
 

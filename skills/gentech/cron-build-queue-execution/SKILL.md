@@ -41,7 +41,7 @@ The cron provides:
 
 ```python
 import json
-q = json.load(open('${VAULT_DIR}/scripts/build_queue.json'))
+q = json.load(open('${VAULT_DIR}/00-HQ/build-queue/build_queue.json'))
 updated = q.get('updated', '')
 # If updated within the last 6 hours, the queue was already maintained
 # by the Nightly Build Session — skip redundant work
@@ -224,7 +224,7 @@ For each selected item:
 
 ### Step 4: Update Build Queue
 
-Update `${VAULT_DIR}/scripts/build_queue.json`:
+Update `${VAULT_DIR}/00-HQ/build-queue/build_queue.json`:
 
 | Action | `status` value |
 |--------|---------------|
@@ -319,7 +319,7 @@ This digest IS the cron job's final output — it auto-delivers to the configure
 - **Queue item IDs may skip or be non-sequential** — Some items have been cancelled or deleted. Check `id` values to find the next available ID.
 - **Design docs may already exist** — Search the vault before creating new ones. `09-Green Room/designs/` is the canonical location.
 - **`patch` fails on JSON queue with escaped Unicode** — `build_queue.json` uses escaped Unicode sequences (e.g. `\\u2014`, `\\u2026`) in its `detail` fields. The `patch` tool's fuzzy matching can fail against these sequences (finding 17+ matches or missing the match entirely). Fix: use Python's `json.load`/`json.dump` via `terminal` (`python3 << 'PYEOF'`) for reliable queue updates instead of `patch`. Keep the patch approach for other files — this is specific to the JSON queue file with its escaped characters.
-- **`patch` also fails on JSON files with merge conflict markers** — When `git pull` produces a merge conflict in `build_queue.json`, the file contains `<<<<<<< HEAD`, `=======`, `>>>>>>>` markers that make it invalid JSON. The `patch` tool refuses to write because the candidate content fails JSON syntax validation. Fix: (1) use `sed -i '3,7d'` to remove the conflict marker lines, (2) verify with `python3 -c "import json; json.load(open('scripts/build_queue.json'))"`, (3) use Python `json.dump` for the actual content update. Do NOT use `patch` on a conflicted JSON file — it will always fail.
+- **`patch` also fails on JSON files with merge conflict markers** — When `git pull` produces a merge conflict in `build_queue.json`, the file contains `<<<<<<< HEAD`, `=======`, `>>>>>>>` markers that make it invalid JSON. The `patch` tool refuses to write because the candidate content fails JSON syntax validation. Fix: (1) use `sed -i '3,7d'` to remove the conflict marker lines, (2) verify with `python3 -c "import json; json.load(open('00-HQ/build-queue/build_queue.json'))"`, (3) use Python `json.dump` for the actual content update. Do NOT use `patch` on a conflicted JSON file — it will always fail.
 - **Stale-notes scan is now UNCONDITIONAL (SUPERSEDED Aug 5, 2026)** — The old limitation ("stale-notes/Brain-Audit scan only runs when the build lane is gated") was FIXED with a dedicated `stale-notes-scanner.py` that runs EVERY night regardless of lane state and feeds a `## 🗂 Stale / unaddressed notes` Morning Digest section. See the "V4 Nightly Loop" section above. The old symptom to remember: shipping a build overnight used to silently skip notes maintenance, so a productive night never surfaced stale notes — that gap is closed. If a future session sees the old conditional behavior, the fix is to make the stale-notes scan unconditional, not to re-embed the gated-lane dependency.
 - **Blocker notes go stale — cross-check against the most recent handoff (proven Aug 6, 2026)**: An item's `note`/`detail` describing a blocker can be wrong by the next session. The classic drift: a note says "needs Jordan to fund wallet" when the handoff confirms the wallet is now funded and the blocker has *shifted* (e.g. to a platform outage). Before committing an overnight maintenance pass, read the newest handoff file(s) and diff the queue's blocker/status claims against them:
   ```bash
@@ -343,7 +343,7 @@ group agent. This overrides the Forge-centric assumptions elsewhere in this skil
 ### 1. Deterministic gate — build vs maintain is a NUMBER, not a judgment call
 Compute the autonomous-work count instead of deciding "is the lane gated?":
 ```python
-python3 -c "import json; q=json.load(open('${VAULT_DIR}/scripts/build_queue.json')); items=[i for i in q if isinstance(i,dict)]; print(sum(1 for i in items if i.get('status')=='pending' and not i.get('needs_jordan')))"
+python3 -c "import json; q=json.load(open('${VAULT_DIR}/00-HQ/build-queue/build_queue.json')); items=[i for i in q if isinstance(i,dict)]; print(sum(1 for i in items if i.get('status')=='pending' and not i.get('needs_jordan')))"
 ```
 - `count >= 1` → BUILD MODE. Ship 1-2 verified items (tests pass, code runs). Never fabricate.
 - `count == 0` → MAINTENANCE MODE. Do NOT idle. Run ALL: stale-notes scan → flesh/promote an

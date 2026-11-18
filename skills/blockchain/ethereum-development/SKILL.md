@@ -8,7 +8,7 @@ tags:
   - hardhat
   - development
 related:
-  - solidity-security
+  - solidity-security   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `solidity-security` exists on this seat -->
   - solana-anchor-development
 ---
 
@@ -199,7 +199,7 @@ After mastering basics:
 1. ERC20 token (OpenZeppelin contracts)
 2. Deploy to Sepolia testnet (need Infura/Alchemy key)
 3. Security patterns — see `solidity-security` skill
-4. Build for hackathons — see `hackathon` skill
+4. Build for hackathons — see `hackathon` skill   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `hackathon` exists on this seat -->
 
 ---
 

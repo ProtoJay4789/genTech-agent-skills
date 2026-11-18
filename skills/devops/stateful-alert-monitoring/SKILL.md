@@ -517,6 +517,88 @@ LINES_AFTER=$(wc -l < health.log)
 
 ---
 
+## 13. A monitor that stops measuring (dead-canary rules)
+
+A monitor can keep running, keep printing, and stop carrying information. Three shapes, all of which read
+as diligence in the transcript and as noise in the chat.
+
+### 13a. Never tell the reader to go measure it themselves
+
+If a probe can decide something, it must decide it **in the run**. Emitting the result plus a shell snippet
+("dump the user agents to find out what this bucket is") guarantees the finding repeats verbatim, because the
+work was out-sourced to a human who is not in the loop. **Measured: the same bucket printed as an identical
+`⚠️ UNVERIFIED: N` line for seven consecutive runs while it was fully resolvable from the data at hand.**
+
+- Do the analysis inline and print the *shape* of the answer: counts by category, the widest offender, a
+  sample of names.
+- If the analysis truly cannot run from that script (needs a credential, another host), say **who** must run it
+  and **what changes when they do** — and track it as an open item with a named owner, not as a recurring
+  warning.
+
+### 13b. A number that never changes is a dead canary
+
+Identical output across runs means the probe is asserting yesterday's measurement. Add a cheap **delta line**
+(`47 callers, +3 since last run`) computed from the last state file — the change is the signal, the stock is
+context. If the delta is genuinely zero for many runs, say "no change" once and let it go quiet; a warning that
+fires every run without changing is training the reader to scroll past the channel it shares with real alerts.
+
+### 13c. A standing finding is not a broken job — do not let either impersonate the other
+
+A scheduler treats **non-zero exit as job failure**, so a healthy monitor with a real standing finding looks
+identical to a crashed script in the notification text ("failed 5 runs in a row"). Two dishonest resolutions to
+avoid:
+
+- **Do not exit 0 to silence it.** A green light over a real defect is the exact failure class this library
+exists to prevent.
+- **Do not let it burn red forever either.** A red the operator has learned to ignore is already broken.
+
+The honest paths are two: **fix the cause** (preferred — usually a small spend or a one-line config), or
+**record an accepted exception** and have the job report *"N accepted exceptions, 0 unplanned findings"* and exit
+clean. An exception is honest only when it is written down with an owner and a date; suppressed silence is not an
+exception.
+
+### 13d. Name the blocker, not the symptom you happen to test for
+
+A probe that looks for *its favourite kind of evidence* will report absence as failure. Measured: an image
+liveness check searched four env-var API keys and reported `IMAGE generation unavailable` for five runs, while
+the fleet's actual default media lane authenticated from a **key file** — so the sentence was untrue. It was only
+correct once the probe read the lane's real credential **and** its spendable balance, and reported the true
+blocker (`0.000000 ETH on base — cannot pay`). **So when a capability check fails, the failure text must name the
+exact missing thing and be something the operator can act on in one step**; "no provider key" when the provider
+keeps its key elsewhere is a wrong answer wearing a confident sentence.
+
+### 13e. The monitor's SUBJECT and its SOURCE must be the same thing
+
+A probe answers exactly one question, and the three shapes below all report a **confident wrong answer**
+because the thing it read was not the thing it claimed to observe. Each looked healthy in the transcript.
+
+- **A "waiting on us" predicate keyed on the LAST SPEAKER is blind to everyone else.** A checker that asks
+  "does the newest message in this thread come from us?" answers *nothing is waiting* while a stranger had
+  just replied to a thread we opened — the reply was not the newest *thing we had looked at*. Measured: an
+  inbox audit printed `WAITING ON US — none` on the same day two outside participants posted substantive
+  replies in our own threads. **Scope the predicate to the actor whose move matters** (external activity
+  since our last message, mentions, new participants), not to a positional rule that a single later comment
+  can invert.
+- **A notification feed is not the activity.** The feed is per-recipient and can be empty while the artefact
+  moved (a reply on a thread already marked read, an edit, a close, a mention delivered only to a different
+  actor). Measured: `0` notifications across several days against threads that had genuinely changed.
+  **Query the object** (the thread, the issue, the file, the record) and let notifications, when present, be
+  an accelerator rather than the source of truth.
+- **An append-only log is a SHADOW of the actor, and shadows go stale after a restart.** A "which one is live
+  now?" probe that counts occurrences in a log tail resolves to the **long-lived old** entity even after a
+  restart created a new one, because the log keeps every historical mention. Measured: a freshness monitor
+  reported a seat frozen for weeks while that seat's own database held a session created minutes earlier —
+  the probe was reading the shadow, which still carried thousands of references to the dead entity. **Read
+  the system of record** (the table carrying the entity's own start time, the API's own object) ordered by
+  that timestamp; treat a derived log as corroboration only. And print the identifier you resolved
+  (`sid=…`, `thread=…`, `row=…`) beside the verdict, so a wrong pick is visible instead of plausible.
+
+**The general rule:** before shipping any "is X still Y?" check, name the exact object whose state decides
+it — then read that object. If the check reads something *derived* from the object (a log, a feed, a count),
+it is measuring the derivation, and it will be right up until the moment the derivation stops tracking.
+
+---
+
 ## 11. Related Skills
 
 - `defi-lp-monitoring` — LP-specific metrics (efficiency, IL, fees) that feed into this pattern

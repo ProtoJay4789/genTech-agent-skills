@@ -63,10 +63,70 @@ Created: Jul 28, 2026 (replaced earlier port health check that was paused)
 - **No-agent mode** — the script runs standalone, no LLM cost per tick.
 - **SSH-based** for port checks (can't check internal ports from outside).
 
+## Designing the verdict set — an out-of-service decision is NOT a failure
+
+A monitor needs more than up/down. The two extra verdicts are what keep it readable, and the last one is
+what stops it crying wolf:
+
+```
+UP       a measured pass, from a vantage that can actually see the target
+DOWN     a measured failure, from that same vantage
+UNKNOWN  the probe could not run at all — NEVER permitted to read as UP
+OUT      deliberately out of service, WITH THE REASON recorded — not a failure
+```
+
+- **OUT is the verdict that stops the noise.** Backends are taken out of service on purpose — no source
+  exists, an upstream objected, a dependency was never started. **If each of those exits non-zero on every
+  tick, the alarm is permanently on and the signal that matters (a *servable* service going down) is buried
+  under several known ones.** Exit non-zero only for something you intended to be up; keep OUT in the report
+  and out of the failure path. Recount this whenever services are deliberately retired.
+- **A monitor that cannot be right is worse than no monitor** — it teaches the reader to ignore the alarm.
+  **If a probe's verdict never moves when the world does, the probe is the defect.** Measured: a liveness job
+  that reported the same `N DOWN` every run for months, from the day it was written.
+- **Silence on success; speak on CHANGE.** A recurring "still down" every tick is noise, while "down → up"
+  once is information. Store last run's verdicts and report transitions — and make the healthy path print
+  nothing at all, since a cron that emits stdout on success delivers a message every tick.
+- **Prove the vantage can produce a POSITIVE before trusting a negative.** From the probing process, connect
+  to something you *know* is listening. If that also fails, every "down" you are about to report is an
+  artefact of where you are standing, not news about the service.
+- **When your own process cannot see the target, read a process that SHARES the target's namespace.** The
+  one legitimate exception to "never trust the monitored system's own report" is a probe running inside the
+  target's namespace: that is not self-congratulation, it is the only measurement positioned to see the
+  thing. **Name the vantage in the output**, so a reader knows which pair of eyes produced the verdict.
+- **A probe can be defeated by a HEADER as easily as by a namespace.** A check that works under `curl` and
+  fails under a language's default HTTP client is usually an edge rejecting the default User-Agent or
+  Accept — and the result is **UNKNOWN-forever, which is exactly as useless as DOWN-forever.** Send an
+  explicit User-Agent, and write the *real* exception into the state file rather than a generic
+  "unreachable", or the reason is unrecoverable the moment it matters.
+
 ## Pitfalls
 - **4xx responses are NOT failures** — they mean the server is alive but the endpoint doesn't exist. Only 5xx, timeouts, and connection refused are real failures.
 - **A 200 does NOT mean the target exists — a catch-all route answers EVERY path, and it reads as a pass.** The inverse of the rule above, and the more dangerous direction: a vhost or SPA with a fallback (`try_files $uri $uri/ /index.html`, a wildcard route, or a custom error page that still returns 200) serves the SAME successful response for a path that exists and for one that never has. Measured: a game subdirectory returned **200** while the game had never been deployed — the real directory answered **403**; the 200 was the arcade's SPA fallback serving the root page. Nothing in the status code distinguishes them. **Always run a CONTROL probe against a deliberately nonsense path in the same namespace** (e.g. `/cabinet/definitely-not-a-game-xyz/`) and compare the **served content**, not the code: when the control returns the same status AND the same title/body, the probe has established nothing about the target. Cite a matched `<title>` (or a body fingerprint) as the evidence of liveness — never the status code alone.
 - **`/health` 200 does NOT mean the service accepts work.** A concurrency cap can refuse every real request (`HTTP 429 Too many concurrent runs`) while `/health` and `/v1/models` both return 200 — measured on the gentech gateway for 9 minutes straight. The 429 gate is `active_agent_work_count()` (pending admissions + in-flight turns + live run tasks); `/health` never consults it. **Liveness = one real POST, not a status read.**
+- **A 402 price challenge is NOT a health check — it is answered from the ROUTE MAP, before any backend is
+  contacted.** Measured on the x402 gateway: every paid route returned a correct 402 while all twelve backend
+  ports had *nothing listening* on either the container or the host. **The inference "all the paid services
+  answered, so the backends must be reachable because the gateway proxies to them" is false and was stated
+  confidently before it was checked.** A challenge proves the price table loaded and nothing else. To health-check
+  a gateway, enumerate the backend addresses from the server's own route table and probe each one directly — the
+  price path and the delivery path are different surfaces and must be verified separately.
+- **Loopback inside a container is not loopback on the host.** Under bridged/non-host networking `127.0.0.1`
+  inside the container IS the container, so a host-run service is unreachable there while perfectly healthy — and
+  a `000` from that vantage means "nothing listening here", not "the service is down". Probe **both** vantages and
+  report the *pair* of numbers per port; the pair is the finding. Then check the process table (`docker ps`) before
+  accepting a networking story: if the services are neither listening nor listed, the problem is not addressing.
+- **Settlement can precede delivery — a paid route can take the money and return nothing.** Where the gateway
+  settles first and proxies second, an unreachable backend has already been paid for. Treat "a real settled call
+  served end to end, returning the *service's* own body" as the only evidence a paid route works; a 402 proves
+  nothing about it.
+- **200-with-an-error-body is worse than a 500, and it is easy to ship by accident.** A proxy's exception path
+  that returns a plain dict is serialized by FastAPI as `200 OK`, so a paying client reads a delivery failure as
+  success. Assert the status code of failure paths, not just the happy path.
+- **Before "correcting" a status page, re-check the inference you are correcting it from.** A `/status` reporting
+  every backend `down` was dismissed as a probe mismatch because the price path answered — and it was simply
+  telling the truth. A dashboard that disagrees with your reasoning is a prompt to re-measure, not a bug to fix.
+- **Any port map recorded in this skill is HISTORICAL — re-measure before relying on it.** A backend that was
+  verified listening on one audit can be absent on the next; ports in a doc are a lead, not a fact.
 - **Do not probe your own api_server from inside its own turn.** If you run as the agent the gateway serves, a self-POST queues behind the turn issuing it — and it *consumes* the concurrency slot you are testing, so the probe can wedge the seat it is measuring. Probe from outside, or use the async `/v1/runs` path and poll it. A `000` on a timeout sized below real latency reads as "dead peer" but may only mean "slow".
 - **Wait one polling cycle before declaring "needs an operator."** A transient that clears on its own and a wedge that genuinely needs a restart are the same picture at t+0. Poll twice before escalating; the measured case cleared in 9 min with the process PID unchanged (no restart was ever needed).
 - **SSL cert mismatches** on subdomains (e.g., `demo.gentechlabs.net` using the main domain's cert) cause false positives. Use `-k` flag or check via HTTP first.

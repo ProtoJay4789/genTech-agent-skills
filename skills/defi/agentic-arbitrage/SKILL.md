@@ -225,7 +225,7 @@ not run as parallel pings. Pattern:
   `format_hybrid_report()`. Runs clean standalone: `python3 aae-hybrid-signal.py`.
 - **Feeds (write JSON, don't spam chat):** `narrative-rotation.py` (✅ FIXED Aug 4 —
   was 401'ing on a hardcoded stale CMC key; now `_load_cmc_key()` reads
-  /root/.hermes/scripts/cmc_config.json first, then env CMC_API_KEY; both 200),
+  /opt/data/profiles/gentech/scripts/cmc_config.json first, then env CMC_API_KEY; both 200),   <!-- ⚠️ NOT PRESENT (checked 2026-11-17): this file does not exist on this seat. Do not assume it; verify before relying on it. -->
   `yield-rainbow.py` → `yield-rainbow-data.json`, `coin-rainbow.py` → per-coin
   (BTC/AVAX) value zones → `coin-rainbow-data.json`, `gta-arb-monitor.py` →
   `.gta-arb-state.json`.
@@ -247,7 +247,7 @@ not run as parallel pings. Pattern:
   (`platform:chat_id:thread_id`). The same Agentic Treasury can push to
   Discord/Slack/WhatsApp via gateway + `deliver` target. Free = reading the glance;
   paid lane ($10-20) = executing the fused call, alert webhooks, per-coin rainbows.
-- **Not to conflate:** `aa-service-prompts` skill uses "AAE" for a separate per-user
+- **Not to conflate:** `aa-service-prompts` skill uses "AAE" for a separate per-user   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `aa-service-prompts` exists on this seat -->
   detect→offer→opt-in loop — that is a different feature name, not the Autonomous
   Agent Economy product.
 
@@ -394,7 +394,7 @@ complete KYC + authorization).
 - BNY Mellon moving to 24/7 tokenized Treasury settlement — infrastructure
   aligns with agent treasury management
 
-**Integration:** See `mcp-integration-strategy` skill for the OAuth PKCE
+**Integration:** See `mcp-integration-strategy` skill for the OAuth PKCE   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `mcp-integration-strategy` exists on this seat -->
 flow setup steps and `references/robinhood-mcp-oauth-flow.md` for the
 full worked example.
 

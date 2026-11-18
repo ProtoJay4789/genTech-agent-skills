@@ -88,6 +88,41 @@ Part 3 — [The play]
 - Any response describing 3+ items with details → split into summary + detail messages
 - Follow-up to a "what's the status?" question → keep under 800 chars, offer details on request
 
+## When the Ask Declares Its Own Length
+
+**When the requester names the size — "one short answer is enough", "just the verdict", "one line",
+"short version" — the FIRST line must BE the answer, and every line after it must be skippable.**
+
+The failure this prevents is specific and it looks like diligence: a coordinator asks a one-sentence
+question, gets a multi-section report, and has to re-read it to find the answer they asked for. The
+work is not wasted — it is mis-ordered. Answer first, evidence after, and a reader who stops at line
+one must still be correct.
+
+- **Decision answers:** verdict in one line, then the reasons ranked, then the evidence. Never the
+  other way round — a verdict that arrives after its own methodology is not a verdict, it is a log.
+- **"One short answer" is a length instruction, not a request for less rigour.** Keep the probe work
+  and the numbers; cut the narration, the restatement of the ask, and the section that explains what
+  you did not do.
+- **If the honest answer is longer than asked** (the asker's premise was wrong, or two of their facts
+  contradict), lead with the answer and then flag the premise — do not open with the correction.
+- **A long answer to a dispatch that named a length is a defect the next session inherits**, because
+  the sender calibrates the next ask to the wall of text they got.
+
+### A COUNTED budget is a hard constraint — count the lines, don't "fit" them
+
+"Four lines max", "six lines", "twelve lines" is a **number**, not a vibe. Comply by counting what you
+send, not by writing one gigantic line per bullet: a 300-character line is still one line to a reader on a
+phone and still reads as a wall.
+
+- **One question, one line** when several numbered questions share one budget. Keep a measurement inline in
+  the line — that is what makes it short AND specific — and drop the preamble ("Great question", "Let me"),
+  the restatement of the ask, and the closing summary.
+- **Long content goes to a file, and the line names the path.** A counted ask is usually a request for a
+  pointer plus the verdict: file the evidence note, then answer in N lines with the path in one of them.
+- **Never pad or truncate to hit the count.** If the honest answer needs more, exceed it once and say why in
+  the last line — an over-length answer that flags itself is recoverable; an under-length one that dropped the
+  caveat is not.
+
 ## Hard-Short Mode: User Said "Make It Short"
 
 When the user says "make it short for telegram limit", "getting cut off", "still getting cut off at", or shows truncation frustration:

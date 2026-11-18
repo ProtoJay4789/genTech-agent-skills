@@ -1,6 +1,6 @@
 ---
 name: curriculum-development
-description: "Create, structure, and ship GenTech Academy curriculum modules. Covers module architecture, template packaging, README writing, and GitHub publishing workflow."
+description: "Use when a curriculum or learning path is built or revised. Market-first: mine real postings, rank requirements, grade against our stack."
 version: 1.0.0
 author: gentech
 tags: [academy, curriculum, documentation, module, templates, publishing]
@@ -11,6 +11,72 @@ tags: [academy, curriculum, documentation, module, templates, publishing]
 ## Purpose
 
 Ship production-grade curriculum modules for the GenTech Academy. Each module is a self-contained directory under `modules/NN-name/` in the `GentechLabs/gentech-academy` repo.
+
+## Build the curriculum BACKWARD from the market (the market-first rule)
+
+**The curriculum's job is to DELETE the irrelevant prerequisite.** Colleges bill for a dozen general-education
+courses before the major; the market's stated requirements are a short list. That gap is the product.
+
+So the input is never our opinion about what matters — it is **what real postings actually ask for.**
+
+1. **Fix the target roles** from the user's filters — including the titles he has *excluded*, and remembering
+   that a title is not a function (one job title can cover two different jobs).
+2. **Harvest 20–40 full-text postings** (ATS pages: Ashby, Greenhouse, Lever, company `/careers`).
+3. **Rank each requirement by PER-POSTING frequency** — `18/30 ask for onboarding`, not `onboarding came up 40
+   times`. Keep equity and culture words out of the ranking; they are not learnable.
+4. **Score every requirement against the whole stack** — ✅ shipped / 🟡 partial / 🔴 gap.
+5. **Order the chapters from the evidence** and hand the evidence base to the seat that owns the learning
+   surface. Do not write the modules yourself.
+
+**Two tracks, always:** *Track A — understand the domain* (what the subject is) and *Track B — use the
+instrument* (how to actually get there). Most programs teach A and forget B, so people can define a concept
+and still cannot operate anything.
+
+**One state file, every surface derives.** A live curriculum needs *"cleared this goal, next is this"* — from
+a single state file that the public page, the daily brief and the module list all render. **If two of our
+surfaces state different counts, the missing single source is the finding, not either number.**
+
+📖 Full procedure, source-shape table, scoring rules and pitfalls: **`references/market-requirement-mining.md`**
+
+## Two corpora are not one corpus — label every count with its filter
+
+**A broad harvest and a filtered harvest produce different rankings, and both can be honest.** Measured on
+the same skill: a wide scan put Kubernetes at ~40% of postings; the same requirement re-measured against the
+learner's *actual* target titles (the ones he said he wants, not the whole market) came back **3 of 30 — rank
+22 of 27**, with cloud at 30% and SQL at 3%.
+
+Both numbers were correct. The defect was using one to *sequence* the milestones and the other to *justify*
+them in the curriculum's evidence base — so a topic ranked 22 was in the plan while a topic ranked 6 was a
+footnote.
+
+- **Name the corpus, the date and the filter beside every frequency** — `18/30 ask for onboarding` is
+  meaningless without "30 postings, filtered to titles X/Y/Z".
+- **Rank from ONE corpus.** When a plan and its evidence file disagree, the evidence file wins and the plan is
+  corrected — not the other way round, and never averaged.
+- **A term that is famous in the field can rank low in the learner's lane.** That is a finding about the
+  filter, not evidence the topic is unimportant; say which of the two you mean.
+
+## A superseding plan does not retire the old pack — check what the DEFAULT resolves to
+
+A written plan declaring *"if another note contradicts this file, this file wins"* is a **statement of
+intent**. It changes nothing on disk. Measured: the newer plan and its pack existed, the superseded pack was
+still present, and the **superseded one carried the most recent write** — because a milestone was closed in it
+after the pivot. Recency is not authority.
+
+- **Enumerate every pack and identify the ACTIVE one from the code, not from mtimes.** For a `--track` style
+  engine: `data/*-track.json` is the set, and the truth is the **default value at each entry point**. Two
+  scripts with different defaults (`--track` defaulting to `career` in the daily runner, to `fde` in the
+  lesson renderer) mean **the learner sees a different curriculum depending on which script ran** — find that
+  before editing anything.
+- **Retiring a pack is a STATE MIGRATION, not a file deletion.** Progress lives per-track
+  (`state/<track>-progress.json`), so a closed milestone inside the retired pack is orphaned the moment that
+  pack stops being read — it silently reverts to incomplete in the new track.
+- **Two contradictory instructions about the same credential or exam are a blocked learner, not a detail.**
+  One file treating a certification as a real milestone while another says "do not sit the exam" changes what
+  the learner buys. Surface the contradiction with both quotes and let the owning seat rule.
+- **Never edit a pack belonging to another seat's engine from HQ.** Report which state is live, with the
+  command and its output, and ask the owner to retire or migrate. A second author on sequence data is the
+  same defect as two surfaces claiming authority over one document.
 
 ## Module Structure
 

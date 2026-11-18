@@ -1,7 +1,7 @@
 ---
 name: fleet-compatible-skills
 description: "Use when building or changing a skill, script or cron."
-version: "1.0.0"
+version: "1.1.0"
 ---
 
 # Fleet-Compatible by Default
@@ -21,6 +21,43 @@ Before writing a new skill or script, answer one question:
 
 If yes (and the honest answer is usually yes), it goes in the shared core and works
 fleet-wide from the first commit. Do not build it in one profile and hope.
+
+## Rule 0 — SEARCH, then STACK. Never fork a variation. (Jordan, 2026-10-17)
+
+Jordan: *"Sometimes we make variations of the same skills instead of stacking or adding."*
+
+**Before writing a NEW skill, search the library for one that already covers it.** The failure mode here is
+not duplication — it is a **variation**: the same lesson, restructured, under a new name, so that **neither
+copy looks wrong** and a search for either one finds only half the doctrine.
+
+**Measured twice in one week:**
+
+- the receiver-side ACK doctrine existed as **three skills** — `checkpoint-ack` (protojay),
+  `fleet-checkpoint-acknowledgement` (treasury), `restart-checkpoint-ack` (gentech) — the same lesson, one per
+  seat, which is exactly how Jordan's FINISH→LOG→VERIFY rule stayed **invisible in two of them**;
+- `gentech-ops/host-task-handoff` and `devops/host-access-delegation` — **same author, same trigger, the same
+  rules renumbered.** Body-vocabulary similarity was only **34%**, so no duplicate-detector would ever have
+  flagged it as a copy: the wording differs while the lesson does not.
+
+**So, in order:**
+
+1. **SEARCH first — by *lesson*, not by name.** A variation almost never shares the name. Grep the shared core
+   for the situation, not the title: `grep -ril '<the problem this solves>' <CORE>/*/*/SKILL.md`.
+2. **If a skill covers it → EXTEND it.** Add a section, add a rule, add a reference file. **Stacking is the
+   default; a new file is the exception, and it needs a reason.**
+3. **If two skills already cover it → MERGE them.** One home, unique content preserved, dated
+   non-overwriting backup first, then promote → sync → verify in every seat.
+4. **Author new ONLY when the lesson is genuinely new** — and say which search you ran, so the next reader
+   knows it was checked rather than skipped.
+
+**Why a variation is worse than a duplicate:** a duplicate is visible — two identical files shout. A variation
+looks like two healthy skills. The divergence stays invisible until someone happens to read both, which is
+how three seats each carried a different version of one rule. **One lesson, one home** — the enrichment goes
+into the existing file, not into a sibling.
+
+**The detector runs on structure, not on names:** near-identical **section headings** under different names,
+or the same rules appearing **renumbered** in two files, are the signature. (Identical headings across
+`docx`/`xlsx`/`pdf` are *not* — that is the shared house template, and a false positive.)
 
 ## The failure this prevents (measured, not hypothetical)
 
@@ -59,7 +96,7 @@ the path is the only mechanism that works fleet-wide without editing every cron 
 
 ## Checklist before shipping
 
-- [ ] **No absolute profile path** hardcoded (`/root/.hermes/profiles/<one-seat>/…`)
+- [ ] **No absolute profile path** hardcoded (`/opt/data/profiles/<one-seat>/…`)
 - [ ] **No seat name as a constant** — derive it, or make it a config map keyed by seat
 - [ ] **No credentials** in the artifact; read them from the profile `.env` at runtime
 - [ ] **Silent when idle** — a fleet-wide job that prints on every run nags four seats at once
@@ -73,7 +110,7 @@ the path is the only mechanism that works fleet-wide without editing every cron 
 The checklist above is a promise. These two tools are the enforcement:
 
 ```bash
-cd /root/vaults/gentech/00-System/agent-profiles
+cd /opt/data/.obsidian-vault/00-System/agent-profiles
 python3 fleet_compat_scan.py    # exit 1 = a skill references another seat's filesystem
 python3 fleet_compat_fix.py     # dry-run plan; --apply rewrites only what it can prove resolves
 ```
@@ -81,7 +118,7 @@ python3 fleet_compat_fix.py     # dry-run plan; --apply rewrites only what it ca
 **Why a new tool was needed (measured 2026-09-17):** the drift audit compares seat to seat, so a
 defect present in *every* copy reads as `identical` — healthy. It reported a clean fleet while
 **731 references on the three worker seats told their reader to use HQ's filesystem**
-(`/root/.hermes/profiles/<the-HQ-seat>/…`), 452 of them in executable context. Pixel's own copy of
+(`/opt/data/profiles/<the-HQ-seat>/…`), 452 of them in executable context. Pixel's own copy of
 `github-api-helper` inserted the HQ seat's `scripts` directory on `sys.path`; pixel's
 `arc-cli-tooling.md` told the reader to run the HQ seat's `arc-canteen`. Add the scan to the pre-ship
 check: if it names a seat that is not the reader's, it is not fleet-compatible, however many
@@ -102,8 +139,8 @@ Full finding: `00-HQ/fleet-compat-2026-09-17.md`.
 ## Where the shared core is
 
 ```
-/root/vaults/gentech/10-Labs/skills-distribution/     <- SHARED_CORE (source of truth)
-/root/vaults/gentech/00-System/agent-profiles/fleet_skills_sync.py
+/opt/data/.obsidian-vault/10-Labs/skills-distribution/     <- SHARED_CORE (source of truth)
+/opt/data/.obsidian-vault/00-System/agent-profiles/fleet_skills_sync.py
 ```
 
 ```bash
@@ -113,11 +150,79 @@ python3 fleet_skills_sync.py            # apply
 
 Nightly propagation is `nightly-skills-sync.py` — silent on 0 changes, prints the DELTA.
 
+## The sharing boundary — what is shared, what is NEVER copied
+
+Jordan: *"everybody has a copy of GenTech, but everybody can create their own memories as they
+work on stuff."*
+
+**Shared by default:** skills, scripts, plugins, the vault, shared secrets, model/provider config,
+stt/tts config. **Private per seat, never copied across:** `SOUL.md`, `memories/MEMORY.md`,
+`memories/USER.md`, `cron/jobs.json`, `.env`.
+
+**⚠️ Copying a memory across seats corrupts BOTH** — it overwrites what one seat learned with what
+another happened to know, and afterwards nothing distinguishes them. Before and after any bulk
+sync, hash the private set (`SOUL.md`, both memory files) on every seat: **all hashes must still
+differ.** Identical hashes there are the alarm, not the goal.
+
+### Two classes of script that must NOT be blanket-synced
+
+Fleet-compatible is the default, but it is not unconditional. **Exclude by what the file DOES, not
+by whether it would run elsewhere:**
+
+| class | example shape | why |
+|---|---|---|
+| **credential-handling** | signs with a key, imports/derives a wallet, reads a secret to write it | it belongs where that credential is, nowhere else. A copy on another seat is a second place to leak from |
+| **seat-retargeting** | rewrites a *specific* seat's gateway/bot/channel config | run from the wrong seat it silently reconfigures the wrong agent |
+
+Name the exclusions out loud when you sync, and re-check the exclusion list whenever a new script is
+added — a blanket `cp` does not distinguish a tool from a liability.
+
+### Verify the SET, not the count — and verify on the receiving seat
+
+- **Equal counts prove nothing.** Four seats holding 72/72/73/73 skills looked aligned while the
+  *same nine* were missing from three of them — the totals matched because each seat carried
+  different extras. Compare `set(core) - set(seat)` and print the names.
+- **A missing fleet-operational skill is the highest-signal gap** (shared-file-writes,
+  fleet-update-protocol, key-rotation). A seat's specialist extras are legitimate and should stay —
+  a seat with nothing its siblings lack is a duplicate, not a specialist.
+- **Copy preserves the source's mode, so a non-executable source yields an unrunnable tool** that
+  still looks installed. After any script sync, set `+x` on every `.sh` and every `.py`/`.mjs` with a
+  shebang, then confirm the mode **on the destination** (`stat -c '%a'`), not on the source.
+- **Parse-check each copied script from inside each seat** — importing/`ast.parse`-ing in the
+  receiving context is the only proof it works there; a file that lands but cannot run is worse than
+  a missing one because it reads as available.
+- **Never sync the source's own junk.** `*.bak`, `*.pre-*` and directories ride along in a naive
+  copy and land as confusing artefacts on every seat. Filter to real files, and snapshot each seat
+  before writing.
+
 ## Editing rules
 
 **Edit the shared core, never the profile copy.** A profile copy is a build artifact; the
 next sync overwrites it. This is the same trap as the vault being the source of truth for
 scripts — a per-profile edit gets silently reverted.
+
+**⚠️ `skill_manage` writes the SEAT copy, not CORE — so a successful patch is a future deletion.**
+The tool's target is the profile's skills dir (`profiles/<seat>/skills/…`); CORE at
+`10-Labs/skills-distribution/` is not touched. Its success message reports that the edit landed,
+**never which file it landed in**, so it reads as done either way.
+
+**Verification step, after every `skill_manage` patch — not optional:**
+
+```bash
+grep -c '<a unique phrase from the new text>' \
+  /opt/data/.obsidian-vault/10-Labs/skills-distribution/<cat>/<skill>/SKILL.md
+# 0    -> the rule is in the build artifact and will be overwritten. Move it to CORE now.
+# >=1  -> it survives the sync.
+```
+
+Then propagate CORE → each seat and **assert the hashes match on every seat**, so seat
+variation is impossible rather than merely unlikely. If the section was already written to the
+seat copy, extract it and insert it into CORE at the same anchor — do not retype it, or the two
+versions drift on the first edit.
+
+**Why this is worth a command rather than a habit:** the failure is invisible from every angle the
+edit itself can see. The skill loads, the content is correct, the patch reports success, and the
+only reader who ever sees the truth is whoever runs the next sync.
 
 **If a skill is genuinely seat-specific**, say so in the skill itself (a `seats:` field or a
 one-line note) so the next person does not "fix" the divergence by syncing it.
@@ -183,4 +288,50 @@ deploy mechanism, or it will become stale and then the artifact can drift with a
 only be validated by mutating the live artifact risks leaving a real defect behind if the run
 is interrupted between plant and restore. Test the guard against a scratch copy or a temporary
 seat path, never against the canonical deployed file.
+
+**7. A sync that names a RETIRED seat and omits a LIVE one is worse than a stopped sync.** The target
+list (`PROFILES`) is hardcoded, so seat churn is invisible: the run prints `✗ <dead seat>: no skills
+dir — skipping` and **never mentions the live seat at all**, because the live seat is not on the list.
+Both read as a clean run. `Fleet skills sync complete` is printed either way, and a run that updated
+**2 of 4** seats reports success. **Rule: read the `Targets:` line and require a per-seat change count
+for EVERY live seat; audit the target list whenever a seat is added or retired, before trusting a
+green sync.**
+
+**8. A `--check` reporting a large backlog is the proof the sync was NOT running.** A sync dead for
+weeks looks identical to a healthy one on the day it is repaired; the size of the first `--check`, and
+its refusal above `--max-changes`, is the only evidence. Treat that backlog as a review batch, and
+**never raise the cap to "catch up"** — the cap is the thing stopping an unattended run from
+overwriting seat-only files that were never promoted to the core.
+
+**9. The sync's OWN path constants rot, and the message blames the DATA.** `PROFILE_DIR` / `VAULT`
+inside `fleet_skills_sync.py` are absolute literals, so a host move that relocates the vault or the
+profiles leaves them pointing at a directory that no longer exists. The script then exits with
+`✗ Shared skills core missing: <dead path>` — **which reads as "the skills are gone", not "the config
+is wrong", and it is the most alarming possible wording for a one-line bug.** Three silent no-op modes
+now, all printing something calm: a dead constant (#9), a stale seat list (#7), an unrepaired backlog
+(#8). **Rule: when a shared script reports a MISSING SOURCE, check its constants against the live
+filesystem before believing the source is missing** — same discipline as verifying an instrument before
+trusting its negative. Substituting the live paths is the fix; the tell that it was broken is the first
+`--check` afterwards listing weeks of pending changes (#8).
+
+**10. The divergence ratchet runs ONE WAY — measure the direction before you choose a repair.** Sync
+the whole library and the residual is almost never symmetric. Measured: of 72 diverged skills, **48 had
+a seat copy LARGER than CORE and CORE was larger in ZERO cases.** Every divergence was a rule learned
+in a seat and never promoted. **That asymmetry is the decision:** promoting seat → CORE is safe and
+loses nothing; pushing CORE → seat is the direction that can delete live procedure, so it needs the
+per-file diff from #2 first.
+
+- **Size is a cheap first sort, never the verdict.** `seat > core * 1.15` is a fine filter for "worth
+diffing"; it is not proof of superset (see #2 — the same run produced genuine halves and a union).
+- **A seat-only skill is the other failure, and it looks like an overshoot.** After pushing CORE down,
+the residual held 22 skills that existed **only** in seats (a whole LP-rebalancing and perp-venue
+economics body of work). Promoting them up is correct; **silently deleting seat-only skills to make the
+numbers match is not** — "not in CORE" means "never promoted", not "obsolete".
+- **A private file that is merely DIFFERENT has not been shown to be WRITTEN.** The private-set check
+(`SOUL.md`, `MEMORY.md`, `USER.md` all hash-distinct) proves nothing was overwritten across seats. It
+does **not** prove each seat has one: an identity file consisting of the **stock Hermes prompt** is
+byte-distinct from its siblings, loads fine, and leaves the seat with no role, no fleet protocol and no
+ACK obligation. **Check identity by substance — does it name its own seat? — not by divergence.** A
+seat that "won't follow the behaviours" is usually a seat that was never given any; verify before
+diagnosing discipline.
 
