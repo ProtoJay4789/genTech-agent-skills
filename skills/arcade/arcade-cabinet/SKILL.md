@@ -221,14 +221,14 @@ Maps are fully procedural — no art assets needed. Ship with a dozen unique map
 ## Funding Engine: ClawWork Employee Squad
 
 The arcade is funded by autonomous ClawWork agents earning on freelancer tasks:
-- See `clawwork-agent-freelancing` skill for setup
+- See `clawwork-agent-freelancing` skill for setup   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `clawwork-agent-freelancing` exists on this seat -->
 - $19K/8hrs demonstrated by ATIC+Qwen3.5-Plus
 - Funds VPS, game development, x402 payouts, and tournament prizes
 
 ## Revenue Stream: Paymenter x402 Gateway
 
 The arcade's x402 payment infrastructure also generates revenue as a **hosting billing gateway extension**:
-- See `hosting-billing-gateway` skill for the Paymenter extension pattern
+- See `hosting-billing-gateway` skill for the Paymenter extension pattern   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `hosting-billing-gateway` exists on this seat -->
 - 227 Paymenter extensions, zero crypto gateways — first-mover market
 - 0.5% tx fee on every payment through our gateway
 - Same pattern extends to WHMCS, Blesta, HostBill
@@ -370,7 +370,7 @@ document.addEventListener('game:start', async (e) => {
 **Single-file games deploy directly — no Vite build, no nginx edit:**
 ```bash
 # 1. Locate the game (check repo + vault copies)
-ls /root/repos/gentechlabs.github.io/games/{game-name}/   # e.g. visual-kei-tap = single index.html
+ls (GitHub repo, not on this host: gentechlabs.github.io/)games/{game-name}/   # e.g. visual-kei-tap = single index.html
 
 # 2. Create dir + scp to arcade root (NOT /cabinet/ — that's for built Vite apps)
 ssh root@2.24.195.196 'mkdir -p /var/www/arcade/{game-name}'

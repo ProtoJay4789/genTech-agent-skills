@@ -166,7 +166,7 @@ When credits are depleted on Creator plan ($22/mo):
 
 ## Audio Analysis
 
-For analyzing/reviewing existing music files (not generating), use the `audio-analysis` skill. It covers loudness analysis, frequency band decomposition, spectrogram interpretation, and mastering assessment.
+For analyzing/reviewing existing music files (not generating), use the `audio-analysis` skill. It covers loudness analysis, frequency band decomposition, spectrogram interpretation, and mastering assessment.   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `audio-analysis` exists on this seat -->
 
 ## Reference Files & Scripts
 
@@ -196,7 +196,7 @@ For analyzing/reviewing existing music files (not generating), use the `audio-an
 - **Payment fallback chain:** Prefer `mcp_blockrun_blockrun_speech` tool for ElevenLabs voice (x402, no key needed). If it fails (gateway error 502, low wallet), fall back to **direct ElevenLabs API via curl** with the configured API key — this is the reliable path for custom clone voices. The `text_to_speech` tool (Edge TTS) is last-resort-only for informational/non-character audio — the user explicitly rejects it for character voices. Verify audio output with `file` command (should return "Audio file with ID3" not "JSON data").
 - **Voice ID search failures:** Custom voice IDs from voice lists may return "Not Found" errors. Have backup voices ready (e.g., Brian `nPczCjzI2devNBz1zQrb` for deep/warm tones). Test voice IDs before production use.
 - **Audio format verification:** Use `file /tmp/audio.mp3` to confirm proper audio format. Should show "Audio file with ID3 version 2.4.0, contains: MPEG ADTS..." for MP3 or "Ogg data, Opus audio" for OGG. JSON responses indicate authentication or format issues.
-- **Edge TTS fallback:** When ElevenLabs API key is invalid or credits are depleted, use Edge TTS as a free fallback. Voice mapping: Steve Harvey → `en-US-AndrewNeural` (rate=-5%, pitch=-2Hz), Vanito → `en-US-BrianNeural`. See `speech-engine` skill for full integration pattern.
+- **Edge TTS fallback:** When ElevenLabs API key is invalid or credits are depleted, use Edge TTS as a free fallback. Voice mapping: Steve Harvey → `en-US-AndrewNeural` (rate=-5%, pitch=-2Hz), Vanito → `en-US-BrianNeural`. See `speech-engine` skill for full integration pattern.   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `speech-engine` exists on this seat -->
 - **Cron job TTS silence:** When writing cron job prompts that should generate voice, the prompt MUST explicitly say "You MUST call the text_to_speech tool" and "If you only output text without calling the tool, the voice message will not be delivered." Without this, the cron runner writes the script text but never generates audio. Proven on Daily Digest cron (May 25, 2026).
 
 ## Demo Video Voiceover Workflow

@@ -28,13 +28,13 @@ destroyed with no trace and nobody notices until the symptom reappears.
 
 ### 1. Identify the upstream before touching anything
 
-For GenTech vault scripts, the upstream is the vault copy under `/root/vaults/gentech/`.
+For GenTech vault scripts, the upstream is the vault copy under `/opt/data/.obsidian-vault/`.
 `sync-treasury-scripts.sh` propagates `VAULT/10-Labs/agent-kit-self-tracking/` → `REPOS` +
 `PROFILE` (treasury-only). It does **not** write seat copies back to the vault. Direction is one-way.
 
 Verify the file you are about to edit:
 ```bash
-readlink -f scripts/my-script.py | grep -q "^/root/vaults/gentech" && echo "OK: upstream copy" || echo "WRONG: downstream copy"
+readlink -f scripts/my-script.py | grep -q "^/opt/data/.obsidian-vault" && echo "OK: upstream copy" || echo "WRONG: downstream copy"
 ```
 
 If the path does not start with the upstream root, stop. Find the upstream copy or ask the owner.
@@ -48,7 +48,7 @@ money-path scripts — and commits them under your identity.
 
 **Use named paths only.** If a wrapper exists that enforces this, use it:
 ```bash
-python3 /root/.hermes/scripts/vault-commit.py -m "msg" -- scripts/my-script.py 01-HANDOFFS/gentech-to-x/my-note.md
+python3 /opt/data/profiles/gentech/scripts/vault-commit.py -m "msg" -- scripts/my-script.py 01-HANDOFFS/gentech-to-x/my-note.md   <!-- ⚠️ ABSENT (verified 2026-11-17): this tool is not present on this host. Do not assume it runs. See build-queue #108. -->
 ```
 
 Before committing, inspect the staged set:
@@ -98,7 +98,7 @@ Good verify loop:
 ```bash
 TARGET=$(md5sum "$SRC" | cut -c1-10)
 for s in gentech gentech-treasury gizmo pixel; do
-  f="/root/.hermes/profiles/$s/scripts/my-script.py"
+  f="/opt/data/profiles/$s/scripts/my-script.py"
   m=$(md5sum "$f" | cut -c1-10)
   if [ "$m" = "$TARGET" ]; then printf "  %s ✅ %s\n" "$s" "$m"
   else printf "  %s ❌ %s (upstream %s)\n" "$s" "$m" "$TARGET"; DIVERGED=$((DIVERGED+1)); fi
@@ -135,8 +135,8 @@ Run this check before archiving the seat copy:
 
 ```bash
 SKILL=gentech-ops/one-way-sync-tree-discipline
-V=/root/vaults/gentech/10-Labs/skills-distribution/$SKILL
-S=/root/.hermes/profiles/gentech/skills/$SKILL
+V=/opt/data/.obsidian-vault/10-Labs/skills-distribution/$SKILL
+S=/opt/data/profiles/gentech/skills/$SKILL
 
 # 1. referenced files are tracked
 git ls-files $V/SKILL.md | grep -q . || { echo "skill not tracked"; exit 1; }
@@ -149,7 +149,7 @@ SYMBOLS=$(grep -c 'DERIVED copy' $V/SKILL.md)  # use a phrase the new content in
 [ "$SYMBOLS" -gt 0 ] && echo "symbol present"
 
 # 3. distributor sees it
-timeout 120 python3 /root/vaults/gentech/00-System/agent-profiles/fleet_skills_sync.py --check
+timeout 120 python3 /opt/data/.obsidian-vault/00-System/agent-profiles/fleet_skills_sync.py --check
 ```
 
 A skill whose template is uncommitted is a skill with a dangling reference: a seat rebuilding
@@ -241,6 +241,30 @@ evidence either — it is the copy that is scheduled for deletion.
 behind and still carried the bug, and another agent caught it and had to move the change into
 the vault. Cost: a near-miss on a silent reintroduction, plus the reviewer's time.
 
+### A directory inside the synced tree can be a SYMLINK out of it — and then nothing propagates
+
+A path can look like part of the tree and not be in it. Large or sensitive folders get deliberately
+moved out of a sync root (to slim it, to stop media crossing) and a **symlink is left behind** so the
+old path keeps working locally. A writer then sees a normal-looking directory, `write_file` succeeds,
+the file is readable on the writing side — and **nothing is inside the sync root, so nothing is
+uploaded.** The file simply does not exist for the reader, at a path you have already told them to use.
+
+Resolve every directory in a path before naming it for someone else, and before treating a write as
+delivered:
+
+```bash
+ls -ld <dir>          # a leading 'l' means symlink; the target may sit outside the tree
+readlink -f <dir>     # where it actually lands
+```
+
+If the resolved target is outside the sync root, the deliverable belongs in a **real directory**
+inside the tree (a plain topical folder such as `00-HQ/<topic>/`) — name that path instead.
+
+**Why it bites quietly:** the failure surfaces downstream as "your file is missing", which reads as a
+failed deliverable, while every signal on the writing side says the write succeeded. A deploy
+instruction built on such a path wastes the operator's time and spends their trust in the next path
+you give them.
+
 ### Downstream edits feel like success before they disappear
 
 - **Downstream edit looks like it worked.** It applies immediately, runs, and may even pass tests —
@@ -261,7 +285,86 @@ the vault. Cost: a near-miss on a silent reintroduction, plus the reviewer's tim
   seat-specific content. Compare hash and file set first; only keep the duplicate if it actually
   differs from canonical.
 
+## ⚠️ A BALANCE RUN IS A SNAPSHOT, NOT A FIX — seats learn after you close the loop (2026-11-03)
+
+**Balancing CORE against the seats is a point-in-time measurement of a moving system.** Measured:
+CORE and all four seats were brought to `0 skill files differ` at 23:56. **Twenty-four minutes
+later, five files differed again.**
+
+Nothing had gone wrong. **`gentech-treasury` ran its own self-reflection at 00:05 and my seat
+learned the same lesson at 00:07** — both writing the new rule into their seat copies of
+`develop-and-verify`, `fleet-self-reflection`, `cron-health-standard`, and
+`destructive-write-guards`. **The drift was knowledge arriving, which is exactly what the one-way
+ratchet is for.**
+
+**What this means for the operator:**
+
+- **A green `seats_vs_core` is true at the instant it is printed and false the moment any seat
+  learns something.** Treat it as a timestamp, not a state.
+- **Do not "fix" drift by pushing CORE down over a seat that is bigger.** The bigger file is
+  almost always the newer knowledge. **Promote the biggest version up, then push down** — the
+  other direction silently deletes what a seat just learned.
+- **Expect it after any session where more than one seat worked.** A fleet of four seats working
+  the same night will produce drift by design; the check should catch it and the fix should be
+  promote-then-sync, not revert.
+- **The tell that it is a learning event and not corruption:** the differing seats' files are
+  *larger* than CORE, and the added text is a coherent rule rather than a truncation.
+
+**Corollary — the recurring check is doing its job.** A probe that keeps going red on the same
+metric after an "all clear" is not broken; it is reporting a process that genuinely keeps
+happening. **The failure would be to stop trusting it because it keeps firing.**
+
+## ⚠️ A DETECTOR IS NOT A RECONCILER, AND THE SYNC GUARD PROTECTS THE WRONG CASE
+
+**Rule: a scheduled job that only reports drift guarantees drift.** A check that writes a state file
+and exits 0 is a monitor. If no job ever invokes `--promote` or `--sync`, the report is accurate,
+nights pass, and the divergence compounds — measured at 223 files across four seats while every run
+of the checker was correct.
+
+**Corollary:** when a drift count is high and the checker is healthy, do not go looking for the bug in
+the checker. Ask which job *acts* on the finding. Usually none does, and the finding has been true for
+weeks.
+
+### The guard fires on the harmless case and is blind to the dangerous one
+
+`--sync` refuses any skill directory where the seat holds **files core does not**, and that refusal
+is correct. It is also not the risk that matters here:
+
+| shape | guard | outcome |
+|---|---|---|
+| seat-only **file** inside a skill dir | **BLOCKED** | safe — refuses |
+| seat-only **skill dir** | silently kept, never propagated | stale elsewhere |
+| seat **edited a file core also has** — larger, newer, same name | **passes** | **overwritten, no trace** |
+
+The third row is the one that destroys work, and presence-based guards cannot see it. **Direction must
+be classified by hash + mtime, not by whether the path exists on both sides.**
+
+### Classify the whole drift set before acting on any of it
+
+Per skill, per seat, compute four buckets — never act on a merged list:
+
+| bucket | test | action |
+|---|---|---|
+| **seat-ahead** | seat content differs and its mtime is newer, or it holds a file core lacks | **PROMOTE** (seat → core) |
+| **core-ahead** | core content differs and its mtime is newer | **SYNC** (core → seat) |
+| **both changed** | differing files on both sides, each newer than its counterpart | **report only** — a human decides |
+| **missing** | skill absent downstream | **SYNC** |
+
+**Never run a bulk sync to clear a drift number.** In a fleet that learns, seat-ahead is normally the
+*majority* of the count — the bigger, newer file is knowledge arriving. A sync-first reconcile deletes
+it and the deletion is invisible because the result looks tidy.
+
+Run `scripts/classify-skill-drift.py --dry` and read the four numbers before any write. A single
+skill that is seat-ahead by a hundred lines is the whole argument for classifying first.
+
+### Ambiguity is a stop, not a tie-break
+
+When both sides changed, the honest output is "a human must choose". Picking the newer mtime silently
+is a guess dressed as a rule: two agents editing one file produce mtimes seconds apart that say
+nothing about which change should win. Report it, name both hashes, and move on.
+
 ## Related
 
 - `templates/fleet-script-deploy-verify.sh` — a starter deploy-and-verify script for propagating a
   single file to multiple seats and checking it against the upstream source.
+

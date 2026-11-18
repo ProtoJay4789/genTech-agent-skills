@@ -29,7 +29,16 @@ Jordan's positioning: **smart contracts + security > frontend**. Frontend is com
 
 **Positioning narrative:** "I'm a smart contract developer with security audit training, production-grade portfolio projects, and verified credentials from top web3 educators. I build the infrastructure this role would use."
 
-**Amazon angle:** Works at Amazon (12hr shifts Thu-Fri). Amazon offers to pay for AWS certification — considered but deprioritized because GenTech is web3-focused, not AI/cloud-focused. May revisit later for full-stack web3 engineer positioning (AWS infra + Solidity + security).
+**Amazon angle — ⚠️ REVERSED 2026-10-20. This section used to say AWS was "considered but deprioritized
+because GenTech is web3-focused." That is no longer true.** Jordan closed the trucking/CDL hedge on
+2026-10-20 and made the **AI-engineer / FDE lane primary**, with **AWS as the credential spine of that
+lane**. Amazon pays for the Cloud Practitioner exam directly (plus Skill Builder free for employees),
+and the CCP pass **mints a 50% voucher** that makes **SAA-C03 $75**. So AWS is no longer a "may revisit
+later" — it is the *first* credential, because it is the cheapest and it is on the measured FDE skill
+list. **Crypto/Solidity remains the differentiation layer, not the primary lane.** Order:
+**CCP ($0 Amazon) → SAA-C03 ($75 voucher) → AI Practitioner → ML Engineer Assoc.**
+See `10-Labs/skills-distribution/edu/data/fde-track.json` for the measured lane and
+`09-Green Room/job-apps/career-study-plan-fde-2026-10-01.md` for the voucher mechanic.
 
 ---
 

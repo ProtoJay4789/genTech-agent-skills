@@ -7,7 +7,84 @@ version: 1.0.0
 author: Gentech
 ---
 
-# Falsifiable Tests
+# Falsifiable tests
+
+## A check that has never been seen to FAIL is not a check
+
+**Before trusting any clean result from a checker, detector or audit script, plant the failure and
+watch it go red.** A checker that points at a path that no longer exists, silently skips a source it
+cannot read, or exits 0 in the mode a human reads will report "✅ clean" for months and mean *nothing
+was examined*. The result looks identical to health, and that identity is the whole danger.
+
+**Do this in three directions, always:**
+1. **Clean** — the real input passes. (Proves it doesn't always cry wolf.)
+2. **Planted defect** — the exact failure it exists to catch, in a scratch copy. Must exit non-zero and
+   name the specific item.
+3. **Unreadable input** — delete a source, break a permission. Must NOT read as clean. *"Unverifiable"*
+   and *"drift"* are different words for a reason; both must fail.
+
+### Pitfalls that produce a fake green
+
+- **A half-planted failure passes.** If you plant a broken flag but leave the line's own `RESOLVED`
+  annotation beside it, the tool correctly says clean and your test proves nothing. **When the planted
+  case passes, suspect the plant before the tool** — then re-plant the failure completely.
+- **Missing input handled by `continue`**, not by a finding. The most common silent skip in any scanner.
+- **Exit-code inversion:** `sys.exit(1 if quiet else 0)` exits **0** in the mode a human reads, so the
+  cron wrapper cannot tell drift from clean. The exit code must not depend on verbosity.
+- **A regex that matches in isolation but not in the file** is usually a flag-scope bug: inline `(?i)`
+  does not propagate across an alternation, so `^`-anchored branches compile without `re.M` and never
+  match a mid-file line. Pass `re.I | re.M` explicitly.
+- **Accept the shape the producer actually writes, not the shape you imagined.** If the first real ack
+  is prose and your matcher demands a table, the matcher is wrong — and it teaches everyone to write
+  for the tool instead of for the reader.
+- **A declared argument that is never USED** is an interface that lies. `argparse` accepts it, the
+  usage line documents it, the call succeeds — and the artifact the caller asked for is never written,
+  so the caller silently gets nothing and re-derives by hand. **A flag is not implemented because it
+  parses; it is implemented when its output exists.** Falsify by running the tool with the flag and
+  `ls`-ing the target: no file, no flag. Worse than a missing option, because a missing option errors
+  and an inert one looks done to everyone who reads the interface instead of the artifact.
+- **A fixture that omits a directory the scanner needs** fails the CLEAN case; that is a bad fixture,
+  not a bad tool. Fix the fixture before "fixing" the tool.
+
+### The mirror defect: a check that can never go GREEN
+
+A control that always fails is as damaging as one that always passes — it is the same zero-information
+signal, and it trains the reader to skip the section just as fast. The usual cause is
+**non-reproducible output** in the thing being compared.
+
+- **A generated artifact must be BYTE-IDENTICAL on re-generation.** Any wall-clock timestamp, run id,
+  hostname, absolute path or nondeterministic ordering embedded in the output makes `--check` fail on
+  every future run for a reason that has nothing to do with drift. Proven: a catalog generator wrote
+  `generated_at` to the second, so its own drift check reported "DIFFERS from the live manifest"
+  immediately after a clean rebuild — forever. A **date** was sufficient provenance; a timestamp was
+  the bug.
+- **Prove reproducibility the same way you prove falsifiability:** generate, hash, generate again, and
+  require the hashes to match. A generator you have only run once is not known to be reproducible.
+- **Distinguish "the artifact drifted" from "the artifact was rebuilt at a different second".** If the
+  check cannot tell those apart, the check cannot be acted on.
+
+### A verdict must be a SHARE, not an ABSENCE
+
+When a script classifies something (good / poor / healthy / broken), the bar must be a **proportion of
+real observations**, not the mere absence of the worst error class.
+
+```python
+# WRONG — "no 5xx" passes a route that answered 1 of 4,924 requests
+if server_errors == 0 and served > 0:
+    return "good"
+
+# RIGHT — the denominator is every observation, and the share decides
+if samples == 0: return "no traffic"
+if served == 0: return "never worked"
+if server_errors / samples > 0.05: return "poor"
+worked = served / samples
+return "good" if worked >= 50 else "partial" if worked >= 1 else "rarely works"
+```
+
+A label that a near-total failure can satisfy is worse than no label: it is published to a reader who
+will trust it. **Ask of every threshold: what is the worst system state that still passes this?** If
+the answer is "almost total failure with zero of one specific error", the threshold is an absence test
+wearing a health verdict's name.
 
 A test earns its place by being able to go RED for the right reason and GREEN for the right reason.
 **A test that fails on CORRECT code costs as much as one that passes on broken code** — it sends you
@@ -17,6 +94,60 @@ Every rule below was hit while verifying a guard that was already correct.
 
 **First reflex when a new test fails: suspect the ASSERTION, not the code.** Especially on a guard you
 just wrote and reasoned about carefully — read the assertion again before touching the implementation.
+
+## A selector that selects the WHOLE POPULATION measures nothing
+
+The mirror of an absence test (which passes on near-total failure) is a **selection rule satisfied by every
+observation**: it cannot discriminate, so its output is the input re-printed with extra steps.
+
+Measured: a promotion pass proposed any item "seen on 3 distinct runs". Against the real corpus, **77 of 77
+observations reached exactly 3 runs** — because the items persist until someone deletes them. The rule was
+measuring *persistence*, which everything in the corpus already has.
+
+- **After building any rule, scorer, ranker, filter or proposal engine, run it on the REAL population and print
+  the selection rate before trusting it.** "It proposed 77 items" and "it proposed 3 of 77" are different
+  products; only one of them is a filter.
+- **Ask what a corpus member could DO to be excluded.** If no such action exists, the rule has no negative class
+  and cannot rank. Redesign the condition around an event the corpus can actually perform (for a memory
+  promotion: *removed, then re-observed* — not merely *still present*).
+- **Both failure directions look like a clean run:** selects everything (no discrimination) and selects nothing
+  (condition unreachable). **Silence is not evidence of health** — print the denominator and the selected count
+  every run, even when both are zero.
+
+### A threshold must come from the code that ENFORCES it, never from the surface that DISPLAYS it
+
+A checker whose limit is invented fires on everything, and the noise hides the true positives. The limit is
+not a design choice you get to make — **some loader, schema or API already enforces a number, and your check
+must read that one.**
+
+Measured: a length lint was given a **60-character** limit because that is the width of a table cell on the
+rendering page, while the loader truncated at **1,024**. The lint reported 53 oversized entries; the real
+count was 1, and it was buried.
+
+- **Grep the enforcement point for the constant before writing the check** — the parser, schema, loader or
+  `export` that consumes the value. Write the limit as a named constant beside the check and cite the source
+  in a comment, so the next reader can verify rather than trust.
+- **A limit chosen from the output surface is a rendering opinion.** A form field, table column, terminal
+  width or character budget in a UI bounds what a human SEES; it never bounds what the system accepts, and a
+  check built on it measures your own display instead of the artifact.
+- **Print the limit and the distribution beside the findings** (`limit=1024, 1 item over, max=1180`). A
+  finding count with no threshold in the output is unreadable, and an obviously-degenerate result (53 of 54
+  failing) is the tell that the threshold is wrong — not that the corpus is bad.
+- **When a check fires on nearly everything, suspect the constant before the corpus.** Same reflex as
+  suspecting the assertion before the code.
+
+### Do not pipe a state-writing script into `head` — SIGPIPE kills the writer
+
+Verifying a script that persists state, `script.py | head -20` closes the pipe the moment the reader has enough,
+and the process dies **before its state write**. Measured: a dedup check "failed" twice because the state file was
+never created — the code was correct and the test method destroyed the evidence.
+
+- **Redirect to a file, then read the file:** `script > out.txt 2>&1; echo rc=$?; cat out.txt`.
+- **A missing state file is ambiguous** — it means either the writer is broken or the writer never finished. Only
+  the exit code distinguishes them, so capture `$?` and never diagnose from the missing artifact alone.
+- **The general form: a test that signals the subject early tests the signal, not the subject.** Anything long
+  enough to be truncated or killed mid-flight (`head`, `timeout` without a cleanup path, a killed background job)
+  leaves state that is indistinguishable from a defect.
 
 ## Compare like with like — a DEFINITION is not an INVOCATION
 
@@ -222,6 +353,61 @@ identical refusals looked like eight successful refusals.
 test its own section for this. If every input path yields one verdict, the harness is broken, not the
 code.
 
+## A harness built from the PATCH's own constants cannot find what the patch missed
+
+A matrix that imports the same allow-list, the same skip conditions, and the same routing table the
+fix introduced is **the fix grading itself**. It passes on the exact input the fix mishandles, and it
+looks like a full sweep.
+
+Measured: a validation fix skipped one class of item to avoid false rejections, and the test matrix
+passed that class *because it read the skip list out of the patch*. Ten of ten green, deployed, and
+the live request immediately returned the old wrong answer for the skipped class. The harness and the
+bug shared one assumption — which is the one thing a check exists to break.
+
+- **Derive the case list from the LIVE source of truth** — the routing table, the manifest, the config
+the service actually loads — not from the constants the patch adds. The patch's constants are the thing
+under test.
+- **Enumerate every INDIRECTION LAYER as its own case.** Aliases, routing maps, legacy path prefixes,
+  and "native" shims are exactly where a `if <special case>: return` branch hides. A service reached
+  through an alias is a different code path and needs a row in the matrix.
+- **Generate a row per live route, both directions** — the shape that must be ALLOWED and a sibling
+  shape that must be REJECTED. A matrix with only the reject cases proves the guard fires, never that
+  it fires selectively.
+- **Count the cases against the population, and print both numbers.** "10/10 correct" means nothing
+  until the reader knows the population was 12 and which 2 were never listed.
+- **A local harness green is a hypothesis; the live call is the experiment.** When the change is
+  reachable over HTTP, run the real request against the real deployment before reporting, and treat a
+  divergence as evidence the HARNESS was wrong — not that the deploy failed.
+
+## A case set you AUTHORED is not blind — generate cases from CONTENT, never from names
+
+The previous section covers a harness that shares the patch's constants. The next door is a harness that
+shares the **author's naming**: you write the notes, then write the test questions from those notes, then
+measure a change that keys on the notes' names. The suite cannot fail the change, because the questions
+already carry the answer.
+
+Measured: a hand-written 14-case retrieval suite scored a filename-weighting change at **79% → 93%**. The
+same change on 30 questions generated from note **bodies only**, with the filename never shown to the model,
+scored **63% → 63%** — exactly zero. The 14 points were leakage, and the tempting conclusion ("the change
+works, the blind run is noisy") is backwards.
+
+- **Re-earn every ranking/filtering gain on a case set produced without exposure to the signal under test.**
+  Make the generator blind MECHANICALLY, not by good intentions: feed it only the body text, never the path or
+  title, and map the expected target back afterwards outside the generator's view.
+- **Filter the blind set too, or it measures nothing.** Drop cases whose target sits in an archive (a live note
+  should outrank history and failing to proves nothing), whose target filename is generic (`README.md`,
+  `SKILL.md`, `USER.md` — "found it" is not a ranking result), or whose question is context-free ("what triggered this auto-save?") — a question with no retrievable content cannot be answered by any ranker.
+- **Report the SHIPPED number, not the harness's better one.** If the experiment scores 77% and the deployed
+  configuration scores 73% because they search different corpora, publish 73% and say why the two differ. A
+  number quoted from the favourable variant is the same defect as the leaked gain.
+- **A suite's provenance belongs IN the suite.** Record generation method, seed, filter rules, and a hash of the
+  question list beside the cases. A regenerate overwrites its own output, so without a hash a stale score can
+  outlive the suite it came from and pose as current — a generator that silently replaces its artifact is one
+  re-run away from publishing a number for a file that no longer exists.
+- **Two suites with different scores is the finding, not a problem to reconcile.** State both with what each one
+  can see ("79% on hand-written cases, which favour descriptive filenames; 63% on 30 blind cases") and let the
+  weaker, more honest number carry the claim.
+
 ## A state override can invert a test
 
 A test that simulates an input or a wallet balance can make the probe pass for a state you do not
@@ -380,6 +566,52 @@ Changing a boundary constant routed execution down an untested path and the chec
   The count is usually zero, and that is the finding: the suite was green because nothing it owned
   ever went there.
 
+### When the pipeline GATES the branch, extract the decision and test it directly
+
+Sometimes no fixture can reach the branch, because an earlier stage of the same pipeline consumes the
+input first. Then the guard is unreachable by construction and an end-to-end run can never exercise it —
+and the run will refuse for a **different** reason, which reads like a passing test.
+
+Measured: a dust floor was added to a swap leg to refuse amounts too small to beat gas. The end-to-end
+run refused every case with exit 2 — but from the **gas-reserve** check above it, which zeroed the amount
+before the floor was ever evaluated. The floor was correct, unreachable, and untested. Extracting it into
+a pure function (`dust_refusal(whole, token, min, rescue) -> list[str] | None`) and importing it let a
+six-case matrix run in one second, including the exact amount that originally slipped through.
+
+- **Extract the DECISION, not the side effects**, so it can be called with hostile inputs and no funded
+  account, network, or wallet. A predicate over numbers beats a script over a live system.
+- **Keep the extraction honest:** the caller must still call the extracted function rather than
+  re-implementing the check inline, or the tested copy and the shipped copy drift apart.
+- **List the states the surrounding pipeline can produce** and note which ones gate the branch out. "The
+  guard exists" and "the guard can be reached" are separate claims; only the second one is testable
+  end to end.
+- **A refusal for the wrong reason still exits non-zero** — so `rc=2` proves nothing about which guard
+  fired. Assert the **reason string**, not just the code.
+
+## A check that ABORTS reports nothing at all — and nothing reads as clean
+
+A checker that raises on one missing input does not degrade to "could not check that item". It dies, and
+the operator is left with a traceback where a table should be — or worse, with no output at all, which
+is indistinguishable from a clean run.
+
+Measured: an EIP-712 domain check aborted twice in one run — `FileNotFoundError` on a sibling deployment's
+source that did not exist anywhere on the box, then `KeyError` on a chain with no RPC configured. Both are
+**absent inputs**, neither is a mismatch. Together they killed the run after two of four rails had already
+passed, so the two rails that could not be measured were never even reached, and the whole check looked
+like a failure.
+
+- **Degrade per ITEM, never abort the RUN.** Wrap each item's probe and record `UNMEASURED` with the
+  reason, then continue. The rails you can measure are still evidence; throwing them away because a
+  sibling is missing is a self-inflicted total loss.
+- **A partial result is a distinct verdict, not a pass and not a failure.** Give it its own exit code
+  (`2`) and say so in words: `PARTIAL — measured rails CORRECT · 1 rail UNMEASURED · edge UNMEASURED — this
+  is NOT a pass`. Returning `0` because the items you reached were fine is the false green this whole
+  skill exists to prevent.
+- **Name the absent input in the output**, not just the exception type: `okx-edge/server.mjs absent from
+  this box and from the snapshot` tells the next reader what to restore; `FileNotFoundError` does not.
+- **A missing source is evidence about the INSTRUMENT'S COVERAGE, not about the system.** If a check
+  cannot see half its population, the compliance figure it produced was never a measurement of the code.
+
 ## A test that dies on a transient external read is reporting a verdict, not a failure
 
 A test that touches the network, chain, disk, or database and does not wrap every such call teaches
@@ -470,8 +702,176 @@ if importlib.util.find_spec(name) is not None and name not in sys.builtin_module
 renamed module then becomes: import it under the new name and assert it resolves to the expected path,
 not to the stdlib one.
 
+## A name the RUNTIME already owns silently replaces your value
+
+If a variable collides with a built-in the shell (or runtime) already owns, your assignment does not take,
+and every read of it returns the ENVIRONMENT's value. The check then measures the host, not your input,
+and reports a confident, wrong verdict.
+
+Measured: a Telegram installer collected chat ids into `GROUPS=(...)`. **`GROUPS` is a readonly bash array
+holding the process's own group IDs.** The array never held the chat ids, so the membership loop asked
+about chat `10000` — the container's GID — and got "chat not found". Read literally, that says *the bot is
+not in the group*; in truth the bot was in the group and the tool never asked about it. A false negative
+that looks exactly like the condition the tool exists to detect.
+
+- **Echo the value the CONSUMER received, not the one you think you passed.** `echo "$g"` before the call
+  would have exposed this in one run. "The call happened" is not "the call carried my value."
+- **Know the reserved names** before choosing one: bash owns `GROUPS`, `PIPESTATUS`, `BASH_VERSINFO`,
+  `RANDOM`, `SECONDS`, `UID`, `EUID`, `PPID`, `LINENO`. Python owns its builtins and stdlib module names.
+  Rename yours (`CHATIDS`, `RC_LIST`) rather than shadowing.
+- **Prefer named flags over positional slots when two adjacent parameters share a type.** The same tool
+  first took `<profile> <token> <allowed-users> <groups...>` — all numeric-id-shaped — and a group id in
+  the users slot **silently overwrote a live allowlist**. Validate the shape (`^[0-9]+(,[0-9]+)*$`) and
+  refuse, and make the interface `-u/-g` so the slots cannot be confused.
+- **Line counts do not detect this class.** The damaged file had the same number of lines before and
+  after, because one value replaced another. Compare VALUES, by shape, per key.
+
+## A query that ERRORED looks exactly like a query that found NOTHING
+
+The distinction this skill demands (*"I could not measure" ≠ "I measured and the answer is no"*) is
+easy to lose in a **data read**, because the failure is one default argument away.
+
+```python
+d = json.loads(resp)
+rows = d.get("result", [])      # a REJECTED query also has no "result" → [] → "zero found"
+```
+
+That line turns *"the server refused my request"* into *"there are none"* — and the number it produces
+is confident, well-formatted, and wrong. Measured: a scan reported **zero payments in seven days** as
+fact. The RPC had rejected every filtered call as `Invalid params`; nothing had been searched at all.
+
+- **Never default the result key.** Branch on the error field FIRST and propagate a distinct failure.
+  In JSON-RPC: `if d.get("error"): raise ReadFailed(d["error"])` before touching `result`. An empty
+  list is a finding; a missing one is a refusal, and they must not share a code path.
+- **Prove the FILTER before trusting its empty answer — query for a record you already know exists.**
+  This is a positive control on the instrument, and it is the cheapest step in the whole procedure.
+  Pick one known-good item (a transaction whose block number you have, a row you can see by hand),
+  run the exact same predicate over a window that must contain it, and require a hit. Only then is a
+  zero from that predicate evidence. A filter proven against one positive and then run over the
+  population is a measurement; a filter run alone is a guess with a number attached.
+- **A predicate that returns an ERROR is not a predicate that returns nothing.** Read the error text,
+  not just the absence of rows — a rejected filter and an exhausted scan look identical downstream and
+  are fixed by completely different things (a malformed query vs. a narrower window).
+- **An "any value" placeholder is not the same as an empty value.** Where a protocol wants a wildcard
+  (JSON-RPC `topics: [sig, null, addr]`), a zero-filled string is a *specific* value, so the server
+  rejects the whole request or matches nothing. Emit the protocol's own wildcard token.
+- **Widen the window and re-check before reporting a historical zero.** A scan that spans further back
+  than the endpoint's archive depth fails per-chunk; count the FAILED chunks and refuse to report a
+  total until that count is zero. "Zero across 54 chunks, 0 errored" is a result; "zero" with 200
+  silent failures is the same defect as the sweep that greps its own output.
+
+## A validator is not a test — form and function fail differently
+
+A schema/lint/security gate proves the artifact is **well-formed**, never that it **does the job**.
+Both can be green on an implementation that returns a confidently wrong answer.
+
+Measured: a plugin passed its host's validator — every schema check, a clean security scan, import and
+registration confirmed — and its core feature returned **nothing**. A query for *"which chains settle
+payments"* scored **0.00** against a note containing *"settles"*, because the tokenizer matched exact
+words with no inflection handling. Every gate was green; the product was broken.
+
+- **A passing gate licenses you to RUN it, not to REPORT it.** After validate: exercise the primary
+  feature on inputs a real user would produce and assert on the ANSWER. "It loads" is availability.
+- **Write the behavioural case as a ranking/decision assertion with a DECOY.** Include an input that the
+  wrong implementation would prefer — a document that repeats a common query word many times, a
+  near-miss item that is easier to return — and require the correct one to win. A decoy turns "it
+  returned something" into "it chose right".
+- **Test the paraphrase the user will actually use, not the phrasing in the docstring.** The failure
+  above only appears when the query's wording differs from the corpus — which is the entire point of a
+  retrieval feature, and exactly what an example copied from your own notes will never show.
+- **Enumerate the gates you passed and say what each one does NOT cover.** In a report, "validate 15/15"
+  beside "behaviour: 5/5" is honest; "validate 15/15" alone reads as working.
+
+### Call the HOST's entry point, not your own method — the difference is the failure mode
+
+A plugin/hook/provider exposes a method, and the host wraps it in policy. Testing the method alone proves
+your code runs; it proves nothing about what the host does when your code REFUSES. That policy is exactly
+where silent data loss lives.
+
+Measured: a provider's archive step raised correctly when its output directory was unwritable — and the
+feature only mattered because the host treats providers as **best-effort by default**. Calling the method
+directly cannot see that. Running the host's own manager produced the three states that actually matter:
+
+```
+manager.on_pre_compress(msgs, require_checkpoint=True)   # archive ok      -> returns, message count verified
+manager.on_pre_compress(msgs, require_checkpoint=True)   # archive broken  -> HOST raises, rewrite blocked
+manager.on_pre_compress(msgs)                            # same failure    -> returns '' — transcript LOST silently
+```
+
+- **Find the host helper that decides policy and call THAT**, not the plugin method it delegates to. Here it
+  was the manager object plus a signature-inspection helper that gates whether the policy flag is even passed
+  to you (`provider.method(X, **kwargs)` — a provider whose signature lacks the flag silently never receives
+  it, and looks compliant).
+- **Assert the SILENT branch, not just the loud one.** "It raises when broken" is half the contract; the other
+  half is that the caller who did not opt into strict mode gets a distinguishable outcome. If the quiet and
+  the failing paths return the same value, the provider cannot be trusted and the test should say so.
+- **Construct the host object with the minimum surface the policy needs** (the provider list, the owning
+  context flag) rather than standing up the whole application — a contract test that needs a full boot will
+  be skipped, and a skipped control is not a control.
+
+## A NUMBER a pipeline produces is an assertion — verify the unit, the field and the row
+
+The reflex above ("suspect the assertion before the code") applies to every measurement, not just to test
+files. A `find | awk` count is an assertion about the world, and it fails in the same three ways: wrong
+**unit**, wrong **field**, wrong **row population**. Each produces a confident, well-formatted number that
+sends you to fix working code.
+
+- **Check the UNIT before blaming the code.** A ratio and a percentage are the same digits twice. Measured:
+  `52 / 1024` is `0.05` of a unit and `5.1` percent of it, and a report printed **0.1%** for a ledger that
+  was 5.1% full. Two rounds of "the calculation is broken" were both "the formula asks for the wrong unit."
+  **Write the unit into the variable or the label** (`pct_used = 100 * used / cap`) so the 100 cannot be
+  forgotten, and sanity-check by hand on one row before trusting a loop.
+- **`awk` with `printf` and no `\n` CONCATENATES one row per file into a single number.** Measuring four
+  per-profile WAL files with `ls -la … | awk '{printf "%.0f", $5/1048576}'` produced **"2548649 MB"** —
+  four sizes glued together, then read as one quantity and reported to the user. Use `print` (which adds a
+  newline), or a per-item loop, or take a `max` in the same pass. **A number 400× larger than the largest
+  possible input is a concatenation, not a measurement** — check the magnitude against the domain first.
+- **Verify a MOVE by counting the SOURCE before and after, never by what the mover printed.** A recursive
+  mover reported moving 2 files when it had moved 9; the announcement describes what the command decided to
+  do, not what changed. `before = count(src); move(); after = count(src); moved = before - after` is the
+  only count that cannot flatter itself — and it is the same differential proof a delete needs.
+- **Do not parse your own human-facing output back into variables.** Lines built for a reader (emoji,
+  colons, prose) are not a data format. Measured: `sed 's/.*: \([0-9]*\) files.*/'` over a line beginning
+  with an emoji returned a control byte, and the next comparison died with `Illegal number: \x01`. Give the
+  tool a machine-readable mode (`--json`, or `key=value`) and read that; if none exists, parse with a
+  field-aware tool and **fail loudly when the field does not parse** rather than letting an empty string
+  flow on as `0`.
+- **Never interpolate shell text into Python source.** `python3 -c "print(f'{${var}/1024:.1f}')"` lets the
+  shell substitute first, so Python is handed a mangled expression and either errors obscurely or answers
+  the wrong question. **Pass values as `argv`** (`python3 -c 'import sys; …sys.argv[1]…' "$var"`) and let
+  Python do all arithmetic in one place.
+- **A wrong number and a right number look identical downstream.** Both are a bare integer. So print the
+  **inputs** beside the output (`notes 52 MB of 1024 MB → 5.1%`) — the arithmetic becomes checkable by the
+  reader in one glance, which is the only defence against a pipeline you have already stopped suspecting.
+- **Pair a label with its value by BLOCK CONTAINMENT, never by proximity.** A row's value does not necessarily
+  follow its label — in many card/table layouts the badge or price sits **before** the heading, so a
+  "search forward from the name" parser pairs every record with the NEXT record's value. Measured: this produced
+  `5 of 7 prices WRONG` on a page where **all 18 were correct**, and the invented defect was reported to the
+  user as billing-grade. **Split the document into its repeating block first (`<article>`, `<tr>`, a `##`
+  section), then read both operands from INSIDE one block.**
+- **Verify ONE case by hand before publishing any derived count.** Open the artifact, find the first record, and
+  read its value with your eyes. A parser that is wrong in the same direction for every row produces a
+  perfectly plausible table — the single hand-checked row is the only thing that catches it, and it costs one
+  look. **An all-rows-wrong result is a parser bug, not a finding**: real defects are rarely uniform.
+- **A conditional whose branches are IDENTICAL cannot discriminate, and a reader will assume it does.**
+  `label = "UNATTRIBUTED" if not ok else "UNATTRIBUTED"` is a dead conditional that erases a real distinction
+  while looking like a considered safety check. Measured: a report printed the same "unknown payer" string for
+  a broken registry and for a genuine first customer, so the one event the job existed to detect was
+  indistinguishable from an anomaly. **Diff the two branch strings — if they match, the branch is decoration.**
+  Keep the branches distinct in the output AND in the words: `CUSTOMER` vs `UNATTRIBUTED — status UNKNOWN`,
+  because the operator acts differently on each and cannot act at all if they read the same.
+
 ## Pitfalls
 
+- **An expression used as a boolean can return a VALUE, and comparing it to `True` fails on correct code.**
+  `"key" in d and d["key"]` yields the key's **value**, not `True` — so `assert (...) == True` is red the
+  moment the value is a non-empty string or a non-zero number, which is precisely the healthy case. The
+  same shape hides in `any(...) and something`, `a or b`, and any helper written as a predicate that
+  returns its argument on success. **Assert the property, not the expression's identity:**
+  `assert "key" in d` and `assert d["key"] == expected`, or `assert bool(expr) is True` when the
+  expression is genuinely meant as a predicate. When a selftest fails against code you just reasoned
+  through, print the operand's **type** first — a `str` where you expected `bool` indicts the assertion
+  in one run, and a false red here sends you to "fix" working code.
 - **A test sample must come from the DOMAIN, not from the artifact under test.** Inputs drawn from the
   lookup table the code consults measure self-consistency and discriminate nothing. Include at least
   one input you expect to FAIL — a sample where every case passes cannot falsify anything.

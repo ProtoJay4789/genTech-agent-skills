@@ -134,6 +134,130 @@ silent until the agent returns or it's resolved.
 | B completes the work | B marks resolved + archives, reports what it did |
 | Handoff unresolved >7 days | Nightly maintenance auto-archives it |
 
+## ⚠️ Dispatching a WAKE to another seat — three errors that all look like the peer's fault
+
+When you wake a peer in-process (`hermes -p <seat> chat --query-file … --oneshot`) instead of over the
+mesh, three things go wrong by default. All three were measured on 2026-10-17 across a five-seat dispatch.
+
+**1. The child INHERITS your identity — three of three seats hit this.**
+`hermes -p <seat> …` does **not** scrub the parent's environment. Each child saw:
+
+```
+HERMES_SESSION_PROFILE=gentech-treasury     <-- the PARENT's identity, not its own
+HERMES_HOME=/opt/data/profiles/<themselves> <-- correct
+```
+
+**A seat that reads its identity from `HERMES_SESSION_PROFILE` ACKs AS YOU.** One nearly filed a
+deliverable under the wrong profile.
+- **Stripping only `HERMES_SESSION_PROFILE` is not enough** — `HERMES_SESSION_KEY` still carries the
+  parent (`agent:<parent>:telegram:group:…`). **Strip every `HERMES_SESSION_*` var.**
+- **The trustworthy identity triple, for any seat in doubt:** `HERMES_HOME` (+ `HERMES_SCRATCH_DIR`),
+  the `state.db` actually being written, and the `ps` line showing who launched it.
+- Use `scripts/peer-wake.sh` if it exists — it strips every `HERMES_SESSION_*` and labels truncation.
+
+**2. A seat's run takes 3–5 MINUTES — a short timeout truncates it mid-write.**
+A 290s cap cut off three of five seats. The worst case was a seat that had **ACKed, confirmed its
+count, and started the deliverable** — then died before writing it. **Cutting a seat off mid-write is
+worse than not dispatching it**: you get an ACK that looks like success and no artifact.
+- Default to **900s** for a real task; 600s for a light ACK request.
+- **Exit 124 is a TRUNCATION, not a refusal.** Never write it up as "the seat declined."
+- **Instruct the seat to write the file FIRST, then refine.** Then an interruption leaves a partial
+  audit on disk instead of nothing.
+- Before re-dispatching, **check the deliverable for a partial write.**
+
+**3. "Reply in your own seat" produces ZERO shared evidence.**
+The first dispatch said exactly that. Four seats read the notice, two ran 60+ tool calls, and **the
+handoff file did not change by a single byte** — their findings were trapped in session logs.
+**The ACK instruction must name the FILE and the line shape**, e.g. *"append one line to
+`<path>` in this shape: `- **<profile> — ACK <UTC ts>.** <finding> (session <id>)`"*. Then verify by
+**byte count**, not by the seat's exit code.
+*Findings that live only in a session log are findings nobody can audit.*
+
+## ⚠️ A backlog audit counts STATUSES; the work is the ASKS
+
+When a watcher or compliance check reports a large open/uncovered count, **classify by self-declared
+state before treating the number as work.** Three buckets, and only two of them need a human:
+
+| the note says | bucket |
+|---|---|
+| resolved (and does **not** say `Status: open`) | **archivable** |
+| `Status: open` | live — read it |
+| neither marker | live — read it |
+
+Measured on one mature lane set: **538 notes — 372 self-declared resolved, 107 blocked-and-resolved,
+46 unmarked, ~9 genuinely open.** The compliance check was reporting 204 open. **Almost all of it was
+closed history that had never been filed.**
+
+**The mechanism behind the whole class: agents answer in the BODY and never move the file.** A note
+reading `✅ What was done — answered / closed` under a header that still says `Status: open` is counted
+open by every automated reader, forever. The work was done; the artifact lies about it.
+
+### So resolving a handoff means MOVING the file, not editing the header
+
+**Location is the signal every watcher agrees on.** A header edit only satisfies readers that parse
+that exact marker string; a move satisfies all of them, plus every human who lists the lane.
+
+**Filing pass, in this order:**
+1. **Back up the whole handoff tree first** (one tar) — this is a bulk move over shared state.
+2. Move notes that declare resolved **and do not declare open status** into that lane's `_archive/`.
+3. **Leave ledgers in place** — `*-completions.md` and similar are records, not handoffs; archiving them
+destroys the trailing history. **Enforce this with an explicit BASENAME SET checked before the
+   classifier runs, not with a name pattern** — a pattern that tests `TRUE` against the ledger path can
+   still let it through, and the failure is silent because the pass reports a plausible count. Measured:
+   a filing pass moved two completion ledgers (3,013 and 1,404 lines) into `_archive/` even though the
+   exclusion regex matched both paths and a re-run of the filter returned zero ledgers.
+   **After the pass, list what actually landed in `_archive/` in the last few minutes and read the
+   names** — `filed 16` says nothing about *which* 16. Restore by moving back and comparing the
+   **line count against the pre-move count**; a ledger that is merely present may be truncated.
+4. Re-run the check and report the **delta**, not the new absolute.
+
+**Before declaring the backlog worked, count ASKS, not statuses.** Of the notes left live after a
+filing pass, measure how many carry an explicit `## What's needed` section. Measured on the same set:
+**2 of 71.** The other 69 were informational notes with a stale open header. **That two-item list is
+the real backlog** — everything else is filing, and calling it work inflates the number the next audit
+chases.
+
+### Where archived notes go — the lane decides, not the age
+
+| what the note is | where it goes |
+|---|---|
+| acted on, lane still live | that lane's `_archive/` |
+| the **lane itself** is retired (seat gone, group replaced) | `10-Archive/` |
+
+**Never file a retired lane's notes into `01-HANDOFFS/`.** A lane with no receiver manufactures notes
+that look live forever and can never be closed — the exact defect a filing pass exists to remove.
+The test is not "is it old": it is **"can anyone still act on this?"**
+
+## ⚠️ ONE closure vocabulary — every scanner must parse the format the skill documents
+
+**A closure the scanner cannot parse is indistinguishable from silence, and it teaches the answering seat
+that its replies do not register.** Measured: a seat closed its two oldest escalations with a full
+`## STATUS: ANSWERED — closure record` block, timestamped, with real measurements — and the SLA checker,
+which only knew `## Receipt` / `## Agreement` / `## Supersede`, kept reporting them **8d and 5d SILENT**.
+The second checker on the same notes (the sign-off check) *also* only knew `## Agreement`, so the same
+closed notes were re-reported as "nobody was asked to agree" — two instruments on one night, same blind spot.
+
+**Rule: define the closure markers ONCE, and have every counting script import or repeat the same list.**
+The canonical set, all of which close a note:
+
+```
+## Agreement
+## Supersede
+## STATUS: ANSWERED        (any heading level, optionally followed by — closure record)
+**State:** CLOSED          (in the closure block)
+Status: resolved | closed | answered | done | [x]
+```
+
+- **When you add a closure format to this skill, add it to every script that counts closures in the same
+  change** — `handoff-sla.py` (SLA bands), `signoff-check.py` (agreement coverage), `handoff-watcher.py`
+  (`RESOLVED_MARKERS`). A format documented here but unknown to them produces a permanently-open note.
+- **The test is asymmetric on purpose:** assert an OLD genuinely-open note still fires after you widen the
+  matcher. Teaching a scanner to recognise more formats must never teach it to recognise everything —
+  that silently converts open work into a green report, which is worse than the false alarm.
+- **A `## STATUS: ANSWERED` block is the format the fleet actually writes.** It is machine-readable on
+  purpose: seat, closed timestamp, state, and one evidence line per item. Prefer it for your own answers
+  — an answer written only as prose costs the next reader a full re-read to discover it exists.
+
 ## Pitfalls
 - **Answering a note is NOT closing it — the closure record must live in the INBOUND note.**
   If your reply goes into your own outbound lane, the inbound note still reads as open to
@@ -166,6 +290,13 @@ silent until the agent returns or it's resolved.
   noise.** Either edit the CORE file directly
   (`10-Labs/skills-distribution/<cat>/<skill>/SKILL.md`) then sync CORE -> seats, or promote
   the seat copy into CORE first. A seat copy is a build artifact.
+- **A repeated dispatch is answered with the ARTIFACT, not with the work.** When the same ask arrives twice
+  (a re-send, a duplicate wake, a resend from a second seat), do not re-run the task and do not file a second
+  near-identical note: the second file gets a later timestamp, looks newer, and quietly becomes the copy someone
+  reads. Reply with **the path you already filed, its digest, and the same short summary** — and say plainly that
+  it is the same ask, so the sender can tell a lost message from a flag. Re-running is only correct when the
+  request changed *materially* (new numbers, new scope); if the numbers drifted, that is a re-measure and it
+  belongs in the existing artifact as a dated correction, not in a sibling file.
 - **Reading without reporting** — a handoff archived as "resolved" with no
   completion note is a silent failure. Always report what you did.
 - **No archive cleanup** — inboxes grow unbounded. Purge `_archive/` weekly.
@@ -232,15 +363,22 @@ silent until the agent returns or it's resolved.
   state file. See `references/measurement-time-in-generated-messages.md`.
 - **A DM is never the record.** If it matters, it also goes to the vault lane. A silent DM
   plus no vault note means the handoff exists nowhere.
-- **Do NOT report a handoff as undelivered because Obsidian Sync failed — on this box, git IS the
-  delivery.** All four VPS seats read the SAME path on the SAME filesystem
-  (`VAULT = "/root/vaults/gentech"`, verified by inode + device + md5, not by assumption), so a
-  `git commit` is immediately legible to every seat with **no `ob sync` step involved**. Obsidian Sync
-  is what carries the vault **OFF the box**: Forge (desktop) and Jordan's Obsidian clients.
+- **Do NOT `git commit` the vault — on this box it is NOT a git repo (corrected 2026-10-17).**
+  The vault is at **`/opt/data/.obsidian-vault`** and its transport is **Obsidian Sync via `ob sync`**,
+  driven by a live `vault-sync` cron job (every 10m, `script: vault-sync.sh`). There is **no `.git` in
+  the vault**, so a `git commit && git push` fails with *"not a git repository"* — and because a shell
+  `&&` chain or a piped tail can still exit 0, **that failure is easy to mistake for a successful
+  commit.** Write the file, verify it on disk by size + mtime, and let `vault-sync` carry it; do not
+  report "committed/pushed" from the vault at all.
+  *(Earlier revisions of this skill said git was the delivery and named `VAULT = "/opt/data/.obsidian-vault"`
+  — both stale. `/root` is unreadable here (uid 10000, no sudo) and that path no longer exists.)*
+  What still holds: **all the VPS seats read the same path on the same filesystem**, so a written file
+  is immediately legible to every seat on this host with no sync step. Obsidian Sync is what carries it
+  **off the box** to Forge (desktop) and humans.
 
-  | receiver | delivered by | does `git push` alone reach them? |
+  | receiver | delivered by | does writing the file alone reach them? |
   |---|---|---|
-  | the four VPS seats | the shared filesystem | ✅ yes — immediately |
+  | the VPS seats (same host) | the shared filesystem | ✅ yes — immediately |
   | Forge (desktop, separate machine) | Obsidian Sync / its own clone | ❌ no |
   | humans (Jordan's Obsidian) | Obsidian Sync | ❌ no |
 
@@ -250,6 +388,43 @@ silent until the agent returns or it's resolved.
   Measured 2026-09-28 after `vault-handoff-lifecycle` and a seat copy of `agent-coordination` were both
   found teaching the false wording. State your transport consequence in terms of **which receiver**.
   Full detail: `00-System/vault-transport-protocol.md` (git-tracked, so every seat can read it).
+
+## ⚠️ A seat with no delivery channel cannot be LATE — classify BLOCKED, never overdue
+
+**An accountability report may only count an item against a seat that could have received it.** When a
+seat's only channel is the shared vault and that transport is measurably failing, the note is
+**undeliverable** — and reporting it as `SILENT` / `OVERDUE` / `ESCALATE` is a false accusation that also
+buries the one actionable fact: the transport is down.
+
+| state | meaning | who acts |
+|---|---|---|
+| **BLOCKED** | no delivery channel existed | the transport's owner |
+| **OVERDUE / SILENT** | delivered, no reply | the seat |
+| **ACKed** | received | — |
+
+- **Derive the blocked set from a PROBE, never from a hardcoded seat name.** A name list is an excuse that
+  survives the fix; a probe that reads the transport clears itself. When delivery works again the rows must
+  walk back into the normal bands on their own next run — the state is **measured, never asserted**.
+- **Blocked rows carry their gate and their release condition inside the report.** The gate is the measured
+  failure (which file, which attempt, when); the release is the condition that returns the rows to the bands.
+  A row that says only "blocked" is a shrug — the next reader cannot tell what would move it.
+- **Blocked is not a suppression.** It changes the classification and the owner, never the count: print
+  `N owe a reply · M BLOCKED on transport`, so neither number hides the other.
+- **Blocked items are never nudged.** Waking a seat that cannot receive asks for something impossible, then
+  records the silence as its failure — a nag with a receipt.
+- **Check the transport before the report runs, not after a human asks why the list keeps growing.** The
+  pile-up of notes is the symptom; the dead transport is the finding.
+
+Probe design — measuring a failure whose log does not state it — is in
+`references/blocked-transport-probe.md`.
+
+### A stale clone is a seat reading a DIFFERENT, OLDER world
+
+A desktop seat synced by its own clone can be running, responsive and wrong: it reports on files that no
+longer exist and cannot find files that do, because it reads a copy frozen at some earlier date. **When such
+a seat reports "the thing you point me at is not in the brain", treat it as a TRANSPORT finding about the
+clone, not as the seat failing to look** — check the clone's divergence before answering the substance.
+Answering the substance instead teaches the seat that its true report was wrong.
 
 ## Pitfalls — a hash-bound closure that your own tooling rewrites
 
@@ -398,6 +573,8 @@ English description and produce different bytes.
 - [ ] Agent that reads a handoff reports back what it did.
 - [ ] Resolved notes archived; `_archive/` purged weekly.
 - [ ] No handoff left unread or unreported at a stopping point.
+- [ ] Sign-off coverage machinery (Agreement blocks, closing markers, no-channel seats) —
+  `references/agreement-blocks.md`.
 
 ## PITFALL: `hermes peer dm` is SYNCHRONOUS — it waits for the remote agent's whole turn
 
@@ -476,6 +653,27 @@ manufacturing the exact impression the watcher exists to prevent ("this seat wen
 read a repeated nudge as a peer ignoring you, and never file the same answer a third time — find
 which of these three the watcher can see and satisfy it.
 
+## ⚠️ A BROADCAST lane has no receiver, so no checker reads it
+
+**A note written to `<sender>-to-fleet/` (or any broadcast lane) is delivered to nobody in particular and
+ACK-checked by nobody at all.** The acknowledgement checkers enumerate `os.listdir(INBOX)` and then read
+`INBOX/<target>/` — every `<sender>-to-<receiver>/` lane, including the broadcast ones, is outside their
+scope. Measured on the fleet's ACK checker: it walks `INBOX` only, so an ownership question addressed to
+three seats at once produced agreements that would never have been chased and an SLA that would never
+have escalated.
+
+**The tell:** you wrote one note, three seats answered into it, and the pending/overdue report shows none
+of them. That is not three diligent seats — that is a lane nothing measures.
+
+**Rules when broadcasting:**
+- **Either widen the checker to the broadcast lanes, or ALSO write a per-seat note into each
+  `INBOX/<seat>/`.** Widening is the fix; the duplicate note is the workaround, and duplicate notes are
+  how a lane set starts disagreeing with itself.
+- **Say the coverage boundary in the note** — *"this note is in a lane the ACK checker does not scan; the
+  reply I need is a line in the file"* — so a silent seat and an unmeasured seat are not confused.
+- **A seat reading your code can find this before you do.** Treat "your note is in a folder the checker
+  never opens, measured at `file:line`" as a defect report about the tooling, not as a seat dodging.
+
 ## ⚠️ Use the fleet's OWN comparator — a hand-rolled dir scan INVENTS drift
 
 **Scanning skill dirs with your own hash of `md5sum` output that includes file PATHS produces false
@@ -484,9 +682,24 @@ hand-rolled digest reported **4 spurious drift hits** on skills that were in fac
 content-only digests then agreed everywhere. The false alarm looks exactly like the real drift you
 are hunting, so it costs a full round to disprove.
 
-Use the fleet's own tool — `00-System/agent-profiles/fleet_skills_sync.py --check` — whose
-`dir_digest()` is content-based and compares the **whole dir**, not just `SKILL.md`. It prints its
-own denominator (**150 skills**); a depth-2 enumeration undercounts at 127 (d1=21, d2=127, d3=2).
+Use the fleet's own tool — **`00-System/agent-profiles/fleet-skills-sync.py`** (rebuilt 2026-10-15;
+`--check` / `--promote` / `--sync`) — whose digest is content-based and compares the **whole dir**,
+not just `SKILL.md`. It prints its own denominator (**244 skills** at the 2026-10-15 rebuild); a depth-2
+enumeration undercounts.
+
+**`--promote` is the contribution path and `--sync` is the delivery path — run promote FIRST.**
+The rebuild exists because the old distributor was lost and CORE had silently fallen 69 skills behind
+the seats: skills that existed in the fleet and were never promoted. `--sync` will not delete a
+seat-only skill, and it REFUSES to overwrite a seat copy holding files CORE lacks (that is the
+"replacing the seat copy destroys 1 file(s) present only in the seat" warning — **the warning is the
+signal, not noise**).
+
+**PITFALL — a counter keyed on the wrong tuple inflates by the number of sources.** The first
+`--promote` reported each unpromoted skill once per seat that held it (4x), and credited whichever
+seat was iterated last — so "promoted from pixel" appeared for work pixel had not authored. Same class
+as "a name is a claim": before quoting a total, check that the thing being counted is the thing the
+label names. Fix was to key on the skill and keep the newest copy's seat. Verify convergence by
+re-running: promote then reports **0 / 0** when CORE is complete.
 
 **Two blind spots to hold together, both real, both seen on the same day:**
 - **Depth:** a `SKILL.md`-level compare reads clean while a `references/` file differs (7964 B in

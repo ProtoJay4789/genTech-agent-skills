@@ -490,7 +490,7 @@ git pull --no-rebase origin main
 git push origin main
 ```
 
-**See also:** `references/git-divergence-resolution-dual-agent-2026-07-06.md` in `agent-to-agent-communication-audit` skill
+**See also:** `references/git-divergence-resolution-dual-agent-2026-07-06.md` in `agent-to-agent-communication-audit` skill   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `agent-to-agent-communication-audit` exists on this seat -->
 
 ### Pitfall 8: Stash Pop Conflicts Get Committed — Corrupted JSON in Cron Workflows
 
@@ -944,7 +944,7 @@ def commit_paths(repo_path, message, paths):
 ```
 
 
-**Symptom:** Deep in conflict-fighting, a push quietly targets the WRONG repo — e.g. `${VAULT_DIR}` (vault) whose remote is the dead old `ProtoJay4789.github.io` mirror, while the real site repo is `/root/repos/gentechlabs.github.io`.
+**Symptom:** Deep in conflict-fighting, a push quietly targets the WRONG repo — e.g. `${VAULT_DIR}` (vault) whose remote is the dead old `ProtoJay4789.github.io` mirror, while the real site repo is `(GitHub repo, not on this host: gentechlabs.github.io)`.
 
 **Root cause:** session working directory drifts between repos that share a purpose. Conflicts/rebases run in one while conclusions drawn from the other.
 

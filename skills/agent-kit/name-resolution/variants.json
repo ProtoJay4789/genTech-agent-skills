@@ -1,0 +1,80 @@
+{
+  "_comment": "Known speech-to-text manglings of OUR OWN proper nouns -> canonical name. Voice messages mangle our product/person/agent names; every entry here is an observed miss, not a guess. Add a row only when a real transcript produced it.",
+  "version": 1,
+  "updated": "2026-10-18",
+  "rule": "Resolve a noun BEFORE searching the brain for it. A name that returns zero hits is more often misheard than missing.",
+  "entities": [
+    {
+      "canonical": "GenTech",
+      "kind": "org",
+      "variants": ["Jintek", "Jintech", "Jintec", "JinTek", "Gen Tek", "Gen-Tech", "Gentech"],
+      "note": "Jordan addresses the HQ agent as 'Jintek' in speech. identity/SKILL.md corrected the written form to 'Gentech' (Jul 25). NOT 'JinTech'."
+    },
+    {
+      "canonical": "GenTech Milestone",
+      "kind": "product",
+      "variants": ["Jintek Mauston", "Jintek Moston", "GenTech Mauston", "GenTek Milestone", "Jintech Milestone"],
+      "note": "The accountability product. Observed 2026-10-18 as 'Jintek Mauston'. The brain already called it 'the Milestones layer'."
+    },
+    {
+      "canonical": "GenTech Journal",
+      "kind": "product",
+      "variants": ["Agent Reparathy", "Reparathy", "Gen Tech Journal", "the journal"],
+      "note": "The intimate product. 'Agent Reparathy' is the retired name — still valid in pitches, so it resolves to itself as an alias, not an error."
+    },
+    {
+      "canonical": "EDU",
+      "kind": "product",
+      "variants": ["E D U", "ed you", "Ed U", "edu"],
+      "note": "Activated by 'hey Jintek, activate EDU'."
+    },
+    {
+      "canonical": "Dadrian",
+      "kind": "person",
+      "variants": ["Dadrion", "Darian", "Dadrianne", "Adrian", "Daydream", "Daydream Veneto", "Day Dream"],
+      "note": "Jordan's cousin; second book. His Telegram username is @Daydream (STALE — Telegram reports no username now; the durable handle is the ID 6842745592). 'Daydream Veneto' observed 2026-10-18 as a mishearing of 'Dadrian'."
+    },
+    {
+      "canonical": "Vanito",
+      "kind": "person",
+      "variants": ["Veneto", "Vanito's", "Benito"],
+      "note": "Vanito and Jordan are the same person."
+    },
+    {
+      "canonical": "Scout",
+      "kind": "milestone-tier",
+      "variants": ["Scout tier", "$5/day"],
+      "note": "DeFi milestone ladder rung 1."
+    },
+    {
+      "canonical": "Raider",
+      "kind": "milestone-tier",
+      "variants": ["Raider tier", "$20/day"],
+      "note": "DeFi milestone ladder rung 2."
+    },
+    {
+      "canonical": "Warlord",
+      "kind": "milestone-tier",
+      "variants": ["War Lord", "Warlord tier", "$55/day"],
+      "note": "DeFi milestone ladder rung 3 (birthday 2027)."
+    },
+    {
+      "canonical": "Sovereign",
+      "kind": "milestone-tier",
+      "variants": ["Sovreign", "Sovereign tier", "$200/day"],
+      "note": "DeFi milestone ladder rung 4 — Amazon Flex optional."
+    },
+    {
+      "canonical": "protojay",
+      "kind": "agent-seat",
+      "variants": ["Proto J", "Proto-Jay", "Protojay", "proto jay"],
+      "note": "Head of Social seat."
+    },
+    {
+      "canonical": "arthur",
+      "kind": "agent-seat",
+      "variants": ["Arthur", "Author"],
+      "note": "EDU seat. 'Author' is a real observed miss."
+    }
+  ]
+}

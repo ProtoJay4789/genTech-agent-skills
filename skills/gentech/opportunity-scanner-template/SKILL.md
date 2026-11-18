@@ -8,6 +8,13 @@ trigger: "When setting up or modifying an opportunity scanner cron job. Also tri
 
 # Opportunity Scanner — DeFi / AI Agent / Web3 Focus
 
+> ⚠️ **SCOPE (corrected 2026-10-15 — Jordan: *"the opportunity scanner included grants but maybe we should
+> make a separate one"*).** **This skill is the JOBS scanner only.** Grants, hackathons and competitions have
+> moved to their own scanner: a deadline problem, not a hiring problem — different sources, different filters.
+> Category 4 below is kept for reference but is **no longer this scanner's remit**, and the live jobs scanner
+> (`scripts/opportunity-scanner.py`) reads **company ATS boards** (Greenhouse/Lever/Ashby), not job boards —
+> that was the change that made it find anything at all (2026-09-19 audit).
+
 ## Purpose
 Reusable template for scanning opportunities that match the modern web3/AI agent stack. Replaces traditional job board scanners that surface irrelevant traditional roles.
 
@@ -100,6 +107,15 @@ Seed/Series A companies where being a founder is an asset, not a liability.
 
 **Active grant programs:** `references/active-grants-july-2026.md`
 
+**Builder grants (the lane that pays for a shipped demo — Akindo Buildathons, protocol waves, judged on a
+working demo): `references/builder-grants-lane.md`.** Read it before writing a grants scanner of either kind:
+**the standing rule is to re-check the platforms we have ALREADY signed up with for a new round before searching
+for strangers**, and the design is a curated registry watched for page CHANGE, never a keyword discovery engine.
+
+**Federal grants feed (grants.gov, no key, verified applicant-type codes and the title-discipline filter):**
+`references/federal-grants-feed.md` — read it before writing any grants scanner, because the two filters that make
+the output usable (eligibility codes and off-discipline titles) are both things the API will not do for you.
+
 | Grant | Amount | Status |
 |------|--------|--------|
 | Circle Developer Grant | Milestone USDC (up to $100k) | **Open** — agentic AI focus, Questbook portal |
@@ -135,6 +151,8 @@ Platforms where we deploy skills/agents for revenue.
 | lablab.ai | AI agent hackathons | web_search (lablab.ai/ai-hackathons) |
 | **himalayas.app** | Agentic AI / LLM jobs | **Sitemap bypass (Cloudflare-blocked pages)**: `curl -sL "https://himalayas.app/sitemap-jobs.xml.gz"` → index → fetch `sitemap-jobs{1,2,3}.xml.gz` → `gunzip` → parse `<loc>` URLs. ~110K jobs, filter by agent/agentic/llm/mcp in slug, then exclude noise (real-estate, call-center, sales-agent, 1099, insurance, freight, collections). Detail pages are Cloudflare-walled — verify via web_search of the exact title instead. **Binance caveat: ALL Binance AI/agent roles are Asia/HK/TW-based → hard reject per Jordan's filter.** |
 | **Agentscan** | **Agent economy opportunities** | **REST API (`/api/agents`) — discover active agents, find integration partners, track ERC-8004 registrations. Also `/api/agents?page_size=5` for latest agents. Ecosystem data at `/ecosystems` page.** |
+
+| **Superteam Earn** | **Paid build bounties (Solana / USDC)** — the only source in this file that pays for a *submission* rather than a *hire* | **Public JSON, no key**: `curl -s "https://superteam.fun/api/listings?take=500&type=bounty"`, detail at `.../listings/details/<slug>`. Rank on `rewards` (the split), never `rewardAmount` (the headline). An agent can submit but **cannot receive** — payout needs KYC plus a human claim code. Full recipe: `references/superteam-earn-feed.md` |
 
 ### Secondary Sources (discovery only)
 | Source | Focus | Method |
@@ -339,3 +357,8 @@ You are running the Opportunity Scanner for web3/AI agent roles.
 9. **Grant programs are rolling** — Solana Foundation grants have no fixed deadline. Submit early in the quarter for better visibility. Coreum grants run in waves — check which wave is active.
 10. **web_extract requires non-DuckDuckGo backend** — `web_extract` fails with "DuckDuckGo (ddgs) is a search-only backend" when trying to fetch non-text URLs. For extracting job descriptions from Lever/LinkedIn/etc., use `browser_navigate` + `browser_console` with JavaScript extraction instead. This is the reliable path for structured job board data.
 11. **Binance Tech Seeds 2026 is a goldmine** — The Pioneer Talent Program (up to 5 yrs exp) and Accelerator Program (intern/recent grad) both have AI Agent Developer and AI Application Engineer roles. These are the highest-signal matches for agent-focused candidates. Apply to both Pioneer Talent tracks immediately — they're engineering-first roles building production agent systems, not demos.
+12. **A board's headline job count is not its remote inventory — read `workMode` per record.** Measured on first pages: a 461-job Solana board and a 990-job investor board each showed ~2–7 remote roles out of 20 rendered, and **zero remote engineering** (the remote ones were compliance, comms, freelance transcription, recruiting). A source that looks large is not a source that is remote; never put a board's total on a report as available remote work.
+13. **Client-side filters make URL query params a lie.** On Getro-backed boards (`jobs.solana.com`, `jobs.dragonfly.xyz`) `?search=` and `?workMode=` leave `total` unchanged — the filtering runs in the browser, so a "filtered" URL returns the unfiltered set. Read the server-rendered state instead: `__NEXT_DATA__` → `props.pageProps.initialState.jobs` → `.total` (the board's own count) and `.found` (first 20 records, each with `workMode`, `seniority`, `locations`). **Label it a first-page sample** — 20 of 990 is not a census.
+14. **On a crypto board, keyword search is noise.** A `?search=ai` on a 19k-job crypto board returned big-tech SDE postings, a life-insurance PM and a GRC analyst. Verify each title actually matches the lane before counting it as a hit; never quote a search result count as "AI roles available".
+15. **A source that pays for a SUBMISSION is a different category from a source that pays for a HIRE.** Bounties, contests and grants have no interview and no résumé screen — the work is the application — but they carry their own traps: the headline reward is a ceiling (read the split), competition is visible (`_count.Submission`), and the payout usually needs a human identity (KYC, claim code, wallet). Score them on per-place payout × win probability, not on prize pool, and never present a submission pipeline as agent income.
+16. **Test a new source against `score()` before wiring it — a source the scorer rejects silently is worse than one that's missing.** Measured 2026-11-15: the live jobs `score()` returned `None` for 4 of 4 Superteam bounties, because it requires an FDE title, a years number and a remote gate. Added as an `ats:` board it would emit zero rows forever with no error. The fix is a separate LANE that shells out to its own producer and merges on its own keys — and the lane function must return `None` (UNKNOWN) rather than `[]` when its producer dies, verified by pointing the lane path at a nonexistent file. **A dead source and an empty source must never print the same sentence.**

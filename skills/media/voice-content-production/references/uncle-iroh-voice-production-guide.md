@@ -152,7 +152,7 @@ Great, googly-moogly, that thing is juicy! Haha, my young friend, you have quite
 ### API Key Testing Protocol
 ```bash
 # Quick key validation before any voice work
-ELEVENLABS_API_KEY="6e3f26583ebfb5cfcc13fb60b23a2d0bc45b7ebf6208bd86eed0ea3394337fef"
+ELEVENLABS_API_KEY="<REDACTED-2026-11-18: credential removed from a published-bound skill; was never live at scan time>"
 curl -s -X GET "https://api.elevenlabs.io/v1/user" \
   -H "xi-api-key: $ELEVENLABS_API_KEY" | grep -q "user_id" && \
   echo "✅ API key valid" || \

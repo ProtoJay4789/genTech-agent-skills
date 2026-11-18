@@ -1,7 +1,7 @@
 ---
 name: hub-audit
 description: "Audit GenTech hubs for stale data, broken HTML, and live data issues. Prevents GitHub Pages build failures and ensures dashboards stay fresh."
-version: 1.9.1
+version: 1.12.0
 author: gentech
 tags: [gentech, hub, audit, dashboard, github-pages, html, validation]
 ---
@@ -78,11 +78,42 @@ grep -n 'fetch(' /var/www/gentechlabs/vanito.html
 
 # Check JS for expected data JSON
 grep -n "\.json'" /var/www/gentechlabs/vanito.html
+
+# ⚠️ CRITICAL: a page can have BOTH a fetch AND a frozen literal that wins
+# Match an object literal whose values are numbers — the signature of a snapshot
+awk '/<script/,/<\/script>/' <page>.html | grep -nE 'const [A-Za-z_]+ = \{[^}]*[a-z]+: *-?[0-9]'
 ```
 
 **Classification:**
 - ✅ **Live hub** — Has `fetch()` + `cache: 'no-store'`
 - ⚠️ **Static hub** — No fetch calls, hardcoded only
+- 🔴 **FROZEN SNAPSHOT** — has `fetch()` *and* a numeric literal object. **The fetch is decoration; the page renders the literal.** This reads as a live hub to every check that greps for `fetch(`.
+
+**A hardcoded position object is the worst case, because it was TRUE when written.** Measured: a tracker
+carried `const position = {avaxAmount: 2.19, rangeMin: 6.65, currentPrice: 6.71, ...}` beside a live price
+fetch. The page rendered a position that had stopped existing, with a timestamp-free confidence — the same
+defect class as quoting a six-week-old balance as current, and invisible to a "does it fetch?" audit.
+
+**The fix is not to update the numbers — it is to delete the literal.** Every figure must arrive from one
+generated JSON carrying its own read time, and the page must render nothing rather than a memory:
+
+```javascript
+let position = null;                       // no default: a default IS the bug
+async function load() {
+  const d = await (await fetch('live.json?t=' + Date.now(), {cache:'no-store'})).json();
+  if (!d.trusted) throw new Error(d.warnings?.[0] || 'value unverified');
+  return d;                                // d.position === null is a REAL answer: nobody read a wallet
+}
+```
+
+- **`null` for "not read" is a finding; `0` is a different claim.** Keep `position`, `fees` and any
+  claimable-amount field `null` when the source cannot produce them — a `0.00` there reads as "you earned
+  nothing", which is an assertion the instrument never made.
+- **Stamp the read, print the source.** `Live · read <time> · <source> · cross-checked (drift n%)` — a
+  number whose age is visible cannot be mistaken for a current one.
+- **A cross-check that disagrees must BLOCK the render, not warn inside it.** Beyond ~2% drift between a
+  derived value and an independent feed, show the unavailable state — an on-page warning next to a confident
+  number loses to the number.
 
 ### Step 4: Verify Data Freshness
 
@@ -305,7 +336,7 @@ vault source → Pages repo (github) → [NOT SERVING for gentechlabs.net]
 ```bash
 # Compare webroot vs repo copy directly:
 diff <(python3 -c "import json; print(json.load(open('/var/www/gentechlabs/defi-data.json'))['lastUpdated'])") \
-     <(python3 -c "import json; print(json.load(open('/root/repos/gentechlabs.github.io/DeFi/defi-data.json'))['lastUpdated'])")
+     <(python3 -c "import json; print(json.load(open('(GitHub repo, not on this host: gentechlabs.github.io/)DeFi/defi-data.json'))['lastUpdated'])")
 # Also confirm the webroot is NOT a git checkout:
 cd /var/www/gentechlabs && git rev-parse --is-inside-work-tree 2>/dev/null || echo "plain webroot — push does NOT update it"
 ```
@@ -466,6 +497,45 @@ def verify_data_on_github(repo_owner, repo_name, path, token):
 
 **Prevention in hub sync scripts:** Add a GitHub API verification step as the primary check, with raw CDN as a best-effort secondary. Never report "data missing" based on raw CDN 404 alone.
 
+## Auditing a PRODUCT-LISTING page — a rendered card is not a working product
+
+A marketing/hub page that names products is making **capability claims**, and the audit question is not
+"does the card render" but **"is there a thing behind it."** The two are unrelated: a card is a few
+`<div>`s, and it renders identically whether the product is live, blocked, unfinished, or never existed.
+
+**Procedure — every card gets one of three verdicts, traced to an artifact:**
+
+1. **Enumerate the cards** from the served HTML (not the source you assume is deployed).
+2. **Find what each names** — an endpoint path, a service name, a skill, a file. A card with no address of
+   any kind is already `UNPROVEN`.
+3. **Probe the address.** Endpoint → call it and read the body. Local artifact → does anything *route* to it?
+   Skill → does the directory hold runnable code, or only markdown references?
+4. **Record `WORKING` / `NOT LIVE (reason)` / `NO BACKEND`.** "The page mentions it" is not a verdict.
+
+Measured on one four-card gaming tab: **zero of four worked** — an advertised endpoint answered `404
+service_not_found`, one product's skill directory held **eleven markdown reference files and no code**, one
+was a local HTML file with no route to it, and one was a folder of JSON no endpoint reads. Every card was
+markup-complete and the tab rendered perfectly.
+
+- **Test for a catch-all BEFORE you trust a single link on the host.** A wildcard site returns `200` and the
+  same bytes for paths that never existed, so a link audit of it reports every URL healthy. Compare a nonsense
+  sibling's **byte count**, and if it matches the real page, say the link audit is void — see
+  `verification-vantage` → *A wildcard router answers 200 for paths that do not exist*.
+- **Audit the CLAIM across tabs, not just within one.** The same product can be declared *"Not live — blocked
+  by policy"* on one tab and sold as a shipping product on another. One page carrying two opposite statements
+  about one thing is a finding in its own right, and it is invisible to any audit that reads one section.
+- **An advertised request example is a claim that must be re-run.** If the page shows `GET /v1/…` with a
+  sample response, execute it. A 404 under a published example is worse than no example — it is a documented
+  promise the system breaks on contact.
+- **Find the SOURCE before you edit the artifact.** A deploy can be a managed project (Pages/Workers) whose
+  source is not on this host. Patching the deployed file directly **works today and is overwritten by the
+  next deploy from the real source** — so name which of the two you are doing, and if the source is missing,
+  that gap is the finding to report, not a detail to route around.
+- **Taking a product OFF a page is not killing the project.** Move it to an explicit *In development* block
+  that states its real state — the same discipline as *UNKNOWN, never 0*: the reader must be able to tell
+  "not built yet" from "removed" and from "broken". Deleting the card silently destroys the only record that
+  the work was ever intended.
+
 ## Audit Report Template
 
 ```markdown
@@ -497,6 +567,58 @@ def verify_data_on_github(repo_owner, repo_name, path, token):
 2. Add lastUpdated timestamps to all data files
 3. Test data URLs weekly
 ```
+
+## Fixing a dashboard that renders placeholders — the fix that lies better than the bug
+
+A hub that shows `Connecting…`, `Loading…` and `—` in every field is the **honest** failure state: it looks
+broken, so someone goes looking. The repair has a trap in it that is worse than the fault.
+
+**Procedure, in this order:**
+
+1. **Enumerate EVERY `fetch()` in the SERVED html, not just the ones that failed for you.** A page can carry
+   four fetches all broken by the same stale constant; finding two and fixing two leaves two dead panels and
+   reads as a partial fix. `grep -oE "fetch\('[^']+'" page.html | sort -u` and count them against the number
+   of panels on the page.
+2. **A `raw.githubusercontent.com` 404 can be a WRONG OWNER, not a CDN gap.** Before applying Issue 7, read
+   the owner/repo in the URL and check the same path under every owner the fleet publishes from — a hub
+   pinned to a repo that never held `DeFi/` 404s forever and no amount of cache-waiting fixes it. Distinguish
+   the two: a CDN gap gives 404 on a path that exists under that owner (verify via the API, Issue 7 step 2);
+   an owner drift gives 404 under one owner and **200 under another**.
+3. **Before writing "fixed": every payload must PARSE and carry its own `lastUpdated` — and you must print
+   the AGE of each feed.** An owner swap that makes the numbers appear is not a fix if the numbers are
+   months old.
+
+> **A dashboard full of old numbers is worse than a dashboard full of dashes.** Dashes announce a fault;
+> current-looking figures with no age beside them are read as today's. "It is connecting again" and "it is
+> telling the truth" are two different claims, and only the second one is worth shipping.
+
+**So the freshness bar is part of the repair, not a nice-to-have.** Render, per feed, the source's own
+`lastUpdated` and its age, from the payload rather than the deploy time. Two failure modes that look
+identical from outside must read differently on the page: *feed unreachable* and *feed stale*.
+
+- **A committed JSON carrying git conflict markers has no correct side — do not hand-merge it.** Nested or
+  long-aged markers mean nobody resolved a stash; picking a branch manufactures a number. Report it as
+  `source is not valid JSON`, keep the panel in its unavailable state, and have the generator REPUBLISH the
+  file. Issue 0 covers resolution when a clean ancestor exists; when it does not, publishing nothing is the
+  correct output.
+- **A freshness bar that reads `Data: connecting…` at rest is decorative until its JS fills it.** Load the
+  page and confirm the bar resolves to real ages; a bar that can only ever show "connecting" is the
+  FROZEN SNAPSHOT class wearing a freshness label.
+- **Render-clean is not markup-clean — the placeholder you overwrite at runtime comes back when the script
+  fails.** A page can render zero `Loading...` strings and still carry them in the SERVED source, because the
+  bar and the pair-info write over those nodes on success. If the fetch 404s or a line throws, the reader sees
+  `Loading...` again and it reads as a slow page, not a broken one. **Start those nodes EMPTY and let the
+  failure state be the explicit `UNKNOWN`/unavailable text** — then assert both: `grep -c 'Loading\.\.\.' served.html`
+  is 0 **and** the render shows no placeholder.
+- **Set the two thresholds once and name them on the page**: `>3 days = STALE` (a feed that skipped a cycle),
+  `>30 days = ARCHIVED` (a feed nobody is writing). Two labels, not one — "old" collapses *the producer stopped*
+  into *the producer is late*, and only one of those is a deploy problem.
+- **Do not hand-write this check per session: `scripts/hub-freshness-guard.py` is the tested one.** It parses
+  each feed, reads its own `lastUpdated`, prints `UNKNOWN` (never `0`) when a source cannot be read, exits
+  `0 fresh / 1 stale-archived / 2 UNKNOWN`, and its `--selftest` (12 checks) plants the failures — an
+  unparseable payload, a 90-day timestamp, an unreachable host, a missing timestamp. **A guard against staleness
+  that a fetch failure scores as healthy is the same bug one level up**, which is why the UNKNOWN path has its
+  own tests.
 
 ## Pitfalls
 
@@ -592,6 +714,23 @@ Standing preferences for what a hub page shows. These are about **emphasis**, no
   two you did.
 - **Put the picture at the top.** For a position/liquidity page the shape chart goes above the
   numeric tiles: what the money looks like first, the numbers underneath.
+- **A LOSS IS NOT A DASHBOARD FEATURE — record it in the brain, never render it on someone's hub.**
+  Jordan, on showing an unreachable position on a collaborator's page: *"it's gonna be a reminder of the
+  money we lost, and my cousin is probably gonna ask me not to show that."* **A hub is a place a person
+  opens; a memorial is not a hub.** This is a stronger instruction than *demote, never delete* — some
+  content must leave the page entirely — and it is still **not deletion**: the record moves to the brain
+  (`Treasury/orphaned-positions-record-*.md`) as a **recovery ledger**, framed by what can still be done
+  rather than what was lost.
+  - **Ask the owner, not the data.** Whether a fact belongs on a page is the subject's call when it is
+    their money and their page. Present the option and the reason; do not decide by what is measurable.
+  - **Reduce the page to forward-looking state.** The page keeps the pool, and its own error path carries
+    one honest line — *"No active position tracked. This hub shows live positions only."* Verified by
+    running the page's script: the sentence renders and **none of the old figures appear**.
+  - **Distinguish the two absences in the record**: *gone from the chain* (nothing to track) vs *gone from
+    reach* (trackable, key lost). Flattening them into one "lost" bucket loses the only fact that matters
+    for a future recovery.
+  - **No cron on a memorial.** Re-reading a position nobody can reach is motion, not information — read it
+    when a recovery attempt makes it relevant.
 
 ### Don't Assume No News Is Good News
 Just because the hub loads in browser doesn't mean it's correct. Check the actual data values and timestamps.
@@ -610,6 +749,23 @@ A data file weeks stale with NO failure logs usually means the sync script lost 
 
 ### One Failed Probe ≠ Down (Cloudflare/IPv6 Flap)
 A single curl returning 000/timeout can be a transient edge/IPv6 flap — the same URL connected fine over IPv6 seconds later (200 in 70ms). Before declaring a subdomain down: retest http AND https, and confirm the vhost exists in `nginx -T` server_name output. Escalate only on repeated failures.
+
+**And before either: read the DNS zone, because a guessed hostname can never have existed.** `000` from a
+subdomain you thought of is not a broken deploy — it is often NXDOMAIN. Query the zone's records directly
+(`GET /zones/<id>/dns_records`) and compare against what the pages actually link to; the hub may live at a
+different name than the one you assumed, and an agent that hands the user a guessed URL sends them to a blank
+page and then diagnoses a deploy that was never involved. **Say which you measured: NO DNS RECORD (the name
+never existed) vs RECORD PRESENT BUT NOT SERVING (a real outage).**
+
+**A record's CONTENT is not the host's BEHAVIOUR — never call a hostname dead from its A record.** A zone full
+of proxied names carries an anchor address that is not an origin at all (a proxy range, or an RFC 5737
+`192.0.2.x` documentation address placed there on purpose). Reading `A → 192.0.2.1` and concluding "can never
+reach a server" is measuring the wrong layer: with a Worker route or a Pages custom domain in front, the
+request never touches that address. **Fetch the hostname before judging it** — `curl -sI` plus a real body
+fetch is one second of work — and then look for a route that answers first (`/zones/<id>/workers/routes`).
+Control: a nonsense sibling subdomain that returns nothing proves the name is not a wildcard, so a `200` on the
+real one is a serving route, not a catch-all. The honest phrasing when it does serve is *"the record is an
+anchor, the route serves; consistency only"* — not a fault, and not an outage.
 
 ## Integration with Gentech Ops
 
@@ -641,6 +797,10 @@ mv /tmp/hub-audit-report.md ${VAULT_DIR}/11-Mess Hall/hub-audit-$(date +%Y%m%d).
 - `scripts/check-hub-data.sh` — Data source validation and URL testing
 - `scripts/render-page-check.js` — Run a hub page's OWN `<script>` under a DOM shim to prove it
   actually renders (healthy payload + degraded payload). Tag balance is not proof of rendering.
+- `scripts/hub-freshness-guard.py` — Parse + age every feed, `UNKNOWN` (never `0`) when a source cannot be
+  read, exit `0/1/2`, `--selftest` plants the failures. Schedule it behind a wrapper that turns a finding into
+  exit 0 (see the exit-code note at the top of the file); a nonzero-on-finding guard is recorded as a failed job
+  on every run and gets muted.
 
 **References:**
 - `references/github-pages-build-errors.md` — ⚠️ *not written* (named here and in `## References` below, but absent from every seat and from git). The build-failure patterns are the numbered Issues above and the Deployment Verification checklist.
@@ -658,6 +818,28 @@ Use these scripts for automated audits and quick checks.
 
 ## Version History
 
+- **1.12.0** — Added **fixing a dashboard that renders placeholders**: enumerate every `fetch()` in the served
+  html (not only the ones that failed); a raw-CDN 404 may be a WRONG OWNER rather than a CDN gap, and the two
+  are distinguished by whether the path answers under a different owner; a repair is not done until each
+  payload PARSES and its own `lastUpdated` age is printed. Added the governing rule — **a dashboard full of
+  old numbers is worse than a dashboard full of dashes** — and made the per-feed freshness bar part of the
+  repair. Added: do not hand-merge a long-aged conflict-marked JSON (republish it); a freshness bar stuck on
+  `Data: connecting…` is decorative. Extended *One Failed Probe ≠ Down*: read the DNS zone first, because a
+  guessed hostname can be NXDOMAIN rather than broken — report NO DNS RECORD and RECORD NOT SERVING as
+  different findings.
+
+- **1.11.0** — Added **auditing a PRODUCT-LISTING page**: a rendered card is not a working product. Every card
+  gets `WORKING` / `NOT LIVE (reason)` / `NO BACKEND` traced to an artifact (endpoint probe, route, or runnable
+  code); test for a catch-all before trusting any link on the host; audit the claim ACROSS tabs, since one page
+  can declare a product blocked and sell it elsewhere; re-run any published request example; find the SOURCE
+  before editing a deployed artifact; and move an unbuilt product to an explicit *In development* block rather
+  than deleting the card.
+- **1.10.0** — Step 3 gained the **FROZEN SNAPSHOT** class: a page can carry a `fetch()` *and* a numeric
+  literal object, so a "does it fetch?" audit grades a dead page as live. Added the deletion-not-recomputation
+  fix, `null`-vs-`0` discipline, and the rule that a disagreeing cross-check blocks the render rather than
+  warning beside it. Presentation Rules gained **a loss is not a dashboard feature** — record it in the brain,
+  ask the owner, reduce the page to forward-looking state, and distinguish *gone from the chain* from *gone
+  from reach*.
 - **1.9.1** (Council 2026-09-27) — The 1.9.0 material was authored on **gentech-treasury** and never reached the
   shared core, so three seats ran the older copy until the Council's drift gate caught it. **Promoted here
   byte-for-byte — no content changed.** The gate was green because every copy of this file is seat-agnostic: the

@@ -40,6 +40,7 @@ This protocol minimizes noise and respects the user's preference for signal-only
 | ".pyc marshal errors — how to fix?" | [4. Corrupted Python Bytecode Recovery](#4-corrupted-python-bytecode-recovery) |
 | "How to verify health after a fix?" | [7. Verification Checklist](#7-verification-checklist) |
 | "Token usage / cost audit this week" | [5. Token Usage & Cost Auditing](#5-token-usage--cost-auditing) |
+| "We're blocked — is it the container?" | [1b. Container Privilege Envelope Audit](#1b-container-privilege-envelope-audit) |
 
 ---
 
@@ -112,9 +113,9 @@ done
 
 - Gateway processes: `ps aux | grep hermes`
 - Agent logs: `${PROFILES_DIR}/<agent>/logs/{errors.log,agent.log,gateway.log}`
-- Cron jobs file: `/root/.hermes/cron/jobs.json`
-- Cron output: `/root/.hermes/cron/output/`
-- Config: `/root/.hermes/config.yaml`
+- Cron jobs file: `/opt/data/profiles/gentech/cron/jobs.json`
+- Cron output: `/opt/data/profiles/gentech/cron/output/`
+- Config: `/opt/data/profiles/gentech/config.yaml`
 - Cron health snapshot: `/tmp/cron_health.txt` (if collected)
 
 ### Full Diagnostic Sweep
@@ -122,6 +123,50 @@ done
 For the systematic multi-agent health sweep across cron metadata, session transcripts, output directories, error-keyword grep, and the `STATUS:OK` reporting format: see [2. Cron Job Execution Diagnostics](#2-cron-job-execution-diagnostics), which is the comprehensive `hermes-cron-health-watchdog` workflow.
 
 > **Full original content,** including detailed error pattern reference, `2026-05-02 Watchdog Findings`, corrupted bytecode investigation steps, and empty-response pattern analysis: `references/agent-health-monitoring-full.md`
+
+---
+
+## 1b. Container Privilege Envelope Audit
+
+**Trigger:** "how does the agent work now that it's in a container", "is anything blocking you", or any
+blocker you are tempted to explain as "the container".
+
+**Measure the envelope; do not describe it.** Six probes settle nearly every question:
+
+```bash
+id                                                     # uid/groups — root or not
+ grep -E '^Cap(Eff|Bnd)' /proc/self/status             # CapEff 0000… = ZERO kernel caps
+ ls -la /var/run/docker.sock                            # socket present? (absent = no host control)
+ for p in /tmp /var/tmp /opt/hermes /root; do printf '%-10s ' "$p"; touch "$p/.probe" 2>/dev/null && echo writable && rm -f "$p/.probe" || echo denied; done
+ curl -s -m 3 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8088/health   # a host service that IS up
+ cat /proc/1/cmdline | tr '\0' ' '                      # s6-svscan vs a shell script
+ nproc; free -m | head -2; df -h /opt/data | tail -1
+```
+
+Reading it:
+
+- **`CapEff 0000000000000000` + no `sudo` binary = the container is the privilege ceiling.** Root-level
+  fixes are a host action, full stop.
+- **No docker socket = no host process control.** You cannot restart, recreate or inspect containers, and
+  you cannot read host `.env` files either. Both halves are the same missing socket.
+- **Your `127.0.0.1` is YOUR namespace, not the host's.** A host service bound to loopback answers `000`
+  from inside a container while it is simultaneously healthy and serving. **This is the single biggest
+  source of false "everything is down" readings** — see `verification-vantage`: a probe must run from a
+  vantage that can see the target, or its verdict means nothing. Probe through the service's public
+  surface / a gateway that shares the host namespace, never this loopback.
+- **s6-svscan as pid 1 is normal and good** — the engine, gateways and dashboard are supervised; no
+  systemd/tmux is not a defect.
+
+**Then attribute honestly.** The cost of a container is usually *host hands*, not *capability*: brain,
+internet, browser, code execution, cron and model calls all keep working. Before writing "the container
+blocks X", test X directly. Measured experience: of three things blamed on containment, two were separate
+bugs and one was a stale note. **An audit that reaches for the architecture first keeps missing the actual
+fault.**
+
+**When the fix is host-side, hand over commands, not concepts** — the user is not a sysadmin. Numbered
+copy-paste blocks: identify the supervisor, restart, prove from the host's own loopback, prove from the
+public edge, and state which services must NOT come back (a policy-blocked service that returns after a
+restart is a policy bypass, not a fix).
 
 ---
 
@@ -217,7 +262,7 @@ This technique avoids the common pitfall of chasing per-job fixes when the actua
 | Signature | Typical Cause | Fast Fix |
 |-----------|---------------|----------|
 | **Corrupted `jobs.json` (bare `[]`)** | Manual edit mishap | Restructure to `{\"jobs\": [...]}`; restart gateways |
-| **Cron registry file MISSING entirely (`cron.json` not found)** | Dispatch pipeline broken / gateway cache desync / systemd service failure cascade | 1) Check main `/root/.hermes/cron/jobs.json` for job definitions; 2) Recreate per-agent `cron.json` from global registry: `hermes cron sync --profile <agent>`; 3) Restart gateways; 4) If jobs defined globally but not synced, verify gateway started with `--cron` flag |
+| **Cron registry file MISSING entirely (`cron.json` not found)** | Dispatch pipeline broken / gateway cache desync / systemd service failure cascade | 1) Check main `/opt/data/profiles/gentech/cron/jobs.json` for job definitions; 2) Recreate per-agent `cron.json` from global registry: `hermes cron sync --profile <agent>`; 3) Restart gateways; 4) If jobs defined globally but not synced, verify gateway started with `--cron` flag |
 | Config YAML parse error | Indent/colon mistake | Validate with `python3 -c \"import yaml; yaml.safe_load(open(...))\"`; fix line |
 | Stale `next_run_at` | Scheduler/gateway zombie | Restart gateway: `hermes gateway run --profile <p> --replace` |
 | Gateway zombie (process alive, scheduler dead) | Scheduler thread crash | Same as above |
@@ -230,7 +275,7 @@ This technique avoids the common pitfall of chasing per-job fixes when the actua
 | Execution loop | Job triggering itself/webhook loop | `hermes cron pause <id>`; inspect prompt |
 | Job auto-removed | Repeated failures | Fix root cause; recreate job |
 | Script missing/path drift | Filesystem move | Restore script or patch job config |
-| **Job defined in `jobs.json` but NOT loaded into active daemon** | Cron daemon cache corruption / missing `\"profile\"` binding / gateway started without `--cron` flag | 1) `hermes cron status` to verify daemon; 2) Check `jobs.json` has `\"profile\"` field; 3) Restart ALL gateways with `--replace`; 4) If persists, inspect cron daemon logs at `/root/.hermes/logs/cron.log` |
+| **Job defined in `jobs.json` but NOT loaded into active daemon** | Cron daemon cache corruption / missing `\"profile\"` binding / gateway started without `--cron` flag | 1) `hermes cron status` to verify daemon; 2) Check `jobs.json` has `\"profile\"` field; 3) Restart ALL gateways with `--replace`; 4) If persists, inspect cron daemon logs at `/opt/data/profiles/gentech/logs/cron.log` |
 | **Fleet-wide TTS failure (all agents 401 from ElevenLabs)** | Invalid/expired API key across all profiles | Rotate `ELEVENLABS_API_KEY` in each agent's `.env` independently; credentials are NOT shared |
 | **Cron job orphaning (profile: null/empty)** | Jobs defined without explicit `\"profile\"` binding → never loaded into active registry | Add `\"profile\": \"<agent>\"` to each job in `jobs.json`; restart gateways; verify jobs appear in `hermes cron list` |
 | **Master gateway service failing (exit 203/EXEC)** | Systemd unit `ExecStart` path points to non-existent Python venv | Correct path to actual venv (`${INSTALL_DIR}/venv/bin/python`); `systemctl --user daemon-reload`; restart service |
@@ -319,7 +364,7 @@ Correlation: `SessionDB` ("database or disk is full") warnings often precede `.p
 
 ### 3b. Cron Jobs Not Firing (Never Executed)
 
-Symptoms: `last_run_at: null` (never executed), `hermes cron status` says gateway running, but no output in `/root/.hermes/cron/output/`.
+Symptoms: `last_run_at: null` (never executed), `hermes cron status` says gateway running, but no output in `/opt/data/profiles/gentech/cron/output/`.
 
 **Detection:**
 ```bash
@@ -339,7 +384,7 @@ hermes cron list --json | python3 -c "import json,sys; data=json.load(sys.stdin)
 - Run `hermes cron tick` to force execution check
 - Verify each profile's jobs.json includes `"profile": "<agent>"` binding
 - Restart gateway with `--replace` to refresh cron daemon
-- Check `/root/.hermes/logs/cron.log` for parsing errors
+- Check `/opt/data/profiles/gentech/logs/cron.log` for parsing errors
 
 ---
 
@@ -525,7 +570,7 @@ curl -s http://localhost:<port>/ | head -1  # confirm responding
 - `systemctl --user status hermes-gateway.service` shows `Active: failed (Result: exit-code)` with exit code `203/EXEC`
 - All cron jobs across ALL agents show `last_run_at: null` (never executed)
 - `hermes cron status` reports daemon not running despite gateway processes alive
-- No cron output files in `/root/.hermes/cron/output/`
+- No cron output files in `/opt/data/profiles/gentech/cron/output/`
 
 **Diagnostic sequence**:
 ```bash
@@ -548,7 +593,7 @@ Active: failed (Result: exit-code) since Mon 2026-04-27 22:18:36 UTC; 4 days ago
 ...
 hermes-gateway.service: Failed with result 'exit-code'.
 ```
-Cause: `ExecStart=/root/.hermes/hermes-agent/venv/bin/python` (non-existent path) instead of `${INSTALL_DIR}/venv/bin/python`.
+Cause: `ExecStart=python3` (non-existent path) instead of `${INSTALL_DIR}/venv/bin/python`.
 
 **Impact scope**: This single service coordinates cron dispatch for all agents. When it fails, NO scheduled jobs execute across the entire fleet, regardless of individual agent gateway health.
 
@@ -651,7 +696,7 @@ All should show `< 5 min` after restart.
 
 ### 3l. Cron Job Orphaning (Null Profile Binding)
 
-**Symptom**: Jobs appear in `/root/.hermes/cron/jobs.json` but NEVER execute (`last_run_at: null`). `hermes cron list` shows `profile: unknown` or empty.
+**Symptom**: Jobs appear in `/opt/data/profiles/gentech/cron/jobs.json` but NEVER execute (`last_run_at: null`). `hermes cron list` shows `profile: unknown` or empty.
 
 **Root cause**: Job definition missing required `"profile": "<agent>"` field. The cron dispatcher requires explicit profile binding to route execution; jobs without it are parsed but never loaded into any agent's active daemon.
 
@@ -659,7 +704,7 @@ All should show `< 5 min` after restart.
 ```bash
 python3 -c "
 import json
-with open('/root/.hermes/cron/jobs.json') as f:
+with open('/opt/data/profiles/gentech/cron/jobs.json') as f:
     data = json.load(f)
 for job in data.get('jobs', []):
     if not job.get('profile'):
@@ -668,7 +713,7 @@ for job in data.get('jobs', []):
 ```
 
 **Fix workflow**:
-1. Edit `/root/.hermes/cron/jobs.json`
+1. Edit `/opt/data/profiles/gentech/cron/jobs.json`
 2. Add `"profile": "<agent>"` to each job based on naming convention:
    - `YoYo — *` → `"profile": "yoyo"`
    - `DMOB — *` → `"profile": "dmob"`
@@ -723,7 +768,7 @@ df -h /dev/sda1 | awk '/dev\/sda1/ {if ($5+0 > 80) print "ALERT: Disk usage", $5
 
 #### Step 1: Overview
 ```bash
-df -h / && echo "---" && du -sh /root/.hermes/ /root/vaults/ /tmp/ 2>/dev/null
+df -h / && echo "---" && du -sh /opt/data/profiles/gentech/ /opt/data/.obsidian-vault/ /tmp/ 2>/dev/null
 ```
 
 #### Step 2: Find offenders
@@ -735,7 +780,7 @@ du -sh ${PROFILES_DIR}/gentech/* 2>/dev/null | sort -rh | head -20
 du -sh /tmp/*/ 2>/dev/null | sort -rh | head -10
 
 # State snapshots
-du -sh /root/.hermes/state-snapshots/ && ls /root/.hermes/state-snapshots/ | wc -l
+du -sh /opt/data/backups/snapshots/ && ls /opt/data/backups/snapshots/ | wc -l   # real snapshots live here (system-snapshot.py)
 ```
 
 #### Step 3: Safe cleanup targets (no data loss)
@@ -744,7 +789,7 @@ du -sh /root/.hermes/state-snapshots/ && ls /root/.hermes/state-snapshots/ | wc 
 |--------|-------------|---------|-------|
 | `/tmp/cargo-install*` | 2-4GB each | `rm -rf /tmp/cargo-install*` | ✅ Rebuilt on next install |
 | `/tmp/portfolio-site`, `/tmp/ampersend-*`, `/tmp/camoufox-*` | 500MB-1GB each | `rm -rf /tmp/<dir>` | ✅ Old build dirs |
-| `state-snapshots/` (all but latest) | 100-300MB each | `cd /root/.hermes/state-snapshots && ls -dt */ | tail -n +2 | xargs rm -rf` | ✅ Keep latest only |
+| `state-snapshots/` (all but latest) | 100-300MB each | `cd /opt/data/backups/snapshots && ls -dt *.json | tail -n +2 | xargs rm -f` | ✅ Keep latest only |
 | `audio_cache/` (>7 days) | Varies | `find ${PROFILES_DIR}/gentech/audio_cache/ -type f -mtime +7 -delete` | ✅ Old generated audio |
 | Old sessions (>14 days) | ~1GB per 2K sessions | `hermes sessions prune --older-than 14 --yes` | ✅ DB history only |
 
@@ -755,7 +800,7 @@ du -sh /root/.hermes/state-snapshots/ && ls /root/.hermes/state-snapshots/ | wc 
 hermes sessions prune --older-than 7 --yes
 
 # VACUUM the session DB (requires no active gateways)
-sqlite3 /root/.hermes/state.db "VACUUM;"
+sqlite3 /opt/data/profiles/gentech/state.db "VACUUM;"
 # NOTE: VACUUM may fail if gateways are running (WAL lock). If so, it'll
 # compact on next restart — don't force it.
 ```
@@ -763,7 +808,7 @@ sqlite3 /root/.hermes/state.db "VACUUM;"
 #### Step 5: Verify
 ```bash
 df -h / | tail -1
-du -sh /root/.hermes/ /tmp/
+du -sh /opt/data/profiles/gentech/ /tmp/
 ```
 
 #### What NOT to clean
@@ -771,7 +816,7 @@ du -sh /root/.hermes/ /tmp/
 - `state.db` — main database (only VACUUM to reclaim dead space)
 - `sessions/` files directly — use `hermes sessions prune` to stay consistent with DB
 - `skills/`, `plugins/`, `cron/` — active Hermes config
-- Anything under `/root/vaults/` — user data
+- Anything under `/opt/data/.obsidian-vault/` — user data
 
 #### Pitfalls
 - **`hermes sessions prune` only deletes from the DB** — the `/sessions/` directory files may linger. The prune command handles DB consistency; leftover files are harmless.
@@ -1214,7 +1259,7 @@ The `sessions` table has these key columns for auditing:
 import sqlite3
 from datetime import datetime
 
-conn = sqlite3.connect('/root/.hermes/state.db')
+conn = sqlite3.connect('/opt/data/profiles/gentech/state.db')
 cursor = conn.cursor()
 
 # Define week boundaries (Monday 00:00 UTC)
@@ -1400,7 +1445,7 @@ See also: `hermes-agent` skill for cron job configuration, gateway lifecycle, an
 
 **Detection**:
 ```bash
-grep extract_backend /root/.hermes/config.yaml
+grep extract_backend /opt/data/profiles/gentech/config.yaml
 # If empty string or missing: extract_backend is not configured
 ```
 
@@ -1602,7 +1647,7 @@ for job in data.get('jobs', []):
 
 - **B. Cron registry files missing fleet-wide** — no `cron.json` existed in any agent profile (`${PROFILES_DIR}/*/cron.json` missing). Cause: systemd master service failure since April 27 prevented cron daemon initialization and job sync. **Detection**: run `scripts/check-cron-registry-integrity.py`. **Fix**: `hermes cron sync --profile <agent>` per agent after service restored.
 
-- **C. Master gateway service dead** — `hermes-gateway.service` failed April 27 with exit code `203/EXEC` due to `ExecStart=/root/.hermes/hermes-agent/venv/bin/python` (wrong path). This single service coordinates cron dispatch fleet-wide; its failure blocked all scheduled jobs across all agents. **Fix**: correct `ExecStart` to `${INSTALL_DIR}/venv/bin/python`; `systemctl --user daemon-reload`; start service.
+- **C. Master gateway service dead** — `hermes-gateway.service` failed April 27 with exit code `203/EXEC` due to `ExecStart=python3` (wrong path). This single service coordinates cron dispatch fleet-wide; its failure blocked all scheduled jobs across all agents. **Fix**: correct `ExecStart` to `${INSTALL_DIR}/venv/bin/python`; `systemctl --user daemon-reload`; start service.
 
 - **D. Active agents count zero despite gateway running** — Gentech gateway process alive but `gateway_state.json` showed `active_agents: 0`. Indicates agent loader failed or credentials blocked profile initialization. Check gateway logs for early startup errors; restart gateway after fixing underlying issue (often missing/invalid API keys or YAML config errors).
 

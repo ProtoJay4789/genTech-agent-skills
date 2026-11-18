@@ -16,11 +16,45 @@ A money-handling system needs an independent read, **especially after you have a
 faults of the same class in one session** — that is the signal that your own eyes are the limiting
 factor. Jr writes, Sr audits. Jr = DeepSeek V4 Flash. **Sr = Kimi K3.**
 
-## The rail that works (verified 2026-09-23)
-**Ollama Cloud**, not opencode-go (that returned `403 Forbidden` on `/zen/go/v1`):
+## The rail that works (RE-MEASURED 2026-10-23)
+
+### ✅ PRIMARY — OpenCode Go (the rail we already pay for)
+```
+POST https://opencode.ai/zen/go/v1/chat/completions
+Authorization: Bearer $OPENCODE_GO_API_KEY      # in profiles/<seat>/.env
+x-opencode-session: <stable value>              # REQUIRED — without it you pay full price for uncached tokens
+User-Agent: <a real browser UA>                 # REQUIRED — a bare curl/urllib UA gets 403 (Cloudflare)
+model: kimi-k3.1-pro                            # exact id; `kimi-k3-pro` 400s "Model is unavailable"
+```
+**Measured 2026-10-23: `kimi-k3.1-pro` → 200, `kimi-k3` → 200, `kimi-k2.6` → 200.**
+
+> ⚠️ **This section previously said "Ollama Cloud, not opencode-go (that returned 403 Forbidden on
+> `/zen/go/v1`)."** That was measured 2026-09-23 and it is **no longer true** — OpenCode Go answers 200 today.
+> The 403 was **intermittent, and probably a User-Agent block, not a model block** — the same trap the
+> routing skill documents (*"a 403 from this API is usually your UA, not your key"*).
+> **A seat reading the old line would route around a rail that works.** Corrected, not annotated.
+
+### ⚙️ BACKUP — Nous portal (for when the OpenCode allowance is spent)
+```
+POST https://inference-api.nousresearch.com/v1/chat/completions
+Authorization: Bearer <access_token from /opt/data/shared/nous_auth.json>
+User-Agent: <a real browser UA>                 # REQUIRED — Cloudflare 403 otherwise
+model: moonshotai/kimi-k3.1-pro                 # SAME model, verified present in the 426-model list
+```
+**Measured 2026-10-23: HTTP 200.** ⚠️ **METERED** — the ledger lives in response headers:
+`x-nous-credits-remaining-usd: 17.28` of a `22.00` cap · `denominator-kind: subscription_cap` ·
+**`x-nous-tool-pool-gated-off: true`** (tool pool is off on this rail — a reasoner that needs tools will not get them).
+**Price the failover before committing to it.**
+
+### 🚨 THE FALSE-EMPTY TRAP — RE-CONFIRMED 2026-10-23, and it bit a probe
+A 30-token probe of `kimi-k3.1-pro` returned **HTTP 200 with `content: None`** — the model spent the whole
+budget on internal reasoning. **A reasoning model needs a REAL token budget for an audit (16000, per the
+budget note below).** Do not read `content: None` as "the model is dead" — read it as "I under-budgeted."
+
+## Ollama Cloud (superseded as primary — keep as a third option)
 ```
 POST https://ollama.com/v1/chat/completions
-Authorization: Bearer $OLLAMA_API_KEY        # present in the profile .env
+Authorization: Bearer ***        # present in the profile .env
 model: kimi-k3                               # also live: glm-5.3, kimi-k2.7-code
 max_tokens: 16000                            # for an AUDIT — see budget below
 ```

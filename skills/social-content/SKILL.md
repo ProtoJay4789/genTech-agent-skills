@@ -155,6 +155,21 @@ The first line determines whether anyone reads the rest.
 **For post templates and more hooks**: See [references/post-templates.md](references/post-templates.md)
 **For documenting strategic pivots and generating pivot posts**: See [references/strategic-pivot-documentation.md](references/strategic-pivot-documentation.md)
 
+### The subject rule — a hook is about the viewer, not about us
+
+**Our own activity is not a hook.** "Four calls went out this week, here is the score" reports what *we* did; a mass audience has no reason to care. Flip the subject — same facts, same plain words, different noun:
+
+| Weak (our side) | Strong (their side) |
+|---|---|
+| "We graded ourselves in public. We failed twice." | "Why do you lose 4% before you notice?" |
+| "The fee doubled last week." | "You paid a fee you never agreed to." |
+
+**Test before recording:** if the first sentence's subject is *us* (we said, we posted, we found), rewrite it so the viewer is the subject. The one deliberate exception is an admission — "that one's on us" earns its place because it is a confession, not a recap.
+
+**If you score hooks with a tool, read its weakest-link label, not its verdict.** Scorers reward direct address, a concrete number, stake, curiosity and brevity; their verdicts flatten real differences (a good hook and a mediocre one land in the same bucket) and the achievable ceiling sits far below 100. Treat the label — *"stakes: name what it costs them"* — as a checklist item and ignore the number as a gate. Pushed hard, these scorers drag copy toward hype, which is off-voice here.
+
+**To find what actually performs in a niche, use `references/outlier-baseline-analysis.md`** — median-baseline outlier method, free endpoints, and the rule for picking a baseline channel that is worth copying.
+
 ---
 
 ## Content Repurposing System

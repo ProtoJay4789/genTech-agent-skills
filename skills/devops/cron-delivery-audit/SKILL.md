@@ -32,11 +32,23 @@ Hermes cron jobs deliver through the Telegram gateway — **all groups the user 
 | `origin` | Default — delivers to the chat where the job was created. Safe choice for single-user. |
 | `local` | Internal maintenance only (vault sync, health checks). No Telegram delivery. |
 | `telegram:-1003863540828` | HQ — coordination, decisions, status reports |
-| `telegram:-5289838765` | Social Media — games, deals, social content, Vanito |
+| `telegram:-1004298089413` | Social Media — games, deals, social content, Vanito |
 | `telegram:-1002916759037` | **Treasury** — finance, DeFi, portfolio, yield, market signals (renamed from "Strategies" Sep 7, 2026; chat ID unchanged) |
 | `telegram:-1003872552815` | Labs — code, SDKs, technical output |
 
 **All groups are reachable.** If output isn't appearing, check `last_status` first — the job may have errored before delivery.
+
+## Delivery contract — gateway message origin
+
+A cron job that delivers through a Telegram **gateway** can carry a **message-origin JSON** supplied with the delivery (platform, chat_id, chat_type, user_id, profile, message_id, source_message_id). That JSON is the SOURCE leg of the delivery:
+
+1. **Read it verbatim.** The canonical file (for example `cron/gateway-origin.json`) is the source of truth — never re-derive the fields from the job's own `origin` dict or from the job name.
+2. **Know what it does NOT say.** The fields name who SENT the message and which room it landed in. They do **not** name a bot chat, a reply-to address, or any destination. The JSON is the sender + room, not a reply-to.
+3. **Never guess a reply destination from it.** If the JSON carries no destination field, no reply destination is set — the delivery keeps its configured route (`origin` stays as configured). Record the gap in the output instead of inventing a target.
+4. **Verify the delivery's legs, not just the run.** `last_status: completed` answers only that the job ran. Measure which leg happened: the script produced output (file exists, nonzero bytes) and the message arrived where the route says. A delivery that has never been observed arriving is a delivery that is unverified — name that rather than quoting a run status.
+5. **State which leg you measured** in every delivery: **ran / produced / delivered** (or the measured gap for the ungenerated leg).
+
+**The tenant in one line:** a delivery's origin says WHO SENT and WHERE — never WHERE TO REPLY. If the data does not contain the destination, the route answers, not the origin. A delivery you never observed arriving is a delivery you never verified.
 
 ## Multi-User Staggering
 
@@ -74,7 +86,7 @@ ls -la /root/repos/hermes-brain/scripts/          # backup location
 
 **Common stale path patterns:**
 - `.sh` wrapper that was replaced by a Python script (prompt never updated)
-- Path references `/root/.hermes/scripts/` but script moved to a project directory
+- Path references `/opt/data/profiles/gentech/scripts/` but script moved to a project directory
 - Script was renamed or deleted but prompt still references old name
 - Path was typed manually and contains a typo
 
@@ -111,7 +123,7 @@ Jobs should be self-explanatory in the group feed. Prefix with user name:
 
 **Update delivery target:**
 ```bash
-cronjob action=update job_id=<id> deliver=telegram:-5289838765
+cronjob action=update job_id=<id> deliver=telegram:-1004298089413
 ```
 
 **Stagger by changing schedule:**
@@ -132,7 +144,7 @@ cronjob action=update job_id=<id> name="[Jordan] GenTech Shop — Weekly Sales S
 | Single-user content (deals, intel) | Per-topic group or `origin` | Lands where user will see it |
 | Team-wide updates (Daily Digest) | HQ (`-1003863540828`) | Everyone sees it |
 | Internal maintenance | `local` | No delivery needed |
-| Vanito-specific content | Social Media (`-5289838765`) | Kept separate from Jordan's ops |
+| Vanito-specific content | Social Media (`-1004298089413`) | Kept separate from Jordan's ops |
 
 ## Group Rename Propagation (Strategies → Treasury, Sep 7 2026)
 
@@ -240,8 +252,41 @@ When work is handed to a sibling profile (gentech → treasury/gizmo) or a job i
 | Stale stagger | Both jobs at same time after timezone change | Re-audit after DST or schedule overhaul |
 | Overnight chat delivery | Job fires 3-7am ET into a Telegram group | `deliver=local`, or shift schedule to waking hours (see Quiet Hours Discipline) |
 | Schedule format rejected on update | `Invalid schedule 'once at 2026-09-30 13:00'` | `cronjob update` accepts one-shot timestamps only as ISO — `2026-09-30T13:00:00` — not the "once at ..." prose form some listings show |
+| `deliver=origin` with an invented destination | Delivery lands where you hoped, not where the data says | The origin JSON is the sender + room, not a reply-to. If it carries no destination, keep the route the job already has and record the gap — do not add one. |
 | `deliver=origin` on a long-lived job | Report lands in a leaver's DM or defunct chat after personnel/group changes | Convert to explicit `telegram:<id>`; see Leaver / Group-Retirement Delivery Sweep |
 | Name-only leaver search | Pausing jobs that merely mention the leaver to exclude them | Define "involves" as resolved `deliver`/`origin`, not string match |
+
+## ⚠️ `completed` IS NOT `delivered` — the run record cannot answer the question you are asking
+
+**The durable run record (`hermes cron runs <job_id>`) carries a `status` per attempt — `completed`,
+`failed` — and NOTHING about whether a message ever reached a chat.** So every run can read
+`completed` while the human received nothing, and no amount of reading the dashboard will reveal it.
+
+**This is the failure to check for when a user says "the job ran but I didn't see it":** the script
+executed, wrote its output file, and the delivery leg failed silently. Both statements are true.
+
+**Diagnostic order — do not skip to "the job didn't run":**
+
+1. **Prove it ran.** `hermes cron runs <job_id>` → confirm a `completed` attempt at the expected
+timestamp. A timestamp that matches the schedule means the scheduler is not the problem.
+2. **Prove it produced output.** `cron/output/<job_id>/<timestamp>.md` — the file existing means the
+   script ran end to end. Check its byte count; a 0-byte or header-only file is a script failure that
+   merely looks like a delivery failure.
+3. **Check the payload is deliverable.** Size against the platform limit, and specifically whether the
+   script emits a `MEDIA:` line plus audio/video — a media token is the most common thing that breaks
+   an otherwise-fine text delivery.
+4. **Reproduce it live.** `hermes cron run <job_id>` triggers the job on the next tick with real
+   delivery. This is the only step that tests the actual delivery path rather than the run record.
+5. **Only then** look at gateway logs for the exact timestamp.
+
+**The rule:** when you report a cron job as working, name which of **ran / produced / delivered** you
+actually measured. "Completed" answers only the first. A job whose delivery has never been observed
+arriving is a job whose delivery is unverified — say so rather than quoting the run status.
+
+**Corollary for recurring reports:** a weekly or monthly job that silently fails delivery costs a full
+cycle before anyone notices, and the next run overwrites the evidence. Trigger a new recurring report
+job once by hand immediately after creating it — the first real scheduled run is too late to be the
+first test.
 
 ## Quick Reference
 
@@ -274,7 +319,7 @@ listed job IDs explicitly. It is a reader, not a writer.
 
 - Hermes docs: `https://hermes-agent.nousresearch.com/docs/cron-jobs`
 - Topic routing: `routing` skill
-- Single-agent multi-channel: `single-agent-multi-channel` skill
+- Single-agent multi-channel: `single-agent-multi-channel` skill   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `single-agent-multi-channel` exists on this seat -->
 
 ## Quiet Hours Discipline (Jordan, Sep 1 2026)
 Fleet-wide quiet hours = **3–7am ET** (Jordan asleep). Jobs may RUN overnight (backup, sweeps, sync — silence is fine), but NO chat deliveries may land in that window:

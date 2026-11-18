@@ -6,15 +6,41 @@ tags: [video, seedance, clawrouter, character-locking]
 
 # Seedance 2.0 Video Production
 
+## ⛔ WALLET STATUS — 2026-11-03
+
+`0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (F8) is **RETIRED** — key lost in the Oct 12 wipe; its 0.4868 USDC is unspendable.
+**Do not fund it; do not expect it to work.** Current BlockRun wallet:
+`0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0` — one shared key file at `/opt/data/.blockrun/.session`, symlinked into every seat.
+It holds 0.9687 USDC and **0.000000 ETH** on Base: calls fail until gas is funded.
+Detail: `gentech-wallet-management` → WALLET STATUS.
+
+
 ## Quick Reference
 
 | Property | Value |
 |----------|-------|
 | **Model** | `bytedance/seedance-2.0` |
-| **Endpoint** | `POST http://127.0.0.1:8402/v1/videos/generations` |
-| **Auth** | `Authorization: Bearer hermes-plugin` |
-| **Cost** | ~$1.14 per clip (~5s actual output despite requesting 10s) |
+| **Lane (default)** | BlockRun — `VideoClient`, endpoint `https://blockrun.ai/api`. **Reachable from the agent container.** |
+| **Lane (host-only)** | `POST http://127.0.0.1:8402/v1/videos/generations` (ClawRouter). ⚠️ **A HOST service — the agent's container cannot reach it.** |
+| **Auth** | BlockRun: `privateKey` passed explicitly, funded key at `/opt/data/.blockrun/.session`. ClawRouter: `Authorization: Bearer hermes-plugin`. |
+| **Cost** | ~$0.98/clip on BlockRun (measured, two clips: 3.0295 → 1.0662 USDC). The 8402 lane quoted ~$1.14. |
+| **Verified output** | 5 s · 720×1280 (9:16) · 24 fps · 121 frames · h264 |
 | **Audio** | Video-only — NO audio tracks. Mix separately with ffmpeg. |
+
+## Which lane — probe reachability BEFORE authoring the job
+
+**Write the job for a lane you have already proved you can call from where you are sitting.** A job
+written against an unreachable endpoint looks complete and cannot run; the failure surfaces only after
+the user has been handed a command to paste.
+
+- **BlockRun is the default and the reachable one.** `https://blockrun.ai/api` answers from inside the
+  container, so the whole job runs without a host command.
+- **The ClawRouter proxy on `127.0.0.1:8402` is a host service.** From a container, `127.0.0.1` is the
+  container itself. Probe `127.0.0.1`, the docker gateway IPs, and `host.docker.internal` before
+  assuming a localhost media proxy is usable — if all are closed, the job needs a host-side command
+  and that is a different hand-off.
+- **Prefer the reachable HTTP lane over a nicer-sounding local one.** An endpoint you can call beats an
+  endpoint with better specs.
 
 ## Standing Model Rules (Aug 2026)
 - **Images:** GPT Image 2 ONLY via ClawRouter or BlockRun MCP. ~$0.06-0.13.
@@ -142,9 +168,15 @@ ffmpeg -y -i video-only.mp4 -i audio.mp3 -c:v copy -c:a aac -b:a 192k -shortest 
 ```
 
 ## Wallet
-- ClawRouter caches balance at startup. After funding: `sudo systemctl restart clawrouter-proxy.service`
-- Payment failure + "execution reverted" = insufficient USDC (~$1.14/clip needed)
-- Wallet: `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (Base)
+- **Funded wallet: `/opt/data/.blockrun/.session`** (`0xc0A1f229…4a0`, USDC on Base). Clients take the
+  key explicitly — `new VideoClient({ privateKey })`. ⚠️ The MCP's own
+  `profiles/<seat>/home/.blockrun/.session` is a **different, empty** account; a funded path in one is not
+  a funded path in the other.
+- Read the balance on-chain rather than trusting a cached figure — some builds' `getBalance()` is broken:
+  `eth_call` `balanceOf` on USDC `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` (6 dp) via `https://mainnet.base.org`.
+- ClawRouter caches balance at startup. After funding that lane: `sudo systemctl restart clawrouter-proxy.service`
+- Payment failure + "execution reverted" = insufficient USDC (~$1/clip needed)
+- ⚠️ **Stranded, do not fund:** `0xebc8c719…72f8 (RETIRED)` (old skill address, ~0.49 left).
 
 ## Dimensions
 | Keyframe | Seedance Output | Result |
@@ -152,6 +184,105 @@ ffmpeg -y -i video-only.mp4 -i audio.mp3 -c:v copy -c:a aac -b:a 192k -shortest 
 | 1024×1024 | 1280×720 | ❌ Stretched |
 | 1536×1024 | 1280×720 | ✅ OK |
 
-## BlockRun Quirks
+## BlockRun VideoClient — the default path (measured)
+
+```js
+const { VideoClient } = require("/opt/data/tools/blockrun/node_modules/@blockrun/llm");
+const key = fs.readFileSync("/opt/data/.blockrun/.session", "utf8").trim();
+const vc  = new VideoClient({ privateKey: key, timeout: 300000 });
+const r   = await vc.generate(PROMPT, {
+  model: "bytedance/seedance-2.0",   // also -2.0-fast, -2.0-mini, 1.5-pro, 2.5
+  imageUrl: PUBLIC_STILL_URL,        // image-to-video
+  inputType: "image",
+  durationSeconds: 5, aspectRatio: "9:16", resolution: "720p",
+  budgetMs: 260000,
+});
+// r.data[0].url, r.data[0].duration_seconds, r.txHash
+```
+
+- **The video API REJECTS unknown parameters and NAMES them**: `400 {"message":"unsupported parameter:
+  output_format"}`. Send the minimal set above and add fields back only where a rejection tells you the
+  field is accepted. Do not speculatively pass `outputFormat`, `generateAudio`, `cameraFixed`.
+- **`imageUrl` must be a public URL** — BlockRun fetches it remotely, exactly like FAL. A local path fails.
+- **⚠️ "Real-person likeness is not supported on BlockRun."** Verbatim from the video API docs, beside
+  `realFaceAssetId`. The lane serves original characters; it will not carry a specific real person.
+- **BlockRun's terms push content policy down to the model provider** ("Those providers set their own
+  terms… their behaviour is outside our control"), so a refusal here is usually ByteDance's, not the
+  gateway's. Changing gateways therefore does not change the refusal.
+
+## ⚠️ Synthetic likeness of a real person — the operating rule
+
+**Do not generate a synthetic likeness of a real, identifiable person — still or moving — without that
+person's documented consent.** Stated once here so it is applied, not rediscovered.
+
+**"Likeness" = the face, and the face *and body moving together*. It does NOT mean an outfit, a pose, a
+palette, a mood, or a kind of light. Style is not identity.**
+
+| the ask | the answer |
+|---|---|
+| "same outfit / same pose / same setting / same mood" | **build it** — wardrobe, framing and light are styling |
+| "make it look like HER" / "keep her face and body the same" | **decline**, then immediately offer the styling version |
+| "she said it's fine" from a third party | **not consent** — it is unverifiable and about someone absent |
+
+**No model choice changes this.** An uncensored checkpoint, a local GPU, a self-hosted pipeline — a tool
+that *will* do something is not a permission to do it. Say plainly that the uncensored lane removes the
+vendor's refusal and replaces it with nobody.
+
+**Three reasons that hold even when the user is sincere, and worth giving once:**
+1. **Consent must come from the person whose face it is** — a third party's assurance is not it.
+2. **The file outlives the intent** — private is private only until it is forwarded, synced or lost, and
+   a synthetic likeness cannot be recalled or distinguished from a real recording.
+3. **One photograph cannot support it technically** — moving a face seen once makes the model INVENT the
+   profile, the jaw, the far side of the head. The result is uncanny: identifiable enough to harm, wrong
+   enough to insult. This is the argument that lands with a maker, because it is about quality.
+
+**Deliver the refusal ONCE, in two or three lines, then move to the alternative in the same message.**
+Re-explaining it every turn reads as moralising and burns the session; the request is usually warm and the
+intent generous — refuse the artifact, keep the relationship. Point to the standing written rule
+(`00-HQ/operating-rule-synthetic-likeness-<year>.md`) rather than re-arguing from scratch.
+
+**Offer the substitution concretely** — "same wardrobe, same motion, same light, an original character,\n5 s" — because a styling-and-motion clip of an invented character is genuinely a nice artifact, and it is\nthe version that can be handed to the person it was made for.
+
+## The keyframe still comes first — and its aspect ratio is a trap
+
+For image-to-video, generate the seed still **before** committing to a clip, and generate it at the
+video's aspect ratio.
+
+- **Image models default to 1024×1024 SQUARE even when you ask for portrait.** An `aspectRatio` hint is
+  advisory on several models (`bytedance/seedream-5-pro`, `google/nano-banana*`). **Check the dimensions
+  with `ffprobe` and regenerate if wrong** — a square keyframe into a 9:16 job produces a stretched or
+  cropped clip, and you pay for the video before you see the defect.
+- **Regenerate rather than crop.** Cropping a square to portrait throws away the framing you composed;
+  a fresh still costs a few cents.
+- **Show the still to the user before spending on the video.** Wardrobe and pose are exactly the parts a
+  person most wants to correct, and correcting them is free at the still stage and expensive after.
+- BlockRun `ImageClient` (same key, same lane as video):
+
+```js
+const { ImageClient } = require("/opt/data/tools/blockrun/node_modules/@blockrun/llm");
+const ic = new ImageClient({ privateKey: key, timeout: 240000 });
+const r  = await ic.generate(prompt, { model: "bytedance/seedream-5-pro", aspectRatio: "9:16" });
+// r.data[0].url — then verify dimensions with ffprobe before using it as imageUrl
+```
+
+Model prices measured on this lane (`GET /v1/images/models`): `zai/cogview-4` $0.015 · `gpt-image-1`
+$0.02 · `grok-imagine-image` $0.02 · `seedream-5-pro` $0.045 · `nano-banana` $0.05 · `gpt-image-2.5-*`
+$0.28. Same model family for still and clip keeps the painted style consistent across the pair.
+
+## Verify the clip, do not trust the response
+
+"5 seconds returned" is not "5 seconds of motion". Check the artifact:
+
+```bash
+ffprobe -v error -show_entries stream=codec_name,width,height,nb_frames \
+        -show_entries format=duration -of default=noprint_wrappers=1 clip.mp4
+```
+
+Then hash 3–4 sampled frames and require they DIFFER — a held still packaged as a clip is byte-identical
+across samples. Decode frames with ffmpeg inside Python (`-f image2pipe -vcodec png -`) and hash the
+stdout; do **not** build the verdict inside a shell one-liner, where a failed substitution silently
+lands in the negative branch.
+
+## Other quirks
 - `client.edit()` → CDN URLs; `client.generate()` → data URLs (base64, save via decode)
 - `client.getBalance()` broken — use `node bal.mjs`

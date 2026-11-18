@@ -1,6 +1,6 @@
 ---
 name: direct-model-api-calls
-description: "Call LLM APIs directly (Nous Research inference, other OpenAI-compatible endpoints) when the configured gateway/provider is unavailable or you need a specific model outside routing. Covers auth from nous_auth.json, Cloudflare user-agent fix, reasoning-model response parsing, timeout splitting, and token refresh."
+description: "Call LLM APIs directly (Nous Research inference, other OpenAI-compatible endpoints) when the configured gateway/provider is unavailable or you need a specific model outside routing. Covers auth from nous_auth.json, Cloudflare user-agent fix, reasoning-model response parsing, timeout splitting, and token refresh."   <!-- ⚠️ NOT PRESENT (checked 2026-11-17): this file does not exist on this seat. Do not assume it; verify before relying on it. -->
 version: 1.0.0
 author: Gentech
 tags: [llm-api, nous, kimi, reasoning-model, provider]
@@ -22,10 +22,10 @@ provider first — direct calls are the fallback, not the default.
 
 ## Auth
 
-Token lives at `/root/.hermes/shared/nous_auth.json`:
+Token lives at `/opt/data/profiles/gentech/shared/nous_auth.json`:
 ```python
 import json
-d = json.load(open('/root/.hermes/shared/nous_auth.json'))
+d = json.load(open('/opt/data/profiles/gentech/shared/nous_auth.json'))
 TOKEN = d['access_token']
 ```
 - Check `d['expires_at']` (ISO string, UTC) against now BEFORE calling — hourly expiry is normal.

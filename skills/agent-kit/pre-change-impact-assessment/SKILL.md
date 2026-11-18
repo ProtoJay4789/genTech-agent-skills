@@ -52,7 +52,7 @@ of skipping it is a behavioural regression nobody can see.
 ## Step 1 — Snapshot BEFORE
 
 ```bash
-python3 /root/.hermes/profiles/gentech/scripts/system-snapshot.py --label before-<change>
+python3 /opt/data/profiles/gentech/scripts/system-snapshot.py --label before-<change>   <!-- ✅ BUILT 2026-11-17, falsified both ways (silent when unchanged, loud when changed) -->
 ```
 
 Captures, per seat: skill inventory with content hashes, SOUL.md rules, provider names, cron list, memory
@@ -79,7 +79,8 @@ Write down, in the impact note:
 
 ```bash
 python3 .../system-snapshot.py --label after-<change>
-python3 .../system-snapshot.py --diff before-<change> after-<change>
+python3 .../system-snapshot.py --diff /opt/data/backups/snapshots/<taken>Z-before-<change>.json
+#    ^ --diff takes ONE stored snapshot and compares it to the state NOW. It does not take two paths.
 ```
 
 The diff shows state. **It cannot show speed.** State changes are the floor, not the ceiling — the
@@ -137,4 +138,7 @@ that feel like improvements.** Jev was beneficial. That is exactly why nobody wa
 - `decides-alone-execution` — the doctrine the Jev change violated; carries the Decides-Alone Test
 - `00-HQ/absorption-doctrine.md` (vault) — the full absorption procedure and tested roster
 - `00-HQ/propagation-broken-false-green-2026-09-20.md` (vault) — why the fleet didn't receive the corrections
-- `system-snapshot.py` — the tool for steps 1 and 3
+- `system-snapshot.py` — the tool for steps 1 and 3. **It records `env` as KEY NAMES ONLY, never values, so a
+  snapshot is safe to keep in the vault** (`/opt/data/backups/snapshots/`). **If `ss` cannot read the container's
+  socket table it falls back to `/proc/net/tcp`, and if both fail it writes `UNMEASURED` rather than an empty list
+  — an empty port list means "nothing listening", which is the most dangerous possible baseline.**

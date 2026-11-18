@@ -111,3 +111,11 @@ All three scripts use the same template: load watermark, fetch, diff, save, emit
 4. **Putting the state dir where the agent's sandbox can't write.** `$HERMES_HOME/watcher-state/` is always writable. Docker/Modal backends may not see arbitrary host paths.
 5. **None value crashes in Python API scripts** (Jun 2026): CoinMarketCap, CoinGecko, and other APIs often return `None` for fields like `price`, `percent_change_24h`, or `market_cap`. If your script does `data["price"]` or `price >= 1000` without null checks, it crashes with `TypeError: '>=' not supported between instances of 'NoneType' and 'int'`. Always use: `data.get("price") or 0` for numeric fields, and `if price is None: return default` in format functions. Proven Jun 11, 2026: Three separate scripts (cmc-watchlist, cmc-news-trigger, narrative-rotation) all crashed on None values from CMC API.
 
+6. **Treat 404 and 500 from a feed host as THROTTLING, not as a dead feed.** Some hosts answer a burst of feed reads with `404` — indistinguishable from "the resource was deleted" — or `500`. The same URL returns a normal payload once the IP has been idle, so **a retry loop deepens the block instead of surviving it.** One attempt per source, several seconds apart, no retries; pick it up next tick.
+
+   Distinguish `throttled` from `failed` in the output. **A run that read nothing must never print "no failures reported"** — that is a clean bill of health issued for a run that measured nothing, and it is indistinguishable from a genuinely quiet period. Print the two categories separately, and say which one applies.
+
+7. **Poll at the rate the source's window can absorb, not the rate you want data.** A feed carrying ~15 entries covers roughly two days of a fast publisher's output, so twice a day cannot miss anything while hourly only raises the chance of being throttled. **Frequency buys nothing the window already gives you, and costs you the ability to read it.**
+
+8. **A message must carry its own context.** Emitting a bare state code (`LONGS_PAYING`), a bare delta, or a number with no scale forces the reader to remember a convention that only exists in the code. Print the value, a sentence saying what it means, and the direction of the change. **If the reader has to ask what the message means, the watcher has failed at the only thing it does.**
+

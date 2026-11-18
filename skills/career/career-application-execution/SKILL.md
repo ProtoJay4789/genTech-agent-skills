@@ -1,6 +1,6 @@
 ---
 name: career-application-execution
-description: Draft, consolidate, track, and submit job/internship applications — especially multi-opportunity batches using vault-based coordination
+description: Use when drafting, tracking, or submitting job applications
 trigger: After opportunity evaluation is complete, when ready to draft/submit applications; user says "let's apply", "submit applications", or "prepare application packets"
 input: Evaluated opportunities with role details, resume variant mapping, user personal details (name, LinkedIn, portfolio)
 output: Ready-to-submit application packets (cover letters + tracking) and submission checklist
@@ -147,7 +147,7 @@ Patch the master application document (e.g., `College.xyz-Jordan-Hibachi-Injecti
 - [ ] LinkedIn posted (URL)
 
 ## Next Steps
-- [ ] Prepare for potential interviews (see `interview-prep` skill)
+- [ ] Prepare for potential interviews (see `interview-and-offer-prep` skill)
 - [ ] Update portfolio with recent projects if needed
 ```
 
@@ -289,7 +289,15 @@ For Web3/AI ecosystem grants (Solana Foundation, Chainlink BUILD, Arbitrum, etc.
 
 8. **Pitfall**: Verifying job links by HTTP status only — pages return 200 but jobs are expired/filled/redirected.
    - **Root cause:** curl/browser tools can't bypass bot detection on job boards. HTTP 200 means the page loads, NOT that the job is live. Greenhouse, Lever, and Workday pages always return 200 even when showing "position filled" or redirecting to a different listing. This has failed TWICE (Jun 18 and Jun 19, 2026) — 4 out of 5 listings were dead or mismatched despite returning HTTP 200.
-   - **Fix:** ALWAYS extract full page content (`web_extract` or `browser_snapshot full=true`) and READ the actual page before sharing. Check for:
+   - **Fix, cheapest first — ask the employer's OWN board, not the page.** The ATS feed is the authoritative "still posted" signal and it costs one request per company, not one per role:
+     - Greenhouse: `boards-api.greenhouse.io/v1/boards/{token}/jobs` — a role absent from the `jobs` array is gone, however healthy its page looks.
+     - Ashby: `api.ashbyhq.com/posting-api/job-board/{token}` — each entry carries `workplaceType`, `location` and `publishedAt`.
+     **On Ashby, `workplaceType` is the field that decides, not `isRemote`** — `isRemote: true` co-occurs with
+     `workplaceType: "Hybrid"` on the same record, so a boolean read alone reports an in-person role as remote.
+     Treat `Hybrid`/`Onsite` as a disqualifier rather than a downgrade: a role he cannot commute to is not a
+     lower-ranked lead, it is not a lead.
+     **Match on exact title + location, not a substring** — a reposted or renamed sibling will otherwise pass for the original. The same payload also yields the years-required and the pay range, so liveness, eligibility and comp come from one call.
+   - **Then extract the full page content** (`web_extract` or the browser snapshot) and READ the actual page before sharing. Check for:
      - Job title matches the listing (not redirected to a different role)
      - Requirements section (look for hidden: bachelor's degree, 3+ years, seniority labels)
      - Application status ("position filled", "no longer accepting", "closed")
@@ -332,16 +340,75 @@ For Web3/AI ecosystem grants (Solana Foundation, Chainlink BUILD, Arbitrum, etc.
 ```
 ## EDUCATION
 
+**AWS Certification Path** — In Progress
+- Cloud Practitioner ($0 — Amazon covers the exam) → SAA-C03 ($75 on the CCP voucher) → AI Practitioner → ML Engineer – Associate
+- Cloud + infrastructure-as-code is the measured FDE skill-list line (AWS 14 postings, Terraform 9)
+
 **Cyfrin Updraft** — In Progress
 - Solidity fundamentals, security patterns, smart contract development
 - Learning approach: AI agent codes, humans audit
 ```
 
+⚠️ **Resume honesty rule (unchanged):** list a certification as "In Progress" **only when it is genuinely in
+progress**, and never imply a pass that has not happened. `10-Labs/Resumes/FLAGGED.md` audits this nightly and
+found no completion event for either — that check is correct and should stay strict. Planned-but-not-started
+certs do **not** go on the resume.
+
 **PDF generation workflow:**
 1. Write resume as markdown (`Jordan_Master_Resume.md`)
-2. Convert to PDF using WeasyPrint (not pandoc)
-3. Use tables for skills section
-4. Keep to 2 pages max
+2. Convert to PDF — WeasyPrint when the toolchain is present; if it is not, render through a browser
+   (see `references/resume-retargeting.md` for the CDP `printToPDF` recipe)
+3. **Target ONE page for a career-changer resume, and prove it by reading the page count back**
+   (`PdfReader(p).pages` == 1). Two pages is not a failure, but it is not the default he should get.
+   Fitting is iterative: tighten type/spacing first, then trim duplicated content (a summary that
+   repeats the Experience section is the usual culprit), then adjust print scale last.
+4. **Extract the rendered TEXT and assert no internal marker survived the render** — `"".join(p.extract_text()
+   for p in PdfReader(path).pages)` and check for `DRAFT`, `TODO`, bracket placeholders, and any
+   answer-key/notes section that lived in the markdown. A PDF is built from a *file*, not from the part of
+   it you meant to send: an internal status header and a "before this is sent" review block both rendered
+   into a real letter, and only the text extraction caught them. Page count proving one page says nothing
+   about whether the page is the page you meant.
+5. Use tables for skills section in the markdown source
+
+## Retargeting a resume to one posting — the rules that apply EVERY time
+
+Full procedure and the render/verify recipe: `references/resume-retargeting.md`.
+
+1. **Confirm which copy is the source of truth BEFORE editing, and say what you could not open.** A cloud
+   store may be unreachable (connector not connected, key rejected). If it is, report the failure honestly,
+   use the newest local master by mtime, and ask him to confirm it is current. Never imply you read a document
+   you could not open — this is the same rule as never printing a number you could not derive.
+2. **Take the requirements from the ATS payload, verbatim, not from the rendered page or your memory.** Then
+   build a keyword ledger: term → present before → present after. Measure the delta; do not assert "improved".
+3. **Add only words he can defend in an interview.** Renaming shipped work in industry vocabulary is free and
+   correct; adding `Kubernetes` because a posting wants it is a fabricated credential that fails at the first
+   follow-up question. Leave the absent terms absent.
+4. **Name the real gaps in the cover letter, in plain language, one line each, with what transfers.** A letter
+   that says "I have not operated under DISA STIG controls; that is the real gap for federal support" reads as
+   honest and competent. A letter that hides it gets caught in screening and burns the application.
+5. **Never assert an eligibility fact on his behalf** — citizenship, security clearance, work authorization,
+   degree completion, or a certification pass. Ask, then write the sentence only after he confirms. An
+   application built on an invented eligibility line is worse than a late one.
+6. **Save as DRAFT and never overwrite a master without his sign-off.** He reviews resume content changes;
+   produce the variant, show it, keep the master intact.
+7. **Trace EVERY factual bullet to a record in the vault before the document leaves the machine — and delete the
+   bullet when the record disagrees or does not exist.** Do not rely on "it sounds like something we did". Two
+   distinct failures, both of which read as competent prose:
+   - **The contradiction.** A bullet asserted a real-sounding security finding ("audited our public repos and
+     found a committed private key"). The vault held the triage note: the scanner raised hundreds of CRITICALs
+     and every one triaged to a false positive, and **the audit's actual result was zero real leaks.** The claim
+     inverted a documented negative into a positive. A prior note that disproves a bullet is the single cheapest
+     check available — grep for the artifact ID (`EVAL-7`, `TOOL-42`, an audit name) and read what it concluded,
+     because an audit's *verdict* is frequently the opposite of its *headline count*.
+   - **The invention.** A bullet described reviewing third-party files for a class of vulnerability. Nothing in
+     the vault mentioned the activity; the phrase existed **only inside the draft**. If the only source for a
+     claim is the sentence making it, it is fabricated, however plausible.
+   **Grep the distinctive noun, not the concept.** `grep -ri '<the exact technique or artifact>'` across the
+   record; zero hits means the claim dies. Then rewrite from what the record actually says — an honest
+   "hundreds of false alarms reduced to zero" is a stronger security bullet than an invented catch, because it
+   shows detection discipline and it survives the interview question that follows.
+   **Apply the same check to the surrounding claims in one pass** — the resume is submitted whole, so one
+   unverified sentence discredits the verified ones beside it.
 
 **Primary Goal format:**
 ```
@@ -424,11 +491,75 @@ propagated into a brief delivered to the user.
 4. **A "correction" that reverses your own earlier claim is the highest-risk edit in the vault.** If it flips a
    prior note, re-read the raw source before publishing.
 
+## The number that matters is applications SENT — instrument the RESPONSE, not the search
+
+**A scanner with no response loop is a machine for optimising a proxy.** Leads found measures the instrument;
+replies received measures the candidate. So when the record shows several instruments built and **zero
+applications sent**, the answer to "what should I do next?" is the next application, never the next tool — say
+it plainly and in that order, because building is the more comfortable task and it always looks like progress.
+
+**The same rule applies one level up when a NEW channel is proposed** — a bounty market, a protocol's builder
+programme, a freelance platform, a new job board. Before scoping it, enumerate the human actions still pending in
+the channels already open and name the single blocking one. A fourth lane opened on top of three unsubmitted ones
+is a fourth instrument, and a quiet month on an existing channel is not evidence that the channel is wrong — it is
+usually evidence that nothing was sent.
+
+**Answer a quiet-channel question with demand, not with a new door.** Measure where the work actually is (who
+funds it, who pays, how many postings per board) and say plainly which channel has a payer on the other end. A
+demand map costs nothing and keeps the standing gates in place; another instrument costs a session and moves
+nothing. **Count, don't list:** tally priced or labelled openings per organisation and per board, and say how many
+the big names actually run — the largest organisations by repository and follower count frequently run **no**
+bounty programme at all, because their demand arrives as paid roles and accepted pull requests. A list of famous
+companies is not a demand map; a count per channel is.
+
+- **Log `applied` and `response` on the durable registry at the moment each goes out**, and compute callback
+  rate per resume version and per lane. Without that loop, every fit judgement is a prediction that never
+  gets corrected, and the whole search is unfalsifiable.
+- **An application sent yesterday is not a non-response. Exclude it from the denominator.**
+  `decided = total applications − those still inside the reply window (14 days to start)`, then
+  `rate = replied / decided`. When `decided == 0` the answer is **UNMEASURED, not 0%** — printing 0% over a
+  batch that is two days old manufactures a failure out of silence, and it is the same lie as printing a
+  dropped milestone as 0%. Print the known-numeral counts (`replied`, `rejected`, `awaiting`, `of which N
+  inside the window`) so the reader can see the denominator being withheld rather than taken on trust.
+- **Parse recorded dates permissively; never rewrite records to suit the parser.** A registry accumulates
+  writers, so one entry stores `YYYY-MM-DD` and the next stores a full ISO timestamp
+  (`2026-10-30T03:46:46+00:00`). `date.fromisoformat()` then raises on the oldest, most important row. Slice to
+  10 characters in one helper and treat an unparseable date as `UNKNOWN (age)`, not as age zero.
+  Rewriting the user's record to fit your code silently edits the evidence.
+- **Prove the rule with a selftest that asserts both directions, not with a comment.** Three cases cover it:
+  N fresh applications → `UNMEASURED` (never 0%); old rejections + one fresh → the fresh one excluded from the
+  denominator; one reply among N old → exactly `1/N`. A rate function that has only ever been run on the
+  happy path is a rate function you have not tested. Implementation: `profiles/arthur/scripts/job-log.py`
+  (thin `.sh` wrapper beside it), which extends the scanner's registry in place rather than creating a second
+  store — discovery fields stay with the scanner, application fields live with this tool.
+- **Dry-run any write path against a COPY and `cmp` the live file afterwards.** State files are the one place
+  a test can destroy the thing it was testing.
+- **Give the sample size in the same breath as the rate.** At four applications a callback rate is noise; it
+  becomes a signal around **15–20**. Volume first, measurement second — twenty imperfect applications teach
+  more than four polished ones.
+- **A zero-reply batch is a FINDING, not a verdict on him.** It changes the resume or the lane, and it is the
+  only evidence that can — so state it that way rather than as encouragement or as failure.
+
 ## Entry-level gates to check BEFORE recommending a role
 
 **A live posting is not an eligible posting.** Two administrative requirements are unfixable by skill — read
 them first:
 
+- **Degree gates: read the posting BODY for the words, and tell a "plus" from a gate.** Search the ATS body
+  (`content` on Greenhouse, `descriptionPlain` on Ashby) for `bachelor · degree · university · graduat ·
+  diploma · gpa · master · phd`. **"Having a degree in Computer Science is a plus too" is NOT a gate** and a
+  role carrying it stays on the list — quoting a "plus" as a requirement talks him out of a job he can win.
+  The inverse also holds: **the application FORM can gate where the body does not** (a mandatory university
+  picker, a graduation-year field), so read the form before promising an application.
+- **One employer's gate is not the market's — count the prevalence before letting him generalise.** Measured:
+  of ~156 live remote entry-tolerant roles, **10 carried a degree gate and all ten were the same employer**,
+  while every top-scoring role carried none. When he hits a gate mid-application, report that prevalence in
+  the same message. "I need a degree" is a conclusion that silently ends a job search, and one rejected form
+  is exactly the evidence that produces it.
+- **A posting dies between the scan and the application — re-verify at the moment you hand it over.** A
+  closed Greenhouse-backed posting answers **`302 → /404`** and its id disappears from the board array, while
+  the URL still looks healthy in a prior audit. A role confirmed live two days earlier can be gone today, so
+  re-run the liveness check immediately before recommending, and never carry yesterday's "verified" forward.
 - **Student gates.** "Must be graduating in December 20XX or Spring 20XX" closes a New-Grad track to every
   career-changer regardless of ability. **New-Grad and internship tracks are pipeline roles — read the
   graduation-date line before presenting one as an option.**
@@ -440,6 +571,313 @@ them first:
 - **Timeline honesty:** the widely-quoted "6 months to FDE" assumes an **experienced developer**; sources
   converge on **18–24 months** without a production-engineering background. **Quote the right one.**
 
+## Answering "what do I qualify for" — give the FUNNEL, and the ONE blocking gate
+
+A question about what he qualifies for is a measurement request, not an opinion request. Answer it from live
+postings and show the arithmetic.
+
+1. **Run the scan before you answer — and check for an existing scanner first.** The fleet has a job scanner on
+   a schedule; read its script or its latest artifact rather than building a parallel one, or you will hand him
+   two disagreeing lists. If you change the scanner, the change is a claim: run it and quote the numbers.
+   **Find it before writing anything:** the canonical scorer is `/opt/data/scripts/opportunity-scanner.py`,
+   called by a thin per-profile `scripts/opportunity-scan.sh` wrapper and scheduled as an `Opportunity List`
+   cron job — `grep -rl opportunity-scan /opt/data/profiles/*/scripts/` locates its seats in one command, and
+   the newest digest sits in `09-Green Room/job-apps/scan-<date>.md`. A hand-rolled curl scanner built before
+   that grep returns a second, disagreeing list.
+2. **Quote the funnel, not just the winners:** *roles seen → entry-tolerant → surviving his hard constraints →
+   carrying no visible gate*. A shortlist without denominators reads as opinion and cannot be argued with.
+3. **Name what the constraint COSTS.** If "remote" removes most of the entry-tolerant market, say the fraction.
+   The cost is what makes the remaining list credible instead of disappointing — and it tells him which axis to
+   relax if the list is too short.
+   **A fraction is only as good as its denominator, and the denominator is the number you did not compute.**
+   Deriving "~65% removed" from `kept + dropped` and then quoting it is how a true calculation becomes a false
+   claim: the drop count typed into your own note can disagree with the count the run itself printed, and with
+   two recorded figures for one measurement **neither is usable until the run is repeated**. Read the drop
+   count out of the artifact the run produced (the digest or the state file), not out of a note you wrote
+   afterwards; if the two disagree, say the range and say it is unresolved. Treating a plausible denominator as
+   self-evident is the same error as inventing a number — it just survives longer, because the arithmetic in
+   front of it is correct.
+4. **Say which order the list is in.** "Best evidence match" (a ranking) and "easiest to win" (a ranking of
+   screens) are different orders. Handing over one while he is asking for the other wastes his week.
+5. **Every role carries its ONE blocking gate in the same breath** — the gate he passes, in the posting's own
+   words, and the requirement that is his genuine gap. A role presented without its gate is a role he has to
+   re-research.
+6. **A willingness most candidates lack is an advantage, never a cost.** Night shift, weekends, on-call,
+   holiday coverage: search postings for that language explicitly and say plainly *why* those roles are easier
+   to win. Do not present the hours as a sacrifice he is making.
+7. **Never hand-type a posting URL from the role title.** Read it out of the scan artifact, then check it
+   resolves. A remembered title is not a URL: a hand-typed slug 404s and he is left holding a dead link. For the
+   real requirements, read the ATS API rather than the rendered page — Greenhouse
+   `boards-api.greenhouse.io/v1/boards/{token}/jobs/{id}` returns the posting `content`, and Ashby's
+   `posting-api/job-board/{token}` carries `descriptionPlain`; both are what the *requirements* live in.
+8. **Separate "nothing closes the door" from "you will get the job."** Say which one your qualify flag means,
+   in the same message. Otherwise the flag is read as a prediction and the misses land on the tool.
+9. **When his hard constraint changes, change the SCORER in the same session — then test it without touching
+   live state.** A constraint that lives only in your reply gets re-litigated next week; the gate in the script
+   is what makes it stick. A scheduled scorer carries state files (seen-set, registry, digest). Import the
+   script as a module and override its state/output path constants into a scratch directory before calling its
+   entrypoint — a "test" that writes the real seen-set marks every record as already-seen and the next genuine
+   run reports zero new leads, which reads exactly like a quiet week.
+   **Then verify the written artifact by TYPE, not by exit code.** A dict literal followed by a stray comma
+   becomes a one-element tuple, `json.dump` accepts it happily, and every downstream reader breaks on a payload
+   that looks present and well-formed. Re-open the file and assert the shape (`isinstance(d, dict)` and the
+   expected top-level keys) before believing the run succeeded.
+   **Match location strings on word boundaries, never substrings.** `india` matches `Indiana` and `mexico`
+   matches `New Mexico`, so a substring geo-reject silently removes US roles — keep an explicit exemption list
+   (`new mexico`) for the names that legitimately contain a foreign country.
+   **Blocklist the ABBREVIATIONS too, not just the country names.** A posting renders the employer's own
+   shorthand, so a list that knows `saudi` but not `ksa` lets a Gulf role rank into the top ten looking
+   US-eligible — add the codes and capital cities for each blocked country (`ksa`, `uae`, `riyadh`, `doha`).
+   The tell that a geo list is incomplete is a top-ten entry whose location is a city you have never seen in
+   a US posting; read the ranked output for place names, don't just count rejections.
+10. **If the job belongs to another seat, file a handoff naming the job id and the expected behaviour change.**
+    Editing a canonical script that another profile schedules is a fleet change, not a private fix. State what
+    changed, that fewer or no leads is the filter working rather than a fault, and which counter to read before
+    assuming breakage — otherwise the first thin week is debugged as a regression.
+11. **A FEED is not a board — measure its yield before claiming the lane is covered.** Some employers (data
+    vendors, contract shops staffing research labs) never appear on Greenhouse/Ashby/Lever, so an ATS-only
+    scanner cannot see them however many boards it holds. The cheap fix is an RSS/Atom adapter, and three
+    things go wrong with it every time:
+    - **Yield is tiny and it must be measured, not assumed.** One feed returned twenty postings across all
+      categories and exactly one passed the scorer — below the ranked cut, so it would have been invisible.
+      Either give feed-sourced roles their own line in the digest or the tap is decorative.
+    - **The employer is per-ITEM, not the source name.** A feed yields many companies; overwriting the record's
+      company with the source label attributes every lead to the aggregator.
+    - **An empty location field silently fails a remote-only gate.** Feeds for remote-only listings often leave
+      location blank, and a hard remote requirement then drops 100% of the feed while reporting a normal run.
+      Default a remote-only feed's blank location to `Remote` at parse time.
+    **Then say plainly what the lane is worth** — a feed that yields one candidate a week is a tap, not
+    coverage, and the honest reply is that the real signal for that lane arrives by email alert or by checking
+    the vendor's own application page.
+
+## "Are we still pursuing X?" — read the served track, then answer NO if that is the truth
+
+A question about whether a lane is still current is a **lookup**, not a strategy session. The plan is served
+from one file and the answer is in it; the failure mode is treating an old job title or a demoted track's
+milestone as evidence of a live lane and announcing a pivot that never happened.
+
+1. **Read the selector first: `10-Labs/skills-distribution/edu/data/active-track.json` → which pack is served.**
+   Then read that pack's `target` block. That `target` is the lane; anything else is context.
+2. **Authority order is stated in the selector and it outranks mtime: the learner's explicit decision, then the
+   pack matching it, then newest write — last.** A track file written later to close a milestone has not moved
+   the lane, and saying it did invents a decision he never made.
+3. **Grep the served pack for the lane name before answering.** `grep -ic "<lane>" career-track.json` → **0** is
+   decisive and takes one command. Zero mentions plus a milestone list that never contains it means the lane is
+   not in the plan at all — say that plainly rather than hunting for a stage to rename.
+4. **Separate the three things a lane word can mean, because they live in different files:**
+   - **the lane** — the pack's `target` (what he is studying toward);
+   - **skill coverage** — a milestone inside a *demoted* track that survives because the skill is market-measured
+     (a 8-hour SQL milestone is a skill, not a career target);
+   - **an applied lead** — one record in the job registry, which is a lead and not a strategy even at n=1.
+5. **Answer with the genealogy, then the verdict.** Name where the idea came from (which record, which demoted
+   track, which past tiering exercise), say which of the three it actually is, and state that the plan needs no
+   change. "Nothing moved" is a finding worth proving, not a disappointing non-answer.
+6. **Name the drift risk that a deferred milestone creates, and give it a date.** A cert deferred indefinitely is
+   `UNMEASURED` — not started, not passed, not scheduled — and the honest flag is a decision point at a named
+   date, not an exhortation to study harder.
+
+## Application form free-text — answer with a verification discipline, never a success story
+
+Every long-form question on an application ("most impactful thing you built", "how did you know it worked",
+"what does success look like") is testing **how you judge your own work**, not how proud you are of it. Answer
+procedure, checks and evidence; skip adjectives.
+
+- **Verify every factual claim against the live thing immediately before writing it, and never print a status
+  you could not reproduce.** "200 / live / N services" is a claim with a shelf life: applications stay open for
+  weeks and an engineer may click the link. Open the URL, quote what it returns today, and if it fails, the
+  failure becomes the answer rather than being quietly dropped.
+- **Name the specific failure the system exists to prevent, then the checks that catch THAT failure.** Correctness
+  defined in one sentence beats a feature list; three named checks beat "I tested it thoroughly".
+- **Say what a BAD result would have looked like.** A check whose failure mode you cannot describe is not a check.
+- **A break you found yourself is the strongest material in the answer** — "I found it by checking the live URL,
+  not by trusting the last report I'd written" demonstrates the discipline the role is hired for. Do not hide a
+  current outage to protect the narrative; that is the one thing that turns a strong answer into a fragile one.
+- **Never assert an eligibility or credential fact he has not confirmed** (pass, citizenship, clearance, degree).
+  Same rule as the resume: ask, then write.
+
+Worked structure, the three-check template and a full example: `references/application-form-answers.md`.
+
+## When a lane gets demoted, measure the REPLACEMENT — do not argue about the old one
+
+He will revise the target, sometimes after applying. The old lane does not get a rebuttal; it gets a demotion
+written where the engine reads it, and the replacement is chosen by counting, not by intuition.
+
+1. **Count role FAMILIES across the boards already being scanned.** One pass over the ATS feeds, bucketing every
+   title into families (support, solutions/SE, apply/deploy, ai-agent engineering, research, infra, data, security,
+   sales-side) gives the ring that is hiring this quarter. Families are cheap to count and impossible to eyeball.
+2. **Prefer the ADJACENT ring to the aspirational one.** Adjacent means the day job overlaps what he is already
+   building — integration, customer-facing deployment, technical support — without demanding a discipline he has
+   not practised. Research/scientist titles look closest on vocabulary and are furthest on discipline: exclude
+   them explicitly so they stop reappearing in rankings.
+3. **Record the demotion where the engine reads it, not only in the reply.** A `superseded_claims` line plus a
+   dated correction field in the active-track or pack JSON, naming what survives as *skill coverage* versus what
+   dies as a *placement strategy*. Skills outlive lanes: a Go or IaC milestone can keep its place while the lane
+   that spawned it is retired.
+4. **When he says the old lane is unreachable, your own earlier audit is the corroboration.** If a measured
+   years-gate in your prior work agrees with him, cite that number — do not restate the old plan's case as a
+   counter-argument. He is revising on evidence; supply the evidence, not a defence.
+5. **Retarget the resume to the new ring in the same pass.** A document pitched at the abandoned lane is now
+   pointed at roles he is no longer pursuing, and shipping it wastes the applications.
+
+## A stored verdict EXPIRES — re-measure before repeating it
+
+**A status file records what was true when it was written, not what is true now.** Resume-sync logs, monitoring
+notes and prior audits are the highest-risk source in this lane, because they read as authoritative and get
+quoted verbatim into advice. Both shapes below shipped a wrong sentence to him in one session:
+
+- **The stale 200.** A sync log asserting "all surfaces 200" had been right for months; on the day it was
+  quoted, every one of those URLs answered **404**. The log had not changed — reality had.
+- **The stale 404.** A note asserting an account was "hidden, 404 to logged-out readers" had been true when
+  written and was false later: the account answered **200** anonymously to anyone who asked.
+
+**Rules:**
+1. **Re-run the exact probe before quoting the verdict** — one status-code call per surface, and probe
+   **anonymously** when visibility is the question. An authenticated 200 on your own artifact proves only that
+   the owner can see it.
+2. **Label which you did** — "measured just now" versus "carried from the log, not re-measured". A carried
+   claim spoken without that label is an assertion about today built from data about last month.
+3. **When a live probe contradicts your own stored note, the probe wins and the correction gets written down** —
+   including when the correction makes earlier advice of yours wrong. Fixing it only inside the reply is not
+   enough: the next reader will quote the stale line again.
+4. **Never quote a log's conclusion into an application, a resume, or a message** without re-probing. The shelf
+   life of "live / 200 / visible" is shorter than the life of an application.
+
+### A 404 is not damage until something links to it
+
+Before escalating a broken surface as an applicant-facing loss, grep the live pages for that path. Measured on
+two live properties: **zero** references to the resume on either — so the 404s were a stale claim inside a log,
+not a broken funnel, and saying that was more useful than manufacturing an emergency. **The test is "who points
+here?", not "does it return 200?"**, and the same test decides whether the fix is urgent or cosmetic.
+
+### The master is older than the evidence it should cite
+
+Before any application push, compare the resume master's mtime against the newest shipped artifact. A master
+older than the portfolio means applying with yesterday's credentials: **the artifact exists and the document
+cannot mention it.** Refresh first, publish second — a stale master re-hosted at a fresh URL is staleness made
+permanent. Say the comparison out loud (master date vs artifact date) rather than deciding silently that the
+resume is "fine".
+
+## Certification questions — absence of a keyword is not a verdict
+
+"Should I get cert X" has three instruments behind it and they measure different things. Separate them out loud.
+
+1. **Keyword counts measure what postings SAY, not what a screener DOES.** Counting cert names across
+   text-bearing postings is cheap and worth doing, and a near-zero is the expected result — certifications are
+   almost never written into a posting body; a recruiter filter applies them and the corpus cannot see it.
+   **Report the zero and state the blindness in the same breath.** Turning "0 postings mention it" into "it does
+   not matter" is a fabricated verdict manufactured from a real measurement, which is the worst kind.
+2. **A provider's own page is not evidence.** Weigh a cert by whether a posting he actually wants names it. A
+   course page quoting a salary bump is an advertisement.
+3. **Order by deadline and by cost-to-him, not by prestige.** A voucher with a calendar-year expiry outranks any
+   optional certification, because expiring free money is a decision to pay later. Confirm the employer-funded
+   door before recommending anything paid.
+4. **Never let a cert substitute for an artifact.** The standing rule is that a purchase before the artifact is a
+   substitute for the work. When the gap is a capability, the deliverable is the artifact; the badge is at most
+   packaging applied afterwards.
+
+## Pay bands — publish only what the posting publishes, and treat a stated floor as a floor
+
+Two different numbers get confused here, and the confusion is expensive.
+
+1. **A blank is not a low number.** If the posting carries no salary, write "not published" — never leave the
+   cell to be read as zero, and never borrow a figure from the company's other row. `references/…` aside, the
+   rule is the same one that governs compensation generally: read it per-row from the ATS payload.
+2. **A range belongs to the posting that states it.** When one role on a board publishes a band and its
+   neighbour does not, that band says nothing about the neighbour. Say which roles published and which did not.
+3. **When he names an acceptable floor, it is a FLOOR, not a target.** "Even 60–70K is fine to start" is
+   permission, not a preference — it does not shrink the list to roles in that band. Keep the higher-band roles
+   first, and say plainly that the risk is **under-applying to the band he already qualifies for because a lower
+   number was in his head**, then accepting the first low offer that arrives.
+4. **Repeat the floor back as a constraint you are honouring, not as an ambition you are lowering.** The reply
+   should make clear which roles publish more than his floor and which are the realistic floor-band entries, so
+   the choice stays his.
+
+## Contract and data-vendor gigs — a different purchase from a job
+
+Some postings are not employment. Expert-data shops that staff AI labs (they sell RL environments, evals and
+grading rubrics for model training) advertise **contract** roles with technical titles, a per-hour rate and a
+fixed term. Evaluating one as if it were a job wastes the read.
+
+1. **Work out what the employer SELLS before describing the role.** The same title means different work at a
+   different business model: a "security engineer" at a data vendor is an **eval author** — building deliberately
+   flawed systems and labelling the findings to make training data — not an operator defending a production
+   estate. Read the company's own site (what they sell, who buys it) first; it reframes the posting correctly and
+   frequently converts a weak-looking match into a strong one.
+2. **Confirm the domain is the right company.** Similar names belong to unrelated businesses — a studio's
+   game-server site sitting one letter away from the vendor's consultancy site is a different employer. Take the
+   canonical domain from the aggregator's company page, then read that domain's description of itself. A role
+   attributed to the wrong company yields a confident, useless assessment.
+3. **Count the total, then say what it is.** rate × hours per week × weeks is the entire engagement. State the
+   figure AND state plainly that it does not replace the day job — a per-hour contract that totals a few thousand
+   is a credential purchase, not an exit. Never let a contract rate be read as an annual salary, and compare the
+   full-time equivalent against his stated floor in the same breath.
+4. **Judge a gig on what it leaves behind.** The return is the title it puts on the resume, the skill family it
+   exposes him to (RL environments, evals, annotation pipelines are current and scarce), and a small portfolio
+   artifact. Say that out loud, because the money alone would not justify it — and name the load that is
+   realistic alongside his existing shift pattern.
+5. **Read the application FORM before promising an application, and treat its fields as gates.** Forms carry
+   blockers the posting body omits: a mandatory public profile link, a graduation-year field, a residency
+   dropdown. A field he cannot fill is a blocker to surface before he sits down, not during.
+6. **Ask what the pilot pays and what the agreement assigns.** Vendors of this shape run a small qualification
+   batch — confirm it is paid before any work starts, and read the contributor/confidentiality terms for IP
+   assignment and exclusivity. Cheap questions before signing, impossible afterwards.
+7. **A gig does not pause the credential clock.** Keep the funded certification and the role applications running
+   in parallel; a four-week contract is not a reason to let a deadline-bound voucher expire.
+
+## The INFRASTRUCTURE gate — screen it first, and it is not closable by effort
+
+**Some must-haves are a different discipline, not a higher level of the one he has.** Before recommending
+any platform/infrastructure role, search the must-haves for cloud-infrastructure ownership language:
+
+> *"Own infrastructure end to end in Python on **GCP**, with a **cloud warehouse** and
+> **infrastructure as code**"* — Supabase, AI Platform Engineer, 2026-10-15.
+
+That sentence asks for a cloud-infra engineer's history: a provisioned cloud account, a warehouse, IaC,
+and having deployed, monitored and rolled back systems inside it. **A single VPS in Docker does not
+answer it, and no amount of interview quality closes it** — the screener is matching a CV line, not
+judging architecture. **Jordan's own call on it: "if I don't have any experience then it will just go
+ahead and skip it."** He does not want this class of role surfaced as an option.
+
+- **Screen it out at read time, and say so in one line.** Do not present a role with an infra gate as a
+  [GO] with a caveat and a strategy — a caveat costs him the time the verdict was supposed to save.
+- **Distinguish it from the experience gate that IS closeable.** "Shipped and maintained real, live
+  systems" is answerable with artifacts (the fleet, the kit, the measured cost work). "Own GCP + a
+  warehouse + IaC" is not answerable with a different artifact; it is a missing discipline.
+- **The pattern to keep recommending:** agent/eval/FDE roles whose must-haves are *shipped systems,
+  evaluations, MCP servers, API depth, adoption, taste about contacting humans.* Those are the five he
+  can answer from the fleet — and the fleet is the case study, not a job history.
+
+## Jobs won by CONTRIBUTION, not application — search them deliberately
+
+Some employers have no application funnel and say so in writing: the role is earned by shipping a reviewed
+change in public. The channel is real and queryable, but only on the right surface.
+
+- **Search LABELS and repo identity, never body phrases.** `label:bounty`, `label:"Help Wanted"`, `label:hiring`
+  return a bounded, curated set; a phrase query over issue bodies returns tens of thousands of unrelated hits
+  (game servers, guild banks) at roughly 1,000:1. Phrasing is a human cue; labels are the machine cue.
+- **The price is usually in the issue TITLE** (`[$250] …`), not a field — parse it there, and treat a missing
+  price as unpaid.
+- **Read the repo's own CONTRIBUTING before the work.** Bounty programmes gate payment behind a platform
+  account and, typically, a proposal accepted **before any code is written** — so the first hours are always
+  unpaid. Surface the payout path before he invests, not after.
+- **Set the expectation at "rejected proposal", not "money".** A first-time contributor competes publicly with
+  people who have done hundreds; the public PR is the return, the payout is the upside.
+- **Prefer a bounty in a domain he can already demonstrate**, so the artifact argues instead of the resume — and
+  compare its hours against a normal application rather than presenting it as a shortcut.
+- **The contribution is judged under an ACCOUNT — verify that account is visible before doing the work.** Query the
+  profile endpoint with no credentials (`GET /users/<login>`); anything other than `200` means the submission will
+  be reviewed as never sent, however good the code is. Use the account that answers `200` anonymously for every
+  outbound PR, and do not treat a second account as interchangeable: **invisibility is a property of the account,
+  not of the work**, so a contribution moved to a visible account is a different contribution, not the same one
+  resubmitted. This gates every open-source channel at once and costs one request to check.
+- **Availability lives in the THREAD, not in the `assignee` field.** These markets claim by comment and by a linked
+  open PR, so an issue showing `assignee: null` can be completely spoken for. Read the last stretch of comments
+  before recommending anything, keep claimed items visible with their evidence rather than silently dropping them,
+  and rank **recent and quiet above well-matched and busy** — the best-fitting work is taken within hours by
+  regulars, so the window beats the fit for anyone without standing in that repo.
+
+Full decision table, selection criteria and verification notes: `references/contribution-hiring-channel.md`.
+
 ## RELATED SKILLS
 
 - `career-platform-research` — research → evaluation → recommendation phase
@@ -448,6 +886,12 @@ them first:
 
 ## Support Files
 
+- `references/application-form-answers.md` — long-form application questions ("most impactful build", "how did
+  you know it worked"): verification-discipline answers, the three-check template, and the verify-before-claim rule.
+- `references/contribution-hiring-channel.md` — GitHub as a hiring surface: bounty programmes, label queries,
+  payout-path gates, first-bounty selection, and why body-phrase search is unusable.
+- `references/resume-retargeting.md` — Aim one resume at one posting: ATS requirement extraction, keyword
+  ledger, gap disclosure, eligibility rules, and the one-page render/verify recipe.
 - `references/grant-application-template.md` — Template for grant applications (crypto-native + blockchain-agnostic). Includes narrative patterns, artifact tables, milestone format, and active grant targets.
 - `references/application-batch-2026-05-04.md` — Previous application batch details
 - `references/ai-native-web3-roles.md` — Patterns for AI-native/Web3 demo roles

@@ -79,6 +79,71 @@ When Jordan shares an agent **framework / tool / library** (not a single platfor
 
 See `references/a2a-trust-layer-and-loopx-borrows.md` for both worked examples and the exact primitives we took.
 
+### Open the COMPARISON page first — it is the most honest document they publish
+
+Before reading the README, the marketing site, or any market report **we** would write, find the page
+where the product compares itself to its rivals. In a repo that is a `compare*` module or a
+`docs/compare` route; on a site it is `/vs/<rival>` or a comparison table.
+
+**Why it outranks everything else:** it names their competitors for you, it states each one's
+caveats in their own voice, and a company will **concede an advantage to a rival** there in a way it
+never will in a launch post. A row reading *"rival: yes, this capability we do not have"* is a
+verified market gap with the vendor's signature on it — quotable, and far stronger than our own opinion
+that the gap exists.
+
+- **Check the code, not just the rendered page.** Comparison copy is often gated behind a feature flag
+  (`FLAG = False` meaning "we do not have this yet, hide the row"); the flag and the surrounding
+  strings tell you what they are building toward, and what they know they lack.
+- **A rival named in their comparison is a research target, not a footnote.** If one competitor is
+  credited with the capability we have, that competitor — not the product in front of you — is the one
+  to size up next. Say so explicitly instead of filing them as background.
+- **Treat a concession as a positioning asset.** When a competitor publishes that our model is better on
+  a named axis, that belongs in our own copy with a citation — it is an admission by an interested party.
+
+### A licence BADGE is not a licence — read for ADDITIONAL TERMS
+
+`MIT` / `Apache-2.0` may be only the first half. Look for a `LICENSE` that appends **additional terms**
+on top, because those terms take precedence and they are written to close exactly the door we want
+open. The recurring one: *permissive for internal use and self-hosting, **forbidden** to offer as a
+hosted, managed or embedded service to third parties without written permission.*
+
+- **The tell is the badge itself.** A public repo showing `spdx_id: NOASSERTION` is usually a
+  permissive licence plus extra terms — GitHub cannot classify it. `NOASSERTION` is a signal to open
+  the file, never a sign of a missing licence.
+- **Classify by what we intend to DO, not by the family.** Self-hosting for our own team, forking into
+  our stack, and running it as a product for others are three different permissions; a permissive
+  header can grant the first two and withhold the third.
+- Say which permission we are relying on when the recommendation depends on it.
+
+### The "let's list in their catalog" idea dies on the VENDOR GATE — read it before pitching it
+
+Listing is the cheapest-looking integration and the one most often blocked. Before proposing it, find
+the vendor/partner eligibility requirements and check them against **our actual credential model**.
+
+The gate that usually bites is **connect-time key verification**: self-serve API keys, a key carried in
+a header or query param, and a probe endpoint that must *reject a deliberately garbage key*. A
+no-account, pay-per-call product **has no key to verify** — the payment is the credential — so it can
+score perfectly on published pricing and docs and still be ineligible by construction.
+
+- **Read the gate first, then decide whether to want it.** Discovering it after the pitch wastes a
+  session and tempts someone to bolt on a key tier that quietly trades away the differentiator.
+- **Naming the trade-off is the deliverable.** "Compliant only by becoming a reseller on their key and
+  their balance" is a different product, not a config change. Say that plainly rather than shipping a
+  compromise nobody chose.
+- **A plausible escape hatch is a question, not a plan.** If their rule allows "a distinguishable
+  failure" instead of a key, an unauthenticated `402` might satisfy it — but that is for them to answer.
+
+### The same marketing phrase is not the same product
+
+"OpenRouter for agent tools", "Stripe for agents", "Vercel for X" are category labels, not identifiers,
+and several companies will have shipped under each one. Two products can share the headline while
+differing on the thing that decides our evaluation — payment rail, licence, whether third parties can
+sell through them at all.
+
+**Record the phrase as a category and then disambiguate explicitly** — product name, payment rails,
+licence, and who is allowed to sell through it — or a later session will merge two entries, or treat
+the second as novel when it is a different animal wearing the same description.
+
 ## The Research Deep Dive
 
 ### Step 1: Multi-Source Surface (5 min)
@@ -164,6 +229,39 @@ When comparing two options, use a split table:
 ### Pitfall
 
 Don't add every discovery to the build queue. Most awesome-list entries are either (a) already covered by our stack, (b) starter templates we'd outgrow in a day, or (c) not relevant to agent/payment infrastructure. The queue should only get items that pass the USE or CONTRIBUTE test.
+
+## Demand from bug trackers — the recurrence radar
+
+The bottom-tier insight above generalises: **a public issue tracker is the most honest demand survey in the
+ecosystem.** Nobody files a bug for a feature they do not want, and they file fastest when they are losing money.
+Turn it into a standing instrument rather than a one-off read.
+
+### The method
+
+1. **Fix a battery of failure-mode queries** — one per hypothesis (`"payment_proof_invalid"`, `"invalid_exact_evm_network_mismatch"`, `"<retired-host-hostname>"`, `x402 eip712`, `"agent-card"`, registry/listing phrases).
+2. **Record two numbers per hypothesis**: total matching, and how many of the newest N are still `open`. An
+   **open** issue someone is stuck on is demand; a closed one is history. Read the open column, not the total.
+3. **Re-run on a schedule** and keep the JSON. The trend matters more than any single reading — a rising open
+   count on one hypothesis is the market telling you what to build next.
+
+### Rank by SPECIFICITY, not volume
+
+**High totals are usually contaminated.** Broad phrasing matches bot-generated issue spam (a single repo can hold
+100k+ agent-posted "skill offer" issues), so a big number often measures noise. **Prefer the rare and exact:**
+2 issues across the whole ecosystem on one precise error string means almost nobody has hit it *and nobody has
+fixed it* — the people who did are alone, and they are the buyers. Six people stuck on a dead hostname outrank a
+thousand loose matches, because a dead hostname is a person who cannot take money.
+
+### The instrument must be able to fail
+
+**Identical totals for different hypotheses are a broken query, not a finding.** Measured: six distinct failure
+hypotheses all returned the same total after hand-rolled URL encoding mangled them into one generic match.
+
+- Use a real encoder (`urllib.parse.quote(q, safe='')`), never a `.replace()` chain.
+- **Prefer quoted phrase queries** (`"error_string" is:issue`); parenthesised `OR` groups degrade silently on the
+  search endpoint.
+- **Ship a guard that refuses to print a ranking** when three or more hypotheses tie on the same total. A
+  confident table produced by a broken instrument is worse than no table.
 
 ## Competition Intelligence — The Bottom-Tier Insight
 

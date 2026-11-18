@@ -1,6 +1,6 @@
 ---
 name: x402-api-compliance
-description: Audit, fix, and deploy x402 v2 compliant APIs. Covers Payment-Required header format, /.well-known/x402 discovery, OpenAPI schema requirements, x402scan/Syra marketplace registration, and Cloudflare Worker deployment.
+description: Audit, fix, and deploy x402 v2 APIs — payment challenge, discovery, OpenAPI, Worker deploys.
 category: api-infrastructure
 tags: [x402, api-gateway, payments, compliance, cloudflare]
 ---
@@ -9,7 +9,67 @@ tags: [x402, api-gateway, payments, compliance, cloudflare]
 
 Makes any API server pass the x402 v2 protocol spec. Agents discover and pay via x402.
 
-> **Multi-facilitator debugging:** see `references/multi-facilitator-rails.md` — probed rail map for PayAI/Dexter/GoPlausible/CDP (Aug 2026), client-compatibility pitfalls (ASCII-only challenge envelopes, `accepts[0]` ordering with Base first, self-pay rejection, npm stale-resolve), and the end-to-end settle verification loop.
+> **402 right, no money?** `references/v2-payment-challenge.md` · `references/payment-schemes-and-pricing.md` · `references/bazaar-catalogue-indexing.md` · **paid, then a 500?** `references/paid-path-failure-answers.md`
+
+> **Worker gateway?** `references/cloudflare-worker-x402-gateway.md` · **paywall, never paid?** `references/client-side-signing-compatibility.md` · **new paid route?** `references/adding-a-paid-route.md`
+> **New rail?** `references/adding-a-settlement-rail.md` (version = DOMAIN_SEPARATOR) · **a hardcoded `output.example` shared
+across services is a pay-then-break defect** — see `references/published-response-examples.md`.
+
+> **Do your published surfaces disagree about what you offer?** See
+> `references/advertised-surface-agreement.md` — one inventory and ONE predicate across the
+> discovery manifest, the bazaar document, the MCP tool list and the registry metadata;
+> withhold-with-reasons instead of silently deleting; the manifest-key-vs-backend-key
+> namespace trap that quietly withholds a perfectly healthy service; and the checker that
+> fails loudly when the surfaces drift apart again.
+
+> **Paid routes 500-ing while free routes answer 200?** The core diagnostic is in
+> `cloudflare-zone-operations` Rule 12 — a uniform 500 is one shared initialisation failure, usually
+> an empty intersection between the advertised chains and the facilitator's `/supported` networks.
+> For the remaining cases — stub routes that are compliant but sell nothing, facilitator-auth
+> credential shapes, and auditing the estate a listing actually points at — see
+> `references/gateway-failure-diagnosis.md`.
+>
+> **Building or REBUILDING an edge gateway?** Facilitator selection and the intersection test,
+> the deploy traps (415 on module syntax, `workers.dev` routing off by default, shadow-then-
+> promote), the pre-challenge readiness gate, and verifying delivery BEFORE you promote — see
+> `references/cloudflare-worker-gateway.md`.
+
+## The price path is not the delivery path (verify both, separately)
+
+**A 402 proves the price table is loaded. It proves nothing else.** The gateway answers the
+402 challenge from its own route map *before* it ever contacts a backend, so a service that
+returns a correct 402 can be backed by a process that does not exist. Never conclude "the
+backends are up" because every paid route priced a call — that inference is false and it has
+been stated confidently before. Probe the delivery tier directly instead.
+
+**Settlement happens BEFORE the proxy.** Money moves, then the request is forwarded. So an
+unreachable backend takes payment and delivers nothing. A paid route is not "working" until a
+real settled call has been served end to end and the response body is the *service's* output,
+not an error envelope.
+
+**A paid endpoint must never return 200 on a delivery failure.** The proxy's exception path
+returns a plain dict; FastAPI serves a dict as `200 OK`. A paying client reads that as success.
+Return 5xx for anything the backend did not produce, and treat "200 with an error body" as a
+protocol violation on your own side — fix the status code, not the wording.
+
+**Audit recipe:** `references/delivery-path-audit.md` — how to enumerate every backend
+address, test it from the network the gateway actually runs in, and establish whether the
+service sources still exist before promising a restore.
+
+## x402 v2 header contract (both directions)
+
+- **Client → server:** read `PAYMENT-SIGNATURE` first; `X-Payment` is legacy. Accept both, teach
+the current one in every doc you publish (`llms.txt`, OpenAPI, examples) — a published example
+that teaches the retired header breaks the buyers who follow your own instructions.
+- **Server → client:** `PAYMENT-RESPONSE` is returned **after attempting settlement, whether
+successful or failed**. Emit it on the *failed-settlement* path as well as the success path, or
+a compliant client cannot distinguish "you did not pay" from "we could not settle". Add such a
+header additively — wrap the encode in try/except so an unencodable receipt can never break a
+refusal, and never let it change a status code.
+
+> **Multi-facilitator debugging:** see `references/multi-facilitator-rails.md` — probed rail map for PayAI/Dexter/GoPlausible/CDP (Aug 2026), client-compatibility pitfalls (ASCII-only challenge envelopes, `accepts[0]` ordering with Base first, self-pay rejection, npm stale-resolve), the end-to-end settle verification loop, **the CAIP-2 network-identifier rule (one non-conformant rail rejects the WHOLE challenge)**, and **the four traps that make a LANDED payment look failed.**
+>
+> **Discovery / indexing:** see `references/cdp-bazaar-indexing.md` — indexing is PER-FACILITATOR (settling through one catalogue does not list you in another's), the 30-day delist, the working merchant-by-payTo lookup vs a filter that is silently ignored, the metadata rules that decide whether you are indexed at all, and how to correct a listing that is wrong.
 
 ## When to use
 
@@ -174,6 +234,28 @@ also claimed a wrong backend list ("gas estimation, rug checks, search, deals, a
 reports the REAL live services + backend health (`{"gateway":"x402-v2","status":"operational",
 "services":[...],"backends":{...ok}}`). Use it, not memory or the old HTML.
 
+### Check the DELIVERY before auditing the copy — three publishing paths, three failure modes
+
+**A deployed page is not evidence that its source exists, and a copy audit that skips this re-does work.**
+The same hostname can be served by VPS static files, a Cloudflare Worker route, or a **Pages project** — and a
+Pages deployment **ages silently**, serving a months-old build with nothing errored. `curl` returns `200` from
+all three, so the path must be established, not assumed.
+
+- **Check the newest deployment date FIRST.** If it predates your last copy correction, the correction never
+  shipped — that is a **DELIVERY failure, not a copy failure**, and the fix is a redeploy, not a rewrite. Say
+  which one it is, or you will re-fix work that was already done.
+- **Search the vault for a PRIOR audit of this surface before writing a new one.** A fresh pass assembled from
+  the live page will contradict a document that already recorded the correction and its reasoning — and the
+  corrected copy may have been sitting on disk for weeks.
+- **`Deployed != source`.** Confirm a source of record exists and name where it is: a front-door repo may hold
+  only a `templates/` directory. If no source exists on the host, every "fix" is a hand-patch of live HTML and
+  the real task is recovering or re-creating the source.
+- **No canonical COUNT.** If several of our own surfaces state several different service counts, the disease
+  is the missing single source, not any one number. Pick the unit, define it in one file, derive every surface
+  from it — and never lead with the count belonging to the weakest host.
+
+Full procedure, API commands and audit checklist: **`references/public-surface-audit.md`**.
+
 **The registry sweep (Jordan's standing ask when anything changes):**
 1. Hit `api.gentechlabs.net/status` → the live service list (ground truth)
 2. Probe each service path → expect HTTP **402** (correct paywall) — confirms live + gated;
@@ -190,6 +272,73 @@ APIs" button at `api.gentechlabs.net/docs` (the live spec), not the homepage. Ve
 `curl https://gentechlabs.net` grep for the new service names.
 
 **Agent-facing discovery docs are a SECOND drift surface (Aug 30, 2026 sweep).** Beyond the marketing site, these surfaces each carried their own stale story and must be synced together whenever the product positioning changes: `/.well-known/x402` + `x402.json` (twin files — see nginx pitfall under Canonical discovery path), `/.well-known/x402-bazaar`, `/.well-known/agent-card.json` (skill ORDER matters — list treasury/flagship skills first, commodity security last), `/llms.txt`, `/llms-full.txt`, `/skill.md`. GenTech's repositioning to "Agentic Treasury first": the bazaar manifest was already correct but x402.json led with "Token security", agent-card led with "rugcheck" and dated to June, and llms.txt/skill.md listed security first. Buyers' first impression of WHAT WE ARE comes from whichever doc they hit — metadata positioning matters as much as the code (registry lesson Aug 24). Sync procedure: rewrite all surfaces with the same positioning + service order, sync the file twins, then verify each URL live.
+
+## A valid discovery doc does NOT prove the endpoint charges
+
+**The discovery document and the payment enforcement are two separate claims, and they drift.** A
+`/.well-known/x402` that returns 200 with `x402Version: 2` and a populated `accepts[]` proves the service
+*describes* payment. It says nothing about whether any handler *raises* it. A host can publish a
+spec-perfect challenge envelope and still answer every request `200`.
+
+**Measured on a nine-host sweep:** every host returned a valid v2 doc with real chains, assets and a
+consistent `payTo` — and **not one path on any host returned a 402.** Two causes, with different fixes:
+
+| Cause | Signature | Fix |
+|---|---|---|
+| **The protected paths are unmapped** | we guessed plausible paths; the real resource paths are unknown | read the published resource list (`/openapi.json`, `/pricing`), probe **those** paths |
+| **Doc/code drift — advertises payment it does not collect** | a **documented** resource answers `200` instead of `402` | the fix is in the service, not in the rail |
+
+**Rule out drift first.** It is the "never advertise what we can't take" failure wearing a compliance
+badge, and it burns trust precisely while asking others to trust the listing. A declared paid resource
+answering `200` is the proof; a guessed path returning `404` proves nothing at all — so never report "the
+rail is down" from guessed paths, and never report it clean from a discovery doc either.
+
+### The signerless drift test — settle it with no wallet, in three commands
+
+You do not need a signer to tell "unmapped paths" from "doc/code drift." Both are settled with GETs:
+
+```bash
+# 1. Read the published resource list for that host. The path VARIES — try /openapi.json,
+#    /resources, /pricing; some hosts serve the catalog where the spec should be. Read the
+#    per-operation price extension to get the declared paid paths.
+curl -s https://HOST/openapi.json | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for p,ops in (d.get('paths') or {}).items():
+    for m,op in ops.items():
+        pi=(op or {}).get('x-payment-info') or {}
+        print(m.upper(), p, pi.get('price'))"
+# 2. Probe THOSE paths. A 402 proves the handler charges — drift is ruled out.
+curl -s -o /dev/null -w '%{http_code}\n' https://HOST/api/v1/position/status     # expect 402
+# 3. Prove the RECEIVE side is wired, still with no wallet: replay the challenge token itself
+#    as the proof. A correct handler returns the REQUIREMENTS again, never the data.
+TOK=$(curl -s -D - -o /dev/null https://HOST/api/v1/position/status \
+      | tr -d '\r' | grep -i '^payment-required:' | cut -d' ' -f2)
+curl -s https://HOST/api/v1/position/status -H "PAYMENT-SIGNATURE: $TOK"
+```
+
+**The assertion that matters: an unpaid GET on a paid path must return the payment REQUIREMENTS, never the
+data.** If it returns data, the paywall is decorative and that is a leak worth reporting on its own — the
+worst outcome, and invisible unless you look.
+
+**A 402 on a published path settles the question.** Do not escalate to a signed payment, a facilitator
+probe, or a "the rail is down" verdict before steps 1–2 have run. A wrong verdict from guessed paths costs a
+session — and worse, gets written into a status doc the next reader scopes off.
+
+### Pitfall — the challenge's `resource.url` must be the PUBLIC hostname
+
+The `resource.url` inside the 402 envelope is what a buyer is told to pay. Derive it from the request's
+`Host` (or a configured public base), never from the worker's internal name — otherwise every challenge
+advertises the origin (`https://<worker>.<account>.workers.dev/...`) while the customer called
+`https://api.yoursite.com/...`. The protocol still works, so nothing fails loudly: it is a branding and
+discovery defect visible only in a decoded challenge. Check it in the same base64 decode used for
+`accepts[]`, and assert it in a test — a route rename must not silently move the advertised URL.
+
+**Sweep every hostname, not the one in the ticket.** The paid surface is usually spread across subdomains,
+each with its own discovery doc — one host's `403` or `500` is not the state of the surface. Run
+`scripts/x402-surface-sweep.py` before writing any status report about the rail: it probes every host ×
+`/health` × `/.well-known/x402`, reports which hosts are live and which advertise rails, and answers the
+only question that matters — **does any path anywhere return a 402.**
 
 ## Cross-marketplace listing verification
 
@@ -214,6 +363,16 @@ Key rules:
 - **Directories with free search APIs** (agent-tools.cloud `/api/v1/search`): curl with `Accept: application/json`; check `health`, `x402_ok`, `http_status`, `well_known_url` fields.
 - **8004scan.io** mirrors on-chain ERC-8004 registration, NOT gateway compliance — its X402 flag comes from registration metadata. A stale listing there means refresh the registration (agent_set_uri), not the gateway.
 - Version skew is NOT just cosmetic — fix it properly: `/.well-known/x402`, `/.well-known/x402.json`, `/.well-known/x402-bazaar`, AND the wire envelope must all report the same version. **Root cause found Aug 2, 2026:** the gateway's envelope builder had a HARDCODED `"version": "7.0.0"` string, so even after the manifest files were bumped to 9.0.0, the 402 wire envelope still claimed 7.0.0. Permanent fix: read the version from the single source of truth (the bazaar manifest) — `"version": MANIFEST.get("version", "9.0.0")` — and regenerate the static discovery files FROM the manifest, not by hand. One manifest, every surface derives from it; future bumps can't skew. Verify with one sweep across all four surfaces (three discovery files + wire envelope from a real 402).
+
+### Pitfall — the SPA catch-all answers `200` with HTML for EVERY path
+
+A host whose front-end serves an index page as a fallback (Cloudflare Pages, Workers SPA routing, nginx
+`try_files … /index.html`) returns the SITE HTML for `/.well-known/x402`, `/.well-known/x402.json` AND
+`/openapi.json` — every one with `200`. A discovery probe then reads a web page as a valid document, and an
+agent asking that host how to pay receives prose. It is the opposite of the `404` that would have told you the
+path is unserved — **it fails silently, and it corrupts any sweep: a status code is not proof of a valid
+document.** Confirm the payload is JSON (`curl -s URL | head -c 1` → `{`), never just its code; and exclude
+`/.well-known/*` from the SPA fallback (or serve it from the API block) so unknown paths 404 honestly.
 
 ### Canonical discovery path — serve `/.well-known/x402` exactly
 
@@ -649,19 +808,58 @@ See `references/ecosystem-scanning-methodology.md` for the full methodology, and
 ## CDP Bazaar (Coinbase) — settlement-gated listing with its own auth + envelope traps
 
 The CDP x402 Bazaar (`api.cdp.coinbase.com/platform/v2/x402`) is the OTHER settlement-gated
-marketplace alongside OpenDexter. Indexing triggers on **settlement**, not verify. It has
-four non-obvious gotchas a gateway integration must handle (all confirmed live Aug 4 2026):
-CDP requires a **JWT** (EdDSA for Ed25519 keys / ES256 for EC PEM), not HMAC → 401 otherwise;
-the gateway must call **`/settle` after `/verify`** (verify alone never indexes);
-the `/verify` envelope needs `paymentRequirements` = the accepted option object **directly**
-(not wrapped in `accepts[]`); and the SDK sends the proof in a **`PAYMENT-SIGNATURE`** header
-(base64 JSON), which most gateways don't read. Full recipe, working Python JWT builder, exact
-envelope schema, rejected shapes, Node SDK import map, and the end-to-end debug order — in
-**`references/cdp-bazaar-self-settlement.md`**.
+marketplace alongside OpenDexter. Indexing triggers on **settlement**, not verify. Six gotchas:
+CDP needs a **JWT** (EdDSA/ES256), not HMAC → 401; the gateway must call **`/settle` after
+`/verify`**; `paymentRequirements` must be the accepted option object **directly** (not wrapped
+in `accepts[]`); the SDK's proof arrives in a **`PAYMENT-SIGNATURE`** header (base64 JSON);
+**`paymentPayload.resource` is Optional in the spec but MANDATORY for indexing** — omit it and
+settlement succeeds while the catalogue stays empty; and EIP-3009 carries `uint256` as
+**strings** — sign ints, transmit strings. Full recipe, JWT builder, envelope schema, rejected
+shapes, Node import map, debug order — in **`references/cdp-bazaar-self-settlement.md`**.
 
-**Fast triage:** CDP returns 401 → auth/JWT problem. Returns 400 with a schema message →
-auth is fine, payload shape is wrong. Never guess the envelope — monkeypatch `globalThis.fetch`
-in Node and print the SDK's actual `/verify` body, then replicate it.
+**Fast triage:** 401 → auth/JWT. 400 with a schema message → auth fine, payload wrong. Read the
+FULL error body — never truncate it to 200 chars, it cuts at the field name. Never guess the
+envelope — monkeypatch `globalThis.fetch` in Node and print the SDK's actual `/verify` body.
+
+### Run the FREE preflight validator before you debug anything else
+
+**`POST https://api.cdp.coinbase.com/platform/v2/x402/validate`** — **no API key, no auth, free.**
+Body `{"resource": "<public https URL>", "method": "GET"}`. It fetches your live challenge and returns
+`valid`, `simulation.outcome`, and a `preflight[]` of named checks each with `passed`/`severity`/
+`expected`/`actual` — **it names the failing field in one call.** Check it first whenever an endpoint
+"isn't being found" or a marketplace rejects it; it is the cheapest diagnostic on this whole rail.
+
+### ⚠️ ONE malformed `accepts[]` entry makes the ENTIRE 402 unparseable
+
+The per-field checks run individually, but the `parse` check unmarshals the **whole** `PaymentRequired`
+document — so **a single invalid `network` value fails the document, not just that rail.** A gateway can
+pass every discovery and bazaar check, advertise five rails, and still be **rejected entirely** by any
+strict parser. Fingerprint: `valid: false`, `outcome: "rejected"`, one `parse` failure naming a network,
+while everything visible looks correct.
+
+**Fix the malformed value — do not delete the rail.** A rail the facilitator merely doesn't support is
+ignored harmlessly; an unparseable one poisons the payload for every caller on every rail.
+
+### CAIP-2 references are `[-_a-zA-Z0-9]{1,32}` — some namespaces TRUNCATE
+
+`eip155:8453` and Solana's genesis-hash form are safe. **Algorand is not:** its namespace spec requires the
+**URL-safe base64 genesis hash truncated to the first 32 characters, with no `=`** — the full 44-char
+base64-with-padding is an invalid reference. Its own test case: `wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=`
+→ `algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k`. Compute it (`base64.urlsafe_b64encode(base64.b64decode(gh)).decode()[:32]`),
+never copy a remembered string.
+
+**⚠️ Before shortening a rail id because a SPEC says to, ask the FACILITATOR that settles it.** A code
+comment may assert the long form is mandatory "so proofs verify". Probe its `/supported` list — measured,
+GoPlausible advertises **both** forms, so the spec-correct value loses nothing. Then grep the use sites: a
+`startswith("algorand:")` prefix check survives truncation, an equality check does not.
+
+**Verify a listing with the MERCHANT endpoint, not a filtered list:**
+`GET /platform/v2/x402/discovery/merchant?payTo=<payTo>` returns exactly what is catalogued for that
+payee. **The list endpoint's `?payTo=` is INERT** — it returns the default page regardless. Control-test a
+filter by querying a value you already saw in unfiltered results before you read anything into a zero.
+
+Full validator usage, the CDP supported-network subset, the `EXTENSION-RESPONSES` cataloguing verdict, and
+the metadata prompt-injection screen: **`references/cdp-bazaar-self-settlement.md`**.
 
 **Pitfall — the running gateway holds STALE CDP credentials (a 401 that survives a code fix).**
 The gateway's systemd unit loads env from a file (`EnvironmentFile=${PROFILE_DIR}/.env`),
@@ -985,6 +1183,8 @@ Then expose via Cloudflare Tunnel or ngrok and register the tunnel URL on x402sc
 
 - **Wrong token address silently breaks settlement detection** — before wiring any USDC/ERC-20 address into a gateway, revenue scanner, or settlement config, verify it on-chain with `eth_getCode` + symbol/decimals calls. A dead address means payouts are never detected, with no error. Canonical USDC per chain + the exact check commands: **`references/onchain-token-address-verification.md`** (proven Aug 12, 2026 — Revenue Monitor had a no-code Base USDC address).
 
+- **Counting revenue from on-chain transfer LOGS — the RPC is the trap, not the query.** `eth_getLogs` is refused or window-capped on most public endpoints (only one of six Base RPCs tested served it), and **an over-range request can return a well-formed EMPTY result rather than an error — a false zero on a money figure with no failure signature.** Bound and chunk every window, return UNKNOWN if ANY window fails rather than summing the rest, control the empty against a bounded window known to contain a hit, and cross-check against a balance delta (which every endpoint serves, including pinned to a block). Measured capability table, chunking pattern, and the facilitator-relayer/`nonce 0` settlement signature: **`references/base-rpc-log-query-caps.md`**.
+
 - **x402scan says "No valid x402 response found"** — nearly always a v1 vs v2 format mismatch. The scanner expects the exact v2 shape. Check: `x402Version: 2` as a number, `scheme: "exact"`, `payTo` not `payment_address`, lowercase asset hex.
 - **x402scan shows 0 valid resources** — OpenAPI schema is missing parameter defaults. Query params need `required: false` + a `default` value so the scanner knows what to send as a probe.
 - **FastAPI `/openapi.json` custom route gets SHADOWED by the framework's auto-generated spec** — If you register `@app.get("/openapi.json")` on a FastAPI app created WITHOUT disabling the built-in route (`FastAPI(title=...)` default), the framework's auto-generated route (registered at app creation, carries `operationId` names like `serve_manifest__well_known_x402_bazaa`) WINS over your later custom route. Symptom: `curl /openapi.json` returns the auto spec (3.1.0, all paths as GET, no `security: []` markers) — NOT your hand-written spec. x402scan then probes free endpoints (`/.well-known/*`, `/health`, `/openapi.json`, `/`) as if they were paid and reports "N endpoints with errors". **Fix:** create the app with `FastAPI(title=..., openapi_url=None, docs_url=None, redoc_url=None)` so your custom spec is the ONLY one; verify route ownership with `python -c "import server; [r.path for r in server.app.routes if 'openapi' in r.path]"` (expect exactly one `/openapi.json`). Then mark every FREE endpoint with `"security": []` in the spec (the probe skips them) and keep `security: [{x402: []}]` only on paid routes. Also add `info.contact.email` — x402scan needs it for ownership verification (`OPENAPI_CONTACT_MISSING` warning). **Live example Aug 2, 2026:** GenTech gateway showed "7 endpoints with errors" on x402scan for exactly this reason; after `openapi_url=None` + free-endpoint `security: []`, spec served correctly (title v9.0.0, contact present, 7 free + 1 paid route).
@@ -1037,6 +1237,7 @@ See `references/x402-pr-methodology.md` for the real PRs submitted and the submi
 - **GenTech x402 Test Harness** — `test.api.gentechlabs.net` — free public reference endpoint for testing x402 compliance. See `references/test-harness.md`. Use this to validate client implementations before deploying.
 
 - **x402-compliance-checker** — `scripts/x402-compliance-checker.py` — scan any endpoint for spec compliance. 42+ checks per endpoint. Generates fix templates. Used by the cron scout.
+- **x402-surface-sweep** — `scripts/x402-surface-sweep.py` — enumerate **every** hostname in one pass: which answer, which publish a valid discovery doc, and whether **anything returns a 402**. Exit 10 = hosts live but nothing charges (the unmapped-path vs doc-drift case). Run this before reporting a state for the rail.
 
 - **x402-check** — `github.com/suryast/x402-check` — CLI + npm library + GitHub Action to validate any x402 endpoint's Payment-Required header format. Note: PR [#12](https://github.com/suryast/x402-check/pull/12) fixes header priority for v2 detection.
 - **x402trace** — `github.com/fardinvahdat/x402trace` — x402 debugger CLI for Base. Probe, validate, explain, reconcile.
@@ -1055,7 +1256,7 @@ See `references/x402-pr-methodology.md` for the real PRs submitted and the submi
 - **Reference (Syra)** — `api.syraa.fun/.well-known/x402` — gold standard implementation
 - **CDP Facilitator** — `https://api.cdp.coinbase.com/platform/v2/x402` — production facilitator
 - **x402.org Facilitator** — `https://www.x402.org/facilitator` — testnet facilitator
-- **Platform Directory** — `${VAULT_DIR}/references/platform-directory.md` — x402 ecosystem map: tracked repos, compliance statuses, PR states, tiers, and non-actionable categories. Updated by the Compliance Scout cron. Check before scanning new repos.
+- **Platform Directory** — `gentech-ops/platform-registration/references/platform-directory.md` — x402 ecosystem map: tracked repos, compliance statuses, PR states, tiers, and non-actionable categories. Updated by the Compliance Scout cron. Check before scanning new repos.
 
 ## Cloudflare WAF bypass for discovery endpoints
 
@@ -1156,3 +1357,11 @@ This captures operations lessons any agent should know, distinct from memory (us
 - [ ] Confirm header is `Payment-Required` not `X-Payment-Required`
 - [ ] Verify `/.well-known/x402` route exists
 - [ ] Check facilitator uses payload's `accepted` fields instead of reconstructing from env
+
+## Missing references
+
+Cited in this skill but **absent** — verified 2026-10-19 across CORE and all four seat trees.
+
+Listed here instead of repointed at something similar: a wrong pointer is worse than a known gap.
+
+- `references/platform-directory.md` — no copy exists on any seat; nearest real material (where known) is named in the citing passage.

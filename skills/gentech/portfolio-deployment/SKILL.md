@@ -1,22 +1,277 @@
 ---
 name: portfolio-deployment
-description: Deploy content from vault to gentechlabs.github.io portfolio website
+description: Deploy the GenTech sites to Cloudflare Pages.
 ---
 
-# Portfolio Deployment Workflow
+# GenTech website deployment — Cloudflare Pages
 
-## 🔄 UPDATE Aug 30, 2026 — work moved to the gentechlabs org; GitHub Pages WORKS there
+**The live estate is six Cloudflare Pages projects, deployed with `wrangler`. GitHub Pages is NOT the deploy
+path any more, and the repo this file used to name does not exist.**
 
-**Everything below the Aug 3 divider is personal-account (ProtoJay4789) history — still true for that account, no longer the deploy reality.** Current state:
+| project | domain |
+|---|---|
+| `gentechlabs` | gentechlabs.net (+ www) |
+| `gentech-services` | services.gentechlabs.net |
+| `gentech-demo` | demo.gentechlabs.net |
+| `gentech-portfolio` | portfolio.gentechlabs.net (index + roadmap) |
+| `gentech-milestones` | milestones.gentechlabs.net (index + career/career-old/defi) |
+| `gentech-hub` | **hub.gentechlabs.net** + gentech-hub.pages.dev — DeFi/, Gaming/, Travel/ subtrees |
 
-- **Portfolio repo:** `gentechlabs/gentechlabs.github.io` (renamed via API from `gentechlabs/ProtoJay4789.github.io`, Aug 30). Org Pages serves from a repo named `<org>.github.io` — the rename is what made Pages work again.
-- **Local source clone:** `/root/repos/gentechlabs.github.io` (branch `gh-pages`, remote has embedded token) — this is the push target for site changes.
-- **Deploy:** commit + push to `gh-pages` → verify `curl -sL https://gentechlabs.github.io/ | grep -oE '<title>[^<]+'`.
-- **Live URLs:** portfolio = https://gentechlabs.github.io · résumé = https://gentechlabs.net/resume.pdf (+ `/resume.html` on VPS `/var/www/gentechlabs/`).
-- **Resume/CV always-current:** vault source `10-Labs/Resumes/Jordan_Master_Resume.{md,html,pdf}`; 6-hour **Resume Sync** cron (job `877b19f24f9f`) diffs vault → VPS → portfolio repo, Monday content check flags staleness. Jordan's rule: master resume always hosted + always updated.
-- **gitignore gotcha:** portfolio repo denies `**/*.pdf` — force-add binaries: `git add -f resume.pdf`.
-- **⏳ GitHub rename-limbo (open as of Aug 30):** after the repo rename, root page serves from cache but newly pushed files 404; Pages API shows "already enabled" (409) + empty build history + 403 on build trigger. GitHub finishes provisioning eventually (hours). Fallback while limbo persists: self-host on VPS (gentechlabs.net) and point site links there. Details in `github-repo-migration` skill.
-- **Dead URLs — never print or link:** `protojay4789.github.io`, `github.com/GentechLabs` (for work links).
+**⚠️ `gentechlabs.github.io` DOES NOT SERVE — but the repo still EXISTS** (measured: `private: true`, `has_pages: false`,
+pushable, and it holds real files such as `DeFi/defi-data-jordan.json`). **Do not describe it as deleted and do not
+conclude a push failed:** the push succeeds and nothing is ever published, which is the more dangerous state because
+every tool reports success. All repo/clone/`gh-pages`/raw.githubusercontent paths below describe that dead target.
+The resume is served from the VPS (`gentechlabs.net/resume.pdf` and `/resume.html`), not from Pages.
+
+## The one deploy path: `wrangler`, from the deploy tree
+
+```bash
+cd /opt/data/deploy/<project>
+export CLOUDFLARE_API_TOKEN=$(cat /opt/data/shared-secrets/cloudflare.token)
+export CLOUDFLARE_ACCOUNT_ID=$(python3 -c "import json;print(json.load(open('/opt/data/shared-secrets/cloudflare.ids.json'))['account_id'])")
+/opt/data/wrangler-cli/node_modules/.bin/wrangler pages deploy . --project-name=<project> --branch=main --commit-dirty=true
+```
+
+**⚠️ Verify the path before believing this file.** An earlier version of this section named
+`10-Labs/web-sites-source/deploy-sites.sh` and `10-Labs/web-sites-source/<project>/`; **neither exists.** The live
+deploy tree is **`/opt/data/deploy/<project>/`**. A skill that names a script which is not there sends the next
+reader into `bash: no such file` and then into a hand-rolled workaround — so when a documented path is missing,
+**fix this file in the same sitting** rather than quietly routing around it.
+
+Credentials the CLI needs: `CLOUDFLARE_API_TOKEN` from `/opt/data/shared-secrets/cloudflare.token` and
+`CLOUDFLARE_ACCOUNT_ID` from `cloudflare.ids.json` (key `account_id`).
+
+**The deploy tree IS the source of truth for what is live.** Edit there, then deploy the whole tree — source and
+deploy input being the same directory is the property that stops a half-published site recurring.
+
+## A custom domain may ALREADY be attached — probe it before trying to add it
+
+`wrangler pages domain add` **does not exist in the vendored CLI**: it prints the global help and exits 0, which
+reads as success. Use the API instead:
+
+```bash
+curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$ACC/pages/projects/<project>/domains" \
+  -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' --data '{"name":"<host>"}'
+```
+
+**HTTP 400 `You have already added this custom domain` is a PASS, not a failure.** The domain was attached and
+nothing had ever been pointed at it. Go straight to probing the host:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://<host>/         # want 200
+curl -s -o /dev/null -w '%{http_code}\n' https://<host>/zz-nope  # want 404
+```
+
+**Every verify URL points at the DOMAIN, never the `*.pages.dev` preview name.** The preview name is not a URL a
+customer would ever see, so a verifier aimed at it can pass while the branded host is dead — and the preview
+subdomain changes on every deploy (`<hash>.project.pages.dev`), so it is not even stable enough to link.
+
+## A live site nobody links to is not published
+
+**The deploy is the second-to-last step; the front-door link is the last one.** A project can serve perfectly on
+its own domain for months with **zero inbound links** — `grep -c` the served front page for the host before
+calling the work done, and add the card in the same sitting as the deploy:
+
+```bash
+curl -sL "https://<main-site>/?cb=$(date +%s)" -o /tmp/front.html
+wc -c < /tmp/front.html; grep -c '<new-host>' /tmp/front.html      # 0 = nobody can find it
+```
+
+**Re-deploying a site to add one link is a whole-tree deploy too** — ship the tree, then confirm the security
+headers still respond (`_headers` is consumed as config and never appears in the deployment `files` list, so its
+survival is only visible in response headers).
+
+## ⚠️ Do not hand-roll the Pages upload API
+
+A manual multipart POST to `/accounts/{id}/pages/projects/{name}/deployments` **recorded the correct sha256 in
+the manifest and then served HTTP 500 on every hostname — twice — while reporting success.** Rolling back to the
+previous deployment restored service in seconds each time, which is the only reason it was survivable.
+
+**Use the vendor CLI.** Wrangler handles the upload protocol, costs nothing to run, and is vendored at
+`/opt/data/wrangler-cli/node_modules/.bin/wrangler`.
+
+## ⚠️ A single-file deploy silently deletes `_headers` (and every other file)
+
+Direct Upload replaces the whole deployment. Shipping only `index.html` **removed the security headers**
+(`x-frame-options`, `x-content-type-options`, `referrer-policy`, `x-xss-protection`) that a `_headers` file had
+been setting — and nothing errored.
+
+**Before deploying a project, list what the current deployment contains and ship all of it:**
+
+```python
+# the deployment object's `files` field is the manifest of what is live
+GET /accounts/{account_id}/pages/projects/{project}/deployments/{id}
+```
+
+A `_headers` / `_redirects` / `404.html` file does **not** appear in `files` (Pages consumes it as config, it is
+not served) — so absence from that list is **not** evidence it is absent from the deployment. Capture the
+response headers before a deploy and diff them after; that is the only cheap check.
+
+## ⚠️ A successful push to a target that does not serve is not a publish
+
+Check the target's own capability before trusting any push path:
+
+```bash
+curl -s -H "Authorization: Bearer $TOK" https://api.github.com/repos/<owner>/<repo> \
+  | python3 -c "import json,sys;d=json.load(sys.stdin);print('private:',d.get('private'),'has_pages:',d.get('has_pages'))"
+curl -s -o /dev/null -w '%{http_code}\n' https://<the-host-it-claims-to-publish-to>/   # 404 on everything = dead
+```
+
+A repo with `private: true, has_pages: false` **accepts every commit and serves nothing.** The push tool reports
+success because the push succeeded; the site is empty because nothing was ever published.
+
+**The failure hides behind a plausible excuse.** A verify step that polls the public URL and, after N tries,
+prints *"pushed but not verified — CDN lag or a stale build"* turns a permanently wrong host into a transient.
+**When a verify is still failing on its third consecutive run, the target is wrong, not slow — the message must
+say that, and the verify URL must DEFAULT to the URL the transport actually serves** so a caller who forgets the
+flag cannot get a silent pass on a publish nobody can see.
+
+## ⚠️ One page can fetch from three different hosts — grep the served HTML
+
+A dashboard can deploy correctly and still show year-old data, because **the page itself** pulls its JSON from
+somewhere else. Measured on the DeFi hub: the HTML was live on one host, its data files were pushed by a script to
+a second host that did not serve, and three `fetch()` calls read a third host's raw GitHub URL — **three different
+answers to "where does this page get its data", none of them the same.** Every part looked fine in isolation,
+which is why it survived for months.
+
+```bash
+curl -sL https://<host>/<page> -o /tmp/served.html
+wc -c < /tmp/served.html                                  # 0 bytes = the fetch failed, not 'no refs'
+grep -oE 'fetch\(.[^,)]{0,60}' /tmp/served.html | head    # where it really reads from
+grep -c 'raw.githubusercontent.com' /tmp/served.html      # must be 0 on a self-contained site
+```
+
+**Fix: same-origin relative paths (`./data.json`), with the data files shipped in the same deploy tree as the
+page.** A page that reads its own origin cannot be stale relative to itself, needs no CORS, and has one host to
+break instead of three.
+
+**⚠️ `curl -s` returning 0 bytes is not "no external references" — it is a failed fetch.** A bare `grep -c` on an
+empty file prints `0` and reads as a pass. Capture the byte count in the same command and use `-L`.
+
+## ⚠️ A page must not advertise a route, price or feature that does not exist
+
+**Marketing copy is a claim, and it ships with the deploy.** A panel was published naming
+`POST /v1/market/etf-flow` — an endpoint that was never built — for a week before anyone noticed. A
+visitor who tries it gets a 404 and concludes the product is broken, which is a worse outcome than not
+advertising it at all.
+
+**Before deploying copy that names an endpoint, a price or a capability, hit that exact URL:**
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.example.net/v1/the/route   # 402/200 = exists; 404 = fiction
+```
+
+**Then re-read the deployed page and compare the string to the route that actually answers** — the
+method, the path shape and the price all drift independently. When the route changes, the copy is part
+of the change, in the same sitting.
+
+## ⚠️ A catch-all makes every link check meaningless — probe nonsense first
+
+A Pages project with no `404.html` returns **the homepage with HTTP 200 for every unknown path** — including a
+URL invented for the test. Every "all links 200" verdict against such a site is hollow, and it hides the fact
+that a deep path was never published.
+
+```bash
+# a real 404 answers differently from a catch-all
+curl -s -o /dev/null -w '%{http_code}' https://<host>/zz-no-such-page
+curl -s https://<host>/zz-no-such-page | wc -c      # identical byte count to / means catch-all
+```
+
+**Symptom to recognise:** every path returns the same size. Confirm by comparing the body against `/`.
+**Fix:** ship a `404.html` per project — it is the only way the site can distinguish a working link from a
+broken one.
+
+## Verifying a deploy — both directions, always
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' https://<host>/            # real page -> 200
+curl -s -o /dev/null -w '%{http_code}' https://<host>/zz-nope    # nonsense -> 404
+```
+
+**Content check, not just status.** Cloudflare injects ~367 bytes of script into served HTML, so compare the
+preserved source against the served body with a tolerance, or hash the source and compare a slice — never assume
+`served_bytes == source_bytes`.
+
+### ⚠️ A 200 on an HTML file proves the FILE is served, not that the PAGE shows anything
+
+**A JS-rendered page answers 200 with correct HTML and correct JSON behind it and still displays garbage.**
+Two measured failures on one panel, both invisible to status codes:
+
+- **Guessed field names render as dashes.** The table asked for `change_24h` / `returns`; the provider returns
+  `change_pct_24h` / `roi_7d` / `roi_1m` / `ytd`. Every cell printed `—`, which reads as *"no data published"*
+  when it actually means *"I asked for a key that does not exist."* A dash in a finance table is a lie about
+  the market.
+- **Units are not inferable from the number.** The provider returns **fractions** (`0.0256`). Printing them with
+  a `%` suffix showed `+0.03%` for a 2.56% move — wrong by 100×, and it looked entirely plausible.
+
+**So read the RENDERED page, not the source and not the status:**
+
+```python
+rows = js("""(() => {const o=[];document.querySelectorAll('table tbody tr').forEach(tr=>
+  o.push([...tr.children].map(td=>td.innerText.trim()).join(' | ')));return o.join('\\n')})()""")
+print(rows)          # every cell must hold a number, not '—'
+print(js("document.body.innerText")[:600])   # the cards, the labels, the units
+capture_screenshot()  # then vision_analyze it: layout, cut-off cards, dashes
+```
+
+**A dash where a number belongs, or a percentage that is 100× off, is the failure signature.** Confirm the field
+names and the unit against one real payload before writing the renderer, then re-read the rendered output after
+the deploy.
+
+### ⚠️ The edge caches the HTML — prove you are looking at the new file
+
+After a redeploy the browser can still serve the previous HTML, so a "still broken" verdict may be a cached copy
+of the bug you already fixed. Prove which file you are reading before diagnosing it:
+
+```bash
+TS=$(date +%s); URL="https://<host>/<page>?cb=$TS"
+curl -sL "$URL" -o /tmp/served.html -w '%{http_code} %{size_download}\n'
+wc -c < /tmp/served.html; wc -c < /opt/data/deploy/<project>/<page>     # must match
+```
+
+**⚠️ `"...?cb=$(date +%s)"` inside SINGLE quotes is not expanded** — the literal string goes to the server, the
+fetch returns `000`, and the output file still holds the *previous* body, so a byte comparison against it is
+meaningless. Compute the query value first, then interpolate. In the browser, use a unique query key per load
+(`?fresh=<epoch>`); the same URL twice can return the cached render.
+
+## Cloudflare's API token is valid even when `verify` says otherwise
+
+`GET /user/tokens/verify` can return **`success:false` / `Invalid API Token` while DNS, Workers and Pages reads
+all work**. Treat a failed verify as UNKNOWN about permissions, not as "the token is dead" — the working check is
+the resource call you actually need.
+
+---
+
+# HISTORICAL — the GitHub Pages era (superseded, kept for diagnosis only)
+
+**Everything below this line describes a deployment target that no longer exists.** It remains useful only for
+recognising the old failure modes if someone revives a GitHub Pages path.
+
+## FIRST: verify the substrate before you plan a file move
+
+**A deploy plan that assumes a working copy and one canonical version of a file is a plan built on two
+claims nobody measured.** Check both before touching anything:
+
+```bash
+git -C <documented-clone-path> remote -v      # does the clone exist ON THIS HOST?
+curl -s "https://api.github.com/repos/GentechLabs/gentechlabs.github.io/branches" | grep '"name"'
+```
+
+- **A documented clone path is a claim with a lifetime.** A clone under a host home directory dies with
+  that directory; the skill and the plan keep naming it long after. If there is no clone, the work is an
+  API/clone-from-scratch job, and saying so up front beats discovering it mid-edit.
+- **The repo carries more than one live branch, and they are NOT copies of each other.** `main` and
+  `gh-pages` routinely diverge in both content and size for the same filename. **Read every branch before
+  editing**, and name the branch you are changing: a rename committed to one branch does not change the
+  other, and both may be served. Compare them without a clone or a token:
+  `curl -s https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path> | wc -c`.
+- **Committed is not published.** The Pages builder lags, and a stale build serves the cached root page
+  while returning **404 for files that are committed**. So a 404 on a deep URL is not proof the file is
+  absent — check the git tree (API `contents/?ref=<branch>`) before concluding either way, and never
+  report "live" or "missing" off the served URL alone.
+- **Check the DESTINATION NAME before renaming onto it.** The obvious new name is often already taken by
+  something that must not be overwritten — the family convention may reserve it. Enumerate the target path
+  on **every** branch first; a rename that silently replaces the owner's page is worse than a blocked task.
 
 ## ⚠️ HISTORICAL (Aug 3, 2026): personal-account Pages block — VPS was then the only target
 
@@ -402,7 +657,7 @@ new_section = '''  <!-- ═══ NEW SECTION ═══ -->
 
 ### Portfolio Sync Script (`portfolio_sync.py`)
 
-The portfolio has an automated daily health check at `scripts/portfolio_sync.py` (both profile and `/root/.hermes/scripts/` paths). It:
+The portfolio has an automated daily health check at `scripts/portfolio_sync.py` (both profile and `/opt/data/profiles/gentech/scripts/` paths). It:
 1. Pulls latest from `origin/main`
 2. Reads canonical `data/projects.json`
 3. Verifies consistency with `projects.json` and `index.html` (V4 — no inline JSON, so consistency is data:root only)

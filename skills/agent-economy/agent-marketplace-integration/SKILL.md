@@ -710,6 +710,68 @@ Use Q402 as escrow layer for complex agent-to-agent jobs on ANY marketplace. Com
 
 ---
 
+## Hosting a paid API on someone else's rail — four gates before you build
+
+A marketplace can host your endpoint on ITS infrastructure, not just link to it. Four gates decide
+build-vs-withdraw, in this order.
+
+1. **A 402 proves the route exists, not that anything sells.** Probe the host's priced path and
+   separately check what sits behind it. A handler still returning a placeholder is the worst state
+   a paid endpoint can be in: it can take money and deliver nothing. Clear the handler with its
+   source or one settled call — and when the code lives on a box the agent cannot read, say that
+   plainly and hand the check to the owner instead of treating the 402 as a working product.
+2. **Compare the MATCHED service's price, never the range floor.** "Their $0.01 vs our $0.001" is
+   almost always one service measured against the *cheapest* entry in your own manifest. Read the
+   host's price against the SAME service key. Matched, a hosted price equal to yours is parity
+   minus the platform fee — neither a discoverability premium nor a mispricing — and the whole
+   economics question reduces to whether the host brings buyers you cannot reach yourself.
+3. **A "thin forwarder" to your own paid gateway must itself PAY.** There is no free path from the
+   host's handler into a 402 route. Serving it needs one of: a funded wallet living on third-party
+   infrastructure, a free secret-bearing route on your side, or a second copy of your logic in their
+   runtime. Those are custody, auth and drift costs — so treat it as a **custody decision, not an
+   engineering one**, and require demonstrated demand before paying any of them.
+4. **A forwarder drifts from YOU.** It cannot drift in its own logic; it hardcodes one of your path
+   shapes, so any change to your templates breaks it with a paying buyer behind the error. Check
+   whether your gateway enforces sub-path shape guards — if a stale path already 404s at your door,
+   the forwarder is holding the same stale string.
+
+**Withdraw is a decision, not a failure — and it needs a REOPEN CONDITION in the same breath**
+(one observed request on the endpoint, even unpaid; or a named buyer). That converts "should we
+build it?" from a recurring argument into a measurement someone can run.
+
+**Same reasoning applies to the listing metadata:** a `path` field the host never routes is not a
+field to correct, it is a field to delete — the host routes by service name, and an unrouteable
+path carries stale network/payTo values beside it that all die with the same edit.
+
+## The PR queue is not a channel — measure it before you add to it
+
+- **Never hold two open PRs that add the same path or slug from different accounts.** They are
+  mutually exclusive — only one can ever merge — and from the maintainer's side they read as a
+  duplicate submission from a confused seller. Close the older one, keep the canonical account,
+  and only then approach anyone.
+- **Check the repo's OWN required file before concluding a maintainer ignored a complete PR.** A
+  marketplace that documents "a folder without `catalog.json` is skipped" will drop your submission
+  silently, so verify the required file is present — one API call clears or convicts that control,
+  and "it was ignored" is a bad diagnosis when the submission was incomplete.
+- **Measure the queue's behaviour instead of inferring silence:** oldest open PR, open-issue count,
+  whether the repo was pushed recently, and the decisive one — whether a comparable third-party PR
+  merged, and in how long.
+
+  ```bash
+  # oldest open PRs + whether a recent community PR merged
+  curl -sS "https://api.github.com/repos/<owner>/<repo>/pulls?state=open&sort=created&direction=asc&per_page=10" \
+    | python3 -c "import sys,json;[print(p['number'],p['created_at'][:10],p['user']['login'],p['title'][:60]) for p in json.load(sys.stdin)]"
+  curl -sS "https://api.github.com/repos/<owner>/<repo>/pulls/<n>" \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['user']['login'],d['created_at'][:10],d['merged_at'])"
+  ```
+
+  A queue where a community submission merged in days while nine-month-old PRs still sit is
+  selected by **maintainer attention**, not by arrival order — and no amount of re-submitting
+  changes that.
+- **Take the human channel from the repo's own files, not from a guess.** `.github/CODEOWNERS`
+  names the handles that hold review rights; `merged_by` on recent closed PRs names who actually
+  merges. One approach to that person, referencing the single surviving PR, beats a third submission.
+
 ## Pricing Strategy
 
 ### Early Stage Rules

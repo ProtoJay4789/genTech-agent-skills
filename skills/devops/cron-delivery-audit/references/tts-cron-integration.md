@@ -65,7 +65,7 @@ hermes config set tts_voice Vanito
 
 **Profile-specific .env:**
 ```
-ELEVENLABS_API_KEY=6e3f26583ebfb5cfcc13fb60b23a2d0bc45b7ebf6208bd86eed0ea3394337fef
+ELEVENLABS_API_KEY=<REDACTED-2026-11-18: credential removed from a published-bound skill; was never live at scan time>
 ```
 
 ## Common Failure Modes

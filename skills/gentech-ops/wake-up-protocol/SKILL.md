@@ -9,6 +9,13 @@ tags: [startup, identity, behavior, context, wake-up, brain-refresh]
 
 # Wake-Up Protocol — Brain Refresh on Restart
 
+> ⚠️ **START HERE FIRST: `START-HERE.md` (vault root) and `00-HQ/gentech-quickstart.md` are the
+> canonical quick-start as of 2026-10-18.** The numbered path list below is **partly historical** —
+> several paths it cites no longer exist (see the Pitfalls list: `03-GENTECH/soul.md`, `00-BRIEFING.md`,
+> `00-STATE.md`, `scripts/build_queue.json` are all gone). Read the two guides for the current map;
+> treat the steps here as the *behavior* to follow and the older path names as superseded. When a path
+> below fails, check the Pitfalls list — **do not halt.**
+
 ## When to Run
 - **Every session start** (new conversation, after restart, after context compaction)
 - When Jordan says "wake up" or "refresh yourself"
@@ -83,6 +90,38 @@ fi
 2. In `~/.config/gh/hosts.yml` — for the `gh` CLI (used by PR Maintainer, GitHub Contribution Crunch)
 The `.env` file has the token, but the `gh` CLI uses its own config. If one is stale, the other may still work. Always check both during wakeup.
 
+### Step 1a: Load the brain map (MANDATORY — before anything else)
+
+```
+read_file("${VAULT_DIR}/00-System/BRAIN-MAP.md")
+```
+
+**What is this room, who owns it, may I write here** — plus the one page of writing rules
+(`00-System/WRITING-RULES.md`). `ROUTING.md` answers "where do I look up a topic"; this answers the
+question before it, and it exists because a seat that does not know the map writes in the wrong room.
+
+**Check the five must-not-be-stale files named there.** Measured 2026-11-08: `context-weight.md` — the
+file this protocol calls "the single most important on wake-up" — was **30.6 days old**. A stale file
+still loads, so it lies silently. **If it is more than a day old, say so and do not trust it.**
+
+### Step 1a-bis: Know where your overflow goes (added 2026-11-09)
+
+```
+read_file("${VAULT_DIR}/10-Labs/hermes-memory/README.md")
+```
+
+**Your 2,200-char memory block is full.** `vault-memory` is now active on every seat: it searches
+`10-Labs/hermes-memory/<your-seat>/` by relevance and recalls the right note each turn.
+
+- **What must be true EVERY turn stays in memory.** Standing rules, identity, the things that apply even when
+  nothing reminds you.
+- **Everything else becomes a dated note in your own folder** and is recalled when relevant.
+- **Never delete a memory entry to make room — move it.** A cut with no note is a fact thrown away; a cut with
+  a note is a fact filed.
+
+**And every note carries `Status:`** — `live` / `superseded by <path>` / `dead`. A recalled note with no age is
+a fact an agent cannot decide whether to trust.
+
 ### Step 1b: Load Routing File (MANDATORY — before ANY retrieval)
 ```bash
 read_file("${VAULT_DIR}/ROUTING.md")
@@ -107,8 +146,10 @@ read_file("${VAULT_DIR}/00-HQ/context-weight.md")
 ```
 # Primary: check 00-HQ/ directory for briefing files
 search_files("*.md", path="${VAULT_DIR}/00-HQ/", target="files", limit=5)
-# Fallback: check for standalone 00-BRIEFING.md (legacy path)
-read_file("${VAULT_DIR}/00-BRIEFING.md")  # may not exist in current vault layout
+# ⚠️ 00-BRIEFING.md NO LONGER EXISTS (verified 2026-11-09). Do not read it — the read fails and the
+    # failure looks like a broken seat. Read these instead, both of which DO exist:
+    read_file("${VAULT_DIR}/00-System/BRAIN-MAP.md")          # the room map: what each folder is, who writes
+    read_file("${VAULT_DIR}/00-HQ/context-weight.md")         # generated daily; if >1d old, say so and distrust
 ```
 Check `00-HQ/` for your briefing — this directory replaced the standalone `00-BRIEFING.md`. If you find nothing useful there, also scan `Gentech/` and the vault root for identity files. **This is your personality and rules.** Internalize before responding to anything.
 
@@ -349,7 +390,7 @@ The instant Jordan confirms, completes, or decides anything for a tracked item, 
 - **context bridge** (`09-Green Room/context-bridge/latest-context.md`) = task context (Step 7, vault-based, no separate skill needed)
 
 ### With Session Startup (AUTO-TRIGGER)
-`session-startup` skill automatically runs wake-up-protocol on fresh sessions. This prevents the "I forgot who I am" problem after gateway restarts.
+`session-startup` skill automatically runs wake-up-protocol on fresh sessions. This prevents the "I forgot who I am" problem after gateway restarts.   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `session-startup` exists on this seat -->
 
 **Installation:** session-startup is part of the Agent Kit Behavioral Fixes package (`agent-kit-behavioral-fixes/`). Install via:
 ```bash
@@ -400,17 +441,23 @@ Recovery kit handles: gateway restarts, MCP server failures, stuck sessions, "no
 - **Missing BRIEFING.md / STATE.md / soul.md is normal** — After the Jul 2026 vault reorganization, these standalone files were replaced by directory-based structure (`00-HQ/`, `Gentech/`, `09-Green Room/items.md`). Don't halt the protocol if a legacy path fails. Check alternative paths in each Step and continue. The build queue JSON and handoff files together provide current state.
 - **Marker file corruption causes infinite wake-up loops** — session-startup marker file must use atomic writes with file locking (fcntl). Without locks, concurrent sessions corrupt the marker, causing every message to trigger wake-up. Use shared locks (LOCK_SH) for reads and exclusive locks (LOCK_EX) for writes.
 - **Gateway start time must be accurate** — session-startup compares marker timestamp against gateway start. If get_gateway_start_time() returns wrong value (e.g., always current time), agent wakes on every message. Implement gateway start detection via environment variable or log parsing, not hardcoded time.time() - 3600.
+- **⚠️ MEASURED 2026-11-08 — three paths this skill still names DO NOT EXIST:** `Gentech/soul.md`,
+  `00-BRIEFING.md`, `03-GENTECH/soul.md`. A seat following the steps literally hits three dead paths before
+  it finds anything useful. **Replace them with `00-System/BRAIN-MAP.md` (the map) and
+  `00-HQ/gentech-quickstart.md` (the quick-start)** — both exist. This is a missing-file problem, not a
+  broken agent; continue to the next step.
 - **Vault reorganization (Jul 2026): legacy paths may not exist** — The vault was restructured from flat files (`00-BRIEFING.md`, `00-STATE.md`, `03-GENTECH/soul.md`, `09-IDEAS/ideas.md`) to a directory-based layout (`00-HQ/`, `Gentech/`, `09-Green Room/items.md`). If a Step's path fails with FileNotFoundError, don't treat it as a protocol-breaking error — check alternative paths listed in the step and continue. The protocol should degrade gracefully: missing files mean you skip that step, not that you halt.
 
 ## Verification
-After running the protocol, you should be able to answer:
-1. Who am I? (GenTech, Jordan's solo agent)
-2. Who is Jordan? (Amazon by day, builder by night, 12hr shifts Thu-Fri)
-3. Who are the collaborators? (Vanito, Christel — both active testers)
-4. What are we building? (AAE — Autonomous Agentic Economy)
-5. What's the current state? (from build queue JSON and handoff files)
-6. What was I doing before restart? (from handoff notes)
-7. What are the current Milestones? (from Green Room ideas or queue)
+After running the protocol, you should be able to answer *(updated 2026-10-18 — the previous answers
+here were stale and wrong)*:
+1. Who am I? (Gentech — HQ of a five-seat fleet, **not** a solo agent)
+2. Who is Jordan? (Cincinnati, Ohio — ET; owner of the fleet; not a sysadmin)
+3. Who are the collaborators? (**Vanito, Dadrian, Collin** — `00-HQ/collaborators/`)
+4. What are we building? (**income first** — the x402 rail + the shop; plus FDE, EDU, Treasury)
+5. What's the current state? (**the four lists** — see `START-HERE.md` §6)
+6. What was I doing before restart? (the context bridge + handoff notes)
+7. Who are the seats? (Gentech, Treasury, Arthur, Proto J, Forge — `00-System/agent-profiles/`)
 
 **Reference Files**
 - **[briefing-file-creation.md](references/briefing-file-creation.md)** — Guide for creating missing BRIEFING.md file

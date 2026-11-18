@@ -54,16 +54,16 @@ The reader's fee estimate (`fees.dailyFees` in defi-data.json) uses a calibrated
 
 ## Cron Script Path: Global vs Profile (Critical Pitfall)
 
-The `lp-monitor-v2.py` script explicitly reads from `/root/.hermes/scripts/` (the **global** path), NOT the profile path:
+The `lp-monitor-v2.py` script explicitly reads from `/opt/data/profiles/gentech/scripts/` (the **global** path), NOT the profile path:
 
 ```python
-# ALWAYS use /root/.hermes/scripts/ — NOT the profile path
-HOME_SCRIPTS = "/root/.hermes/scripts"
+# ALWAYS use /opt/data/profiles/gentech/scripts/ — NOT the profile path
+HOME_SCRIPTS = "/opt/data/profiles/gentech/scripts"
 ```
 
 This is a deliberate design choice to avoid overwrite conflicts. **When fixing config after a rebalance:**
 - ✅ Update profile config: `${PROFILE_DIR}/scripts/.lfj-aae-config.json`
-- ✅ **ALSO** update global config: `/root/.hermes/scripts/.lfj-aae-config.json`
+- ✅ **ALSO** update global config: `/opt/data/profiles/gentech/state/lfj-aae-config.json`
 - ✅ **ALSO** update both position tracker paths
 
 Failing to update the global path = cron reports stale data indefinitely.
@@ -71,9 +71,9 @@ Failing to update the global path = cron reports stale data indefinitely.
 **Files the cron reads from (non-obvious):**
 | File | Path | What it provides |
 |------|------|-----------------|
-| Global config | `/root/.hermes/scripts/.lfj-aae-config.json` | range, shape, position amounts |
-| Global tracker | `/root/.hermes/scripts/.lfj-position-tracker.json` | entry price (fallback) |
-| Dashboard | `/root/repos/gentechlabs.github.io/DeFi/defi-data.json` | fee estimates (calibrated) |
+| Global config | `/opt/data/profiles/gentech/state/lfj-aae-config.json` | range, shape, position amounts |
+| Global tracker | `/opt/data/profiles/gentech/scripts/.lfj-position-tracker.json` | entry price (fallback) |
+| Dashboard | `(GitHub repo, not on this host: gentechlabs.github.io/)DeFi/defi-data.json` | fee estimates (calibrated) |
 
 ## Fee Pipeline: Architecture Summary
 
@@ -204,7 +204,7 @@ def calc_efficiency(price, range_low, range_high, shape):
 ```
 
 **Files updated (Jul 4, 2026):**
-- `/root/.hermes/scripts/lp-position-reader.py` — bin-weighted calculation
+- `/opt/data/.obsidian-vault/Treasury/scripts/lp-position-reader.py` — bin-weighted calculation
 - `${PROFILE_DIR}/scripts/lp-monitor-v2.py` — bin-weighted calculation
 
 ## Data Source Priority (Jordan's Rule, Jun 24, 2026)
@@ -248,7 +248,7 @@ When Jordan rebalances (detected by on-chain reader or screenshot):
 
 ## Dual-Path Sync (Profile vs Global)
 
-**Pitfall:** Hermes runs from `${PROFILE_DIR}/` but the position tracker also exists at `/root/.hermes/scripts/`. Jordan's manual rebalances update the GLOBAL path, but cron scripts read from the PROFILE path. If they drift, the monitor reports stale ranges and false "OUT OF RANGE" alerts.
+**Pitfall:** Hermes runs from `${PROFILE_DIR}/` but the position tracker also exists at `/opt/data/profiles/gentech/scripts/`. Jordan's manual rebalances update the GLOBAL path, but cron scripts read from the PROFILE path. If they drift, the monitor reports stale ranges and false "OUT OF RANGE" alerts.
 
 **Fix:** The `sync_tracker()` and `sync_config()` helper functions in `defi-lp-consolidated.py` write to BOTH paths simultaneously:
 ```python
@@ -651,15 +651,15 @@ The on-chain reader (`run-reader.py`) writes a CLEAN `defi-data.json` every 10 m
 | File | Location | Purpose |
 |------|----------|---------|
 | Position tracker (profile) | `${PROFILE_DIR}/scripts/.lfj-position-tracker.json` | Primary — cron scripts read from HERE |
-| Position tracker (global) | `/root/.hermes/scripts/.lfj-position-tracker.json` | Secondary — must be synced with profile |
+| Position tracker (global) | `/opt/data/profiles/gentech/scripts/.lfj-position-tracker.json` | Secondary — must be synced with profile |
 | AAE config (profile) | `${PROFILE_DIR}/scripts/.lfj-aae-config.json` | Full position config |
-| AAE config (global) | `/root/.hermes/scripts/.lfj-aae-config.json` | Secondary — must be synced with profile |
+| AAE config (global) | `/opt/data/profiles/gentech/state/lfj-aae-config.json` | Secondary — must be synced with profile |
 | State | `${PROFILE_DIR}/scripts/.lfj-defi-state.json` | Debounce state, fee tracking, edge timers |
-| AAE config (global) | `/root/.hermes/scripts/.lfj-aae-config.json` | Secondary — must be synced with profile |
-| State | `/root/.hermes/scripts/.lfj-defi-state.json` | Debounce state, fee tracking |
-| Dashboard data | `/root/repos/gentechlabs.github.io/DeFi/defi-data.json` | Hub data source |
+| AAE config (global) | `/opt/data/profiles/gentech/state/lfj-aae-config.json` | Secondary — must be synced with profile |
+| State | `/opt/data/profiles/gentech/scripts/.lfj-defi-state.json` | Debounce state, fee tracking |
+| Dashboard data | `(GitHub repo, not on this host: gentechlabs.github.io/)DeFi/defi-data.json` | Hub data source |
 | Rainbow data (scripts) | `${PROFILE_DIR}/scripts/yield-rainbow-data.json` | Local tools read from here |
-| Rainbow data (dashboard) | `/root/repos/gentechlabs.github.io/DeFi/rainbow/yield-rainbow-data.json` | Dashboard HTML reads from here |
+| Rainbow data (dashboard) | `(GitHub repo, not on this host: gentechlabs.github.io/)DeFi/rainbow/yield-rainbow-data.json` | Dashboard HTML reads from here |
 | Reader script | `${VAULT_DIR}/scripts/run-reader.sh` | On-chain reader wrapper |
 | Monitor script | `${PROFILE_DIR}/scripts/defi-lp-consolidated.py` | 10-min cron report + rainbow sync |
 
@@ -961,8 +961,8 @@ SILENCE_DURATION_MINUTES = 60   # stay silent for 1 hour after
 ### Files Updated (Jul 4, 2026)
 
 - `${PROFILE_DIR}/scripts/lp-monitor-v2.py` — smart debounce + suggestions
-- `/root/.hermes/scripts/lp-monitor-v2.py` — global copy for cron
-- `/root/.hermes/scripts/lp-position-reader.py` — bin-weighted efficiency
+- `/opt/data/10-Labs/agent-kit-self-tracking/lp-monitor-v2.py` — global copy for cron
+- `/opt/data/.obsidian-vault/Treasury/scripts/lp-position-reader.py` — bin-weighted efficiency
 - Commit: "feat: smart LP alerts — range migration suggestions"
 - Commit: "fix: bin-weighted LP efficiency calculation"
 

@@ -178,7 +178,7 @@ See `references/external-skill-repos.md` for curated repos: Mercury Skills (147+
 - ❌ `solana-agent-toolkit` → too specific, tied to one product
 - ✅ `solana-agent-patterns` or just integrate into existing `solana` skill
 - ❌ `goplus-security-api` → too specific, API-product name
-- ✅ `token-security-audit` or integrate into existing `solidity-security`
+- ✅ `token-security-audit` or integrate into existing `solidity-security`   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `solidity-security` exists on this seat -->
 
 **The test:** Would this skill name still make sense 6 months from now, after the product rebrands, pivots, or dies? If not, it's too specific. Class-level names survive product lifecycle changes.
 

@@ -15,7 +15,7 @@ Fetch cryptocurrency prices with automatic fallback between providers and compre
 
 ## Fallback Chain
 
-1. **CoinMarketCap** (primary) — needs API key in environment or at `/root/.hermes/scripts/cmc_config.json`
+1. **CoinMarketCap** (primary) — needs API key in environment or at `/opt/data/profiles/gentech/scripts/cmc_config.json`   <!-- ⚠️ NOT PRESENT (checked 2026-11-17): this file does not exist on this seat. Do not assume it; verify before relying on it. -->
 2. **CMC keyless trial endpoint** (same-provider fallback, verified 2026-08-29) — `https://pro-api.coinmarketcap.com/trial-pro-api/v1/cryptocurrency/listings/latest?limit=N` — NO key required, returns real JSON with live prices + `credit_count` in status. Use when the keyed call fails (error_code 1001 invalid key, 429, billing). Limitations: listings/latest only (top-N by rank, no arbitrary symbol lookup — find your coin's rank in the payload), ~1 credit-equivalent per call, no SLA. 
 3. **CoinGecko** (free, no key) — reliable fallback, rate-limited  
 4. **Binance** (tertiary) — public API, high availability (blocked from execute_code sandbox — HTTP 451, see pitfall 8)
@@ -504,7 +504,7 @@ The **GTA (Gentech Trading Agent)** generates LONG/SHORT/SKIP signals daily at 7
 - **Commodities:** XAG/USD (Silver), XAU/USD (Gold), USOILSPOT/USD (WTI Crude)
 
 ### Data Gathering Order
-1. **Crypto prices** — **CoinMarketCap primary** (API key at /root/.hermes/scripts/cmc_config.json). Returns price + 24h change + 7d change in one call. Fall back to CoinGecko if CMC fails.
+1. **Crypto prices** — **CoinMarketCap primary** (API key at /opt/data/profiles/gentech/scripts/cmc_config.json). Returns price + 24h change + 7d change in one call. Fall back to CoinGecko if CMC fails.
 2. **Commodity prices** — **Yahoo Finance first** (via `execute_code` or browser API proxy). `GC=F` (Gold), `SI=F` (Silver), `CL=F` (Oil). Yahoo gives structured JSON with price + previous close in one call. If Yahoo fails, fall back to Kitco via browser (`kitco.com/charts/gold` — shows live bid/ask). Avoid `web_search` for commodity prices — it returns stale/conflicting data from multiple sources. See commodity section above for code.
 3. **Fear & Greed Index** — `https://api.alternative.me/fng/?limit=1`. Returns `value` (0-100) and `value_classification`. Browser API proxy works reliably.
 4. **Market context** — Bitcoin price (proxy for crypto beta), VIX (equity stress), S&P 500 (risk-on/off gauge). Yahoo Finance sidebar or CoinGecko for BTC.

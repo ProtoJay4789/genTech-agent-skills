@@ -204,7 +204,7 @@ Every queue item gets a `platform` field that routes work to the right agent:
 | `either` | First available | Any agent can pick it up |
 | `gentech` | Gentech only | Never routed to Forge |
 
-The `build_queue_tick.py` script handles VPS-side scanning; Forge uses `forge-build-queue-processor` skill to filter by platform.
+The `build_queue_tick.py` script handles VPS-side scanning; Forge uses `forge-build-queue-processor` skill to filter by platform.   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `forge-build-queue-processor` exists on this seat -->
 
 ### Stale Duplicate Queue — Known Pitfall
 
@@ -437,7 +437,7 @@ curl -s "https://api.deepseek.com/v1/usage" \
   1. Vault syncs (`ob sync` or git push/pull)
   2. Receiver starts a session with wake-up protocol running
   - **Fix:** Explicitly mention sync status + wake-up protocol dependency in handoff
-  - **CRITICAL FIX (July 6, 2026)**: Use `agent-to-agent-communication-audit` skill to verify handoff completeness before syncing
+  - **CRITICAL FIX (July 6, 2026)**: Use `agent-to-agent-communication-audit` skill to verify handoff completeness before syncing   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `agent-to-agent-communication-audit` exists on this seat -->
     - Checks for all required sections (Context, What Sender Built/Did, What Sender Did, Git Status Summary, Recent Work, Build Queue Snapshot, Blockers/Needs, Next Steps for Receiver)
     - Detects duplicate tasks against handoff history and current queue
     - Generates audit reports for failed handoffs
@@ -642,6 +642,6 @@ See `references/vps-remote-gateway-implementation-jul-2026.md` for:
 - `references/forge-quick-commands.md` - Quick command reference for Forge
 - `references/orchestrator-list-pattern-jul-2026.md` - Jordan's action items vs Forge's task queue pattern
 - `forge-implementation-guide.md` - Windows desktop setup guide
-- `forge-wake-up-protocol` skill - Forge-specific initialization
+- `wake-up-protocol` skill - Forge-specific initialization
 - `dual-agent-router.py` script - Automatic agent detection
 - `forge-auto-wakeup.py` script - Forge wake-up sequence

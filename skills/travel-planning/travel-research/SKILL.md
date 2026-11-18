@@ -54,13 +54,25 @@ grep -R "travel.*\.json\|build-travel" ${PROFILE_DIR}/cron/ ${PROFILE_DIR}/scrip
 
 # 3. Check whether repo / webroot copies are stale mirrors
 md5sum ${VAULT_DIR}/Travel/travel-*.json \
-      /root/repos/gentechlabs.github.io/Travel/travel-*.json \
+      (GitHub repo, not on this host: gentechlabs.github.io/)Travel/travel-*.json \
       /var/www/gentechlabs/Travel/travel-*.json 2>/dev/null
 ```
 
 **Rule:** edit the source the generator reads, then re-run the generator. Hand-editing a generated file (e.g. `travel-live.json`) is silently erased at the next cron run.
 
 **Rule:** verify the public surface by reading the **served bytes**, not the local file. `curl` the live URL and check the value there.
+
+**Rule: the trip JSON exists in more than one place, and the copies drift.** Measured: the consolidation left
+`Travel/travel-jordan.json` and `00-HQ/01-Travel/travel-jordan.json` both present and **different**, while the
+dashboard fetches `Travel/…` and the routing index names `00-HQ/01-Travel/…` as canonical. So `diff` the copies
+before editing, `grep` the dashboard/generator for which path it actually fetches, and then write the same bytes
+to both (backing up each). Editing one copy is how a plan silently reverts in the UI an hour later.
+
+**Rule: retire a superseded plan, do not delete it.** Rename the old note to `_RETIRED-<slug>.md` with a
+SUPERSEDED header naming the replacement and the one measured fact that killed it, and keep the booking refs /
+leave-window maths that are still true. Deleting it loses the evidence; leaving it in place invites the next
+agent to plan from a dead itinerary. Then add the live plan to the routing index in the same pass — an
+unindexed plan is one the next session routes past.
 
 ### Step 1: Define Trip Parameters
 
@@ -95,12 +107,68 @@ Jordan: Solo trip, CVG → Angeles City (8 days) + Cambodia (4 days), Aug/Sep 20
 - Airline websites
 - Travel forums (Reddit r/solotravel, TripAdvisor)
 
-**Day-of-week guidance for international departures (verified 2026 sources):**
-- **Thursday** is typically the cheapest international departure day (up to ~15% below Sunday)
-- **Tuesday / Wednesday** are close behind
-- **Friday** can also be favorable
-- **Sunday and Monday** are usually the most expensive
-- Savings are smaller than for domestic flights but still meaningful on long-haul tickets
+**Day-of-week is a HYPOTHESIS per route — probe the adjacent dates, never apply a rule.**
+Generic guidance ("Tuesday or Thursday is cheapest") is a population average, and a single-carrier one-way
+long-haul fare routinely violates it: the same itinerary measured one day apart can differ by 2–3x, and which
+day is cheap moves with the carrier and the season. Measured on one route, the Thursday fare was ~3x the
+Tuesday on identical routing; on another route the Thursday was the cheap one. **So quote a date and its
+observed price, never a weekday rule** — search the target date plus the Tuesday and Wednesday either side,
+and report the spread you actually saw.
+
+### Step 2a: Price it fast — and price the alternate gateway
+
+When no flight API is wired (a search token answering `unauthorized` is a credential state, not a fact about
+the market), Google Flights answers a plain query URL and its offers can be read as text:
+
+```
+https://www.google.com/travel/flights?q=Flights%20one%20way%20from%20CVG%20to%20MNL%20on%202027-02-07&curr=USD&hl=en
+```
+
+Load it, take `document.body.innerText`, and slice from `Search results` — each offer prints price, total
+duration, stops, carriers and connecting airports in that order, which is exactly the table you need.
+
+- **A shared `/travel/flights/s/<id>` link is a BOOKING page, not a search.** It names the sellers (and that
+  is its value — "who am I actually buying from"), but it tells you nothing about whether that is the
+  cheapest date. Read the seller off it, then run a fresh query for price.
+- **Collect what you have if the endpoint starts throttling.** After several consecutive searches it can
+  return an empty result block; that is a rate state, not "no flights". Re-run the remaining dates after a
+  pause and say which dates you did not reach.
+
+**Always price the alternate gateway before booking a secondary airport.** Secondary airports look
+convenient and are frequently served by one punishing routing. Measured on the same trip: the secondary
+gateway was ~2x the capital's airport price and ~2.5x the elapsed time (60h, two long connections), while the
+ground transfer between them was a few dollars and three hours. Compare **`origin → secondary`** against
+**`origin → capital + ground leg`** as two complete trips — price AND door-to-door hours — and recommend the
+whole journey, not the airport.
+
+**An airline credit or voucher is only redeemable where the airline holds the booking.** A refund credit in
+particular usually cannot be attached to an aggregator/OTA listing of the same flight, so price that leg on
+the carrier's own site. And read the fare class behind a cheap number before recommending it — the cheapest
+international fare bucket is often change-forbidden, which is a strange thing to buy immediately after a
+refund taught everyone what flexibility costs.
+
+### Step 2b: The traveler's own saved-places list is an intent document
+
+When the traveler shares a Google Maps list (`maps.app.goo.gl/…` resolving to `…/placelists/list/<id>`), read it
+as a statement of intent, not as a to-do list:
+
+- **The list pane is virtualised — a scripted browser materialises only the first screenful.** Measured: a list
+  titled "70 places" yielded **25** entries, and ~25 scroll / click / wheel attempts plus three URL variants all
+  returned the same 25. **Do not present a partial capture as the list.** Ask for a **KML export** (Maps app →
+  the list → ⋮ → export) or a Google **Takeout → Maps** JSON, both of which parse directly, and say how many of
+  the total you actually hold.
+- **Read the composition.** The ratio of food / nightlife / attractions / logistics tells you what the trip is
+  for — a list that is six bars, three massage venues and one attraction is a *where-to-be* trip, not a
+  sightseeing one, and the itinerary should be built accordingly.
+- **A district appearing twice is a base clue.** A transit point and a venue in the same neighbourhood is the
+  traveler telling you where they intend to sleep, before they have said it.
+- **Check each entry's live status.** A saved venue marked *Permanently closed* will send the traveler to a
+  shuttered door; flag them for pruning rather than quietly carrying them forward.
+
+**Ground transfers are a first-class line item, with a payment method and a boarding point.** The airport-to-city
+bus is often a few dollars, **cash only**, departing from a named bay at a named terminal, on a published
+pattern that is not a timetable guarantee. Hand those three facts over *before* the flight, not at the kerb — and
+allow a buffer if the traveler connects to another flight the same day.
 
 **What to document:**
 | Route | Duration | Stops | Cost | Airlines | Notes |
@@ -196,6 +264,13 @@ Long-haul travel consumes days on both ends. Report usable time honestly.
 - Duration: 30 days
 - Required: Passport photo, USD cash
 - Alternative: E-visa (apply online, faster processing)
+
+**Onward-travel proof is a document, not a detail — and on a multi-leg build it is a LATER LEG that must be
+booked EARLY.** Immigration and, more often, the check-in desk at the origin will refuse a one-way arrival
+without evidence of onward travel (or a return). So on a three- or four-leg build, the leg that *proves exit*
+is load-bearing for the leg that *enters*: a one-way into the Philippines needs the onward sector out of it, and
+a one-way into Thailand needs the sector that leaves Thailand. Check the pairing when the itinerary is drawn,
+not at the airport — the constraint rarely shows up in a fare search and never shows up in a price comparison.
 
 **Logistics:**
 - Airport to city transport (taxi, train, bus)
@@ -556,6 +631,7 @@ The "from $X" price shown on search results and product pages is the cheapest po
 ## Support Files
 
 - `references/trip-data-path-and-privacy-check.md` — data-path audit for travel hubs and the companion-photo boundary
+- `references/booking-channel-choice.md` — airline-direct vs OTA vs consolidator: read the seller off the page, the one-ticket-vs-separate-tickets test, and how to answer "what if I miss my connection / there's an emergency"
 
 ## Tools
 
@@ -577,6 +653,9 @@ The "from $X" price shown on search results and product pages is the cheapest po
 
 ---
 
-*Created: July 7, 2026 | Updated: October 1, 2026*
+*Created: July 7, 2026 | Updated: November 3, 2026*
 *Status: Active*
 *Applies to: Solo, couple, and group travel; multi-country trips; budget optimization; employment-constrained trips*
+
+**Changelog note:** the day-of-week table this file used to carry ("Thursday is typically cheapest") was
+replaced by the adjacent-date probe in Step 2 — it mispredicted the route it was consulted for by ~3x.

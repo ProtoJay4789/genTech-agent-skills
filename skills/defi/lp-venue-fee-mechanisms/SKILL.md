@@ -23,6 +23,35 @@ venue's path.
 | Gas to "claim a fee" | **0, because no claim EXISTS** | real, multi-transaction; measure it, do not assume |
 | Strategy lever | **bin shapes** (curve / bid-ask / spot) | **range width + re-center timing** — no shape families |
 
+**The table is binary; the venues are not. A THIRD family exists and it has a claim step.** Multi-range tick
+AMMs (Meteora DLMM Pro and its kin) store liquidity as `liquidity_net` at ticks, hold each position as an NFT of
+up to 45 ranges, and **expose earned fees as a readable, claimable balance per position slot** — the SDK's
+`getClaimableFees(pool, nftMint)` returns `{feeX, feeY}` per slot, with `refreshFeesAndRewards` to update it.
+
+So "Liquidity Book ⇒ nothing to claim" is a statement about **bins that fold fees into reserves at swap time**,
+not about every venue with discrete price levels. Establish the mechanism per venue; never infer it from the
+word "bin".
+
+## Realized earnings are readable; a forward per-bin estimate is not
+
+These are two different questions and conflating them is how a fee projection becomes fiction:
+
+| question | multi-range tick AMM | Liquidity Book (LFJ) |
+|---|---|---|
+| **what has this position earned so far?** | ✅ readable per slot (`claimable fees`) | ❌ no claimable getter — derive from `fee_factor` deltas |
+| **what will bin/tick N earn per day?** | ⚠️ forward estimate only | ⚠️ forward estimate only |
+
+- **A venue can tell you what you already earned and still not tell you what a position WILL earn.** The per-level
+  forward number is always `volume through that price level × fee rate × your share of the liquidity at that
+  level` — a reconstruction, never a contract read. Publish it as a range with the assumptions named.
+- **Prefer the venue that lets you read realized earnings.** A getter for actual accrued fees removes the largest
+  source of projection error, and it is the honest answer to "how much are we making?" even while the forward
+  rate stays UNKNOWN.
+- **Do not report a single-number fee projection.** The measured failures in this file are all projections that
+  read as precise. A range plus the cost line is the only shape that survives being quoted back at you.
+- **Volume is not a contract read on any of them.** Where a venue documents per-tick swap events, history is
+  reconstructable; where it does not, the rate stays UNKNOWN and the plan must say so.
+
 ## What the ledger must record: our income, not the pool's
 
 A Liquidity Book ledger that records the position (`bins`, `our_token0`, `our_token1`, `value_usd`,
@@ -96,6 +125,9 @@ mechanism the venue has before adopting the design.
   do NOT work, and the two routes that cross-check each other.
 - `references/fee-ledger-income-recipe.md` — how to record OUR income in an LP fee ledger, keyed to
   the shape in force and segmented around rebuilds.
+- `references/apr-source-comparison.md` — the four kinds of APR wearing one name, the shrinkage
+  artefact, APR÷σ, band fee density and exit time, gas as a floor, **why a spike-day turnover produces a
+  ceiling not a rate**, and **why the fee-to-IL ratio is size-invariant** (size only amortises fixed costs).
 
 ## Our share vs the pool's receipts
 

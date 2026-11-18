@@ -5,11 +5,59 @@ version: 1.5.0
 author: gentech
 tags: [harness, evolution, cron, self-improvement, verification, agent-kit]
 trigger: "When running or debugging the Harness Evolution cron (execution-loop.sh evolve), the Harness Critic, or any self-evolving agent cycle that reads a recommendation/plan file, executes an action, and writes a result to an audit log under ${HERMES_HOME}/harness/."
+
+related_skills:
+  - ../harness-critic/SKILL.md
+  - ../self-evolution-harness/SKILL.md
 ---
 
 # Harness Self-Evolution Cycle
 
 The Harness Evolution agent makes a Hermes instance measurably more useful to its USER — not to its own bookkeeping. The Critic is its adversary. This skill governs running that cycle correctly.
+
+
+## Reference index — all files, including the ones nothing else links to
+
+⚠️ **Until 2026-10-31, 11 of the 18 reference files were never cited from this SKILL.md.** The content
+existed and no reader would find it. Read these when the named symptom appears:
+
+| file | read it when… |
+|---|---|
+| `references/verifier-due-date-adjudication.md` | predictions pass their due epoch unrecorded (the largest reference here) |
+| `references/dispatch-lock-reentrancy.md` | a dispatch lock "passes" but nothing ran — header/marker/grep ids coinciding |
+| `references/diagnosing-silent-dispatch-failures.md` | a dispatch "succeeds" and writes **no row** |
+| `references/set-e-abort-before-audit.md` | real work shipped and the ledger has no receipt (the inverse-phantom) |
+| `references/post-dispatch-reverification.md` | after a cycle — `_reverify_published_metrics` and what it can see |
+| `references/metric-authoring-gates.md` | before writing a metric — the full guard stack |
+| `references/parser-safe-metrics.md` | a metric is invisible to the counter (pipe/semicolon blindness) |
+| `references/evolve-65-pitfalls.md` | cycle-specific pitfalls from evolve-65 |
+| `references/evolve-loop-gotchas.md` | operational gotchas running the loop |
+| `references/harness-debugging-pitfalls.md` | session-derived debugging techniques |
+| `references/behavior-lock-anti-degeneration.md` | a hardened cron prompt is needed (anti-degeneration pattern) |
+
+**Still cited elsewhere in this SKILL.md:** `metric-authoring-pitfalls.md`, `plan-file-contract.md`,
+`metric-and-loop-pitfalls.md`, `guard-falsifiability.md`, `metric-gate-selftest.md`,
+`evolve-77-session-notes.md`, `credential-health-delta-mode.md`.
+
+## This skill is ONE of three — the harness family
+
+**They describe a single system: one runtime, two agents (Evolution + Critic) and a constitution.**
+
+| skill | role |
+|---|---|
+| `harness-self-evolution` | how to RUN a cycle correctly — the gate, the metrics, the audit trail |
+| `harness-critic` | the adversary — audits the Evolver for stagnation, self-dealing, monoculture |
+| `self-evolution-harness` | the design — constitution, witness log, bootstrap |
+
+⚠️ **Loading one without the others gets you half the machine.** The Critic's counter-recommendations
+are binding on the Evolver (INVARIANT), and the Evolver's cycle is meaningless without the Critic's
+audit. **Start here → `harness-self-evolution/SKILL.md`.**
+
+⚠️ **The three carry independent version numbers (1.5.0 / 1.8.0 / 2.0.0) for one runtime.** Treat the
+version as *document* version, not system version — they are not in lockstep.
+
+⚠️ **The runtime was lost in the Oct 2026 wipe** (`/root` → gone). The doctrine is intact; the code is
+not. See `00-HQ/harness-audit-2026-10-31.md` before citing any behavioural claim as verified.
 
 ## The GATE (read first, every cycle)
 

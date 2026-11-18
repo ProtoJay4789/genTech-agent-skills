@@ -647,7 +647,7 @@ cd /path/to/repo
 python3 -c "import json; json.load(open('DeFi/defi-data.json')); print('VALID')"
 
 # 3. Replace the corrupted file with the clean copy
-cp ${VAULT_DIR}/defi-data.json /root/repos/gentechlabs.github.io/DeFi/defi-data.json
+cp ${VAULT_DIR}/defi-data.json (GitHub repo, not on this host: gentechlabs.github.io/)DeFi/defi-data.json
 
 # 4. Re-commit (amend the failed sync commit)
 git add DeFi/defi-data.json
@@ -887,7 +887,7 @@ The token sources (env → secrets/github-token → gh auth token) must stay in 
 The message is about your work; the diff is partly theirs. Worst case: a *money-path* file lands in a
 commit that a job wrote automatically and neither agent chose.
 
-**Cause:** The vault (`/root/vaults/gentech`) is a **single shared working tree** that gentech,
+**Cause:** The vault (`/opt/data/.obsidian-vault`) is a **single shared working tree** that gentech,
 gentech-treasury, gizmo and pixel all write to — and they all author commits as the **same git identity**,
 so a swept file is indistinguishable from the sweeper's after the fact. `git add -A` stages whatever
 anyone has in flight. This is not a merge conflict; it is a **transaction nobody intended**.
@@ -896,8 +896,8 @@ anyone has in flight. This is not a merge conflict; it is a **transaction nobody
 
 Use the purpose-built tool:
 ```bash
-python3 /root/.hermes/scripts/vault-commit.py -m "msg" -- <path> [<path> ...]
-python3 /root/.hermes/scripts/vault-commit.py --status    # show foreign dirty files, commit nothing
+python3 /opt/data/profiles/gentech/scripts/vault-commit.py -m "msg" -- <path> [<path> ...]   <!-- ⚠️ ABSENT (verified 2026-11-17): this tool is not present on this host. Do not assume it runs. See build-queue #108. -->
+python3 /opt/data/profiles/gentech/scripts/vault-commit.py --status    # show foreign dirty files, commit nothing
 ```
 It refuses to run without an explicit path list, refuses paths that look like another writer's live work
 (unless `--force`), and prints every dirty file it did **not** commit — so nothing is swept or forgotten silently.
@@ -1160,7 +1160,7 @@ curl -s -H "Authorization: token $(gh auth token)" https://api.github.com/rate_l
   | python3 -c "import sys,json; r=json.load(sys.stdin)['resources']['core']; print(f'GitHub core: {r[\"remaining\"]}/{r[\"limit\"]}')"
 
 # Local gate (ours)
-python3 /root/.hermes/scripts/github-write-gate.py status
+python3 /opt/data/profiles/gentech/scripts/github-write-gate.py status   <!-- ⚠️ ABSENT (verified 2026-11-17): this tool is not present on this host. Do not assume it runs. See build-queue #108. -->
 ```
 
 **Rule:** Only call it a GitHub rate limit when GitHub's own `rate_limit` endpoint shows a low
@@ -1220,7 +1220,7 @@ print('Lock released')
 
 ```bash
 # Test gaming hub sync
-cd /root/repos/gentechlabs.github.io
+cd (GitHub repo, not on this host: gentechlabs.github.io)
 python3 ${PROFILE_DIR}/scripts/gaming-hub-sync.py
 
 # Test hub nightly sync

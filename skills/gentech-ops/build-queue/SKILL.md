@@ -22,10 +22,41 @@ At midnight ET, the **Nightly Build Session** takes over — develops, tests, ve
 
 ### The Core Loop
 ```
-Gentech picks next task (Easy→Hard) → works until stopping point →
-  saves brain note (11-Mess Hall/agent-brain/) → marks task status →
-  moves to next task → ...until queue empty → wake-up Jordan with summary
+Gentech picks next task (Easy→Hard) → **RE-MEASURES the row before touching it** →
+  works until stopping point → saves brain note (11-Mess Hall/agent-brain/) →
+  marks task status → moves to next task → ...until queue empty → wake-up Jordan with summary
 ```
+
+### ⚠️ `develop-and-verify` IS THE DEFAULT FOR EVERY ROW — not an escalation (Jordan, 2026-11-17)
+
+**Load `develop-and-verify` at the START of every queue row. Do not wait to get stuck.** Jordan:
+*"do you think we should have develop and verify run by default, especially when running the build list?
+I think so. That might give us a better chance of getting things done in one fell swoop."*
+
+**It is cheap, and the evidence is that skipping it is not.** In one session, **four consecutive rows were
+misdescribed symptoms rather than the defect** — `#79` said *"read by nothing"* (it IS read) and *"last written
+2026-09-16"* (content says 2026-08-11; a git sync only refreshes the mtime); `#58` was **already fixed** in one
+file and **latent** in another; `#62` had become true when a different change landed; `#9`'s premise was
+**not reproduced** on re-measurement. **Each would have been "fixed" wrongly by an agent that trusted the row.**
+
+**The row is a claim; the system is the fact.** Before writing a line:
+
+1. **RE-MEASURE THE ROW.** Reproduce the stated symptom with a live probe. **If it does not reproduce, the row
+   is wrong, and the finding is that.** Close it with the measurement — not with code.
+2. **FIND WHO ELSE SHARES THE SHAPE.** `grep` the old read, the old path, the old helper. **A defect one call
+   site short of the end is the normal failure.**
+3. **FIX THE CLASS, NOT THE INSTANCE**, then prove it both directions — **it fires when it should AND stays
+   silent when it shouldn't.** A guard whose only tested state is "everything passes" is decoration.
+4. **SAY WHAT IT CHANGED FOR THE ROW, not what you did.** *"Premise failed twice; disease filed as #107"* is a
+   result. *"Investigated and made improvements"* is not.
+
+**And when a roadblock appears, investigate it alongside the work** — the blocker is usually a bigger finding
+than the task, and you are already standing in the failure.
+
+**Cost of the default:** one probe and one grep per row. **Cost of skipping it:** the eight defects we "fixed"
+tonight that were never the defect.
+
+
 
 ### Agent Routing
 | Agent | Platform | Where | Handles |
@@ -264,7 +295,7 @@ cd /path/to/your/vault && python3 scripts/run_build_queue.py
 
 ## Queue Format (`build_queue.json`)
 
-The canonical queue lives at `${VAULT_DIR}/scripts/build_queue.json`.
+The canonical queue lives at `${VAULT_DIR}/00-HQ/build-queue/build_queue.json`.
 See **Queue Format v2** above for the current format and fields.
 
 ### Cost Field
@@ -489,7 +520,7 @@ The tick script auto-classifies items based on name, detail, and difficulty keyw
 **Jordan's frustrations (July 12, 2026):** Duplicate build queue files across the vault cause confusion. Forge doesn't see everything. Hard to know what's current.
 
 ### The Rule
-**One canonical source of truth:** `scripts/build_queue.json`. All markdown copies are deprecated.
+**One canonical source of truth:** `00-HQ/build-queue/build_queue.json`. All markdown copies are deprecated.
 
 ### Full Audit Command
 When suspecting fragmentation, sweep the entire filesystem:
@@ -501,7 +532,7 @@ find /root -name "build-queue*" -o -name "build_queue*" 2>/dev/null | sort
 Stamp stale markdown copies with a redirect header so no agent or human reads them as current:
 
 > ⚠️ **DEPRECATED — Build Queue moved to JSON**
-> The canonical build queue is now at `scripts/build_queue.json`.
+> The canonical build queue is now at `00-HQ/build-queue/build_queue.json`.
 > All `N` markdown copies are stale — do not edit or reference this file.
 > Run `python3 ${PROFILE_DIR}/scripts/build_queue_tick.py` to regenerate the Forge handoff.
 
@@ -522,12 +553,12 @@ for path in stale_files:
 - Their copies in git clones (`repos/gentechlabs.github.io/`)
 - Portfolio copies (`portfolio/10-Labs/`)
 
-The JSON queue at `scripts/build_queue.json` is the ONLY file that should be edited. All other copies get deprecation-stamped.
+The JSON queue at `00-HQ/build-queue/build_queue.json` is the ONLY file that should be edited. All other copies get deprecation-stamped.
 
 ## Pitfalls
 
 - **`build_queue.json` top-level format can be dict OR bare list — the tick reader must handle both** — The queue file has historically been either a dict (`{"version": ..., "items": [...]}`) or a bare list of items. `build_queue_tick.py`'s `load_queue()` indexes `q["items"]`, so a bare-list file crashes every run with `TypeError: list indices must be integers or slices, not str`, silently stalling Forge/Jordan handoff generation. **Fix (shipped evolve-68):** `load_queue()` normalizes — dict returned as-is, bare list wrapped as `{"version": "list", "items": <list>}`. If you ever touch the queue format, keep this normalization. Symptom of a broken tick: stale `01-HANDOFFS/*-forge-tasks.md` / `*-jordan-items.md` (no file for today). Verify with `python3 scripts/build_queue_tick.py` → must print "✅ Queue tick complete." and exit 0.
-- **Concurrent write protection** — The build queue (`scripts/build_queue.json`) can be silently overwritten by concurrent cron jobs. This happened Jul 2026: a poker session cron's `execute_code` full-write overwrote the queue, losing 8 newly-added Arc/Bankr items. **Prevention:** (1) The build-queue-tick cron (`no_agent=True`) is READ-ONLY — it never writes the queue. (2) Nightly Build Session uses targeted `patch` on specific item fields, never a full file write. (3) When adding items, append to the array — don't rewrite the whole file. (4) Run `scripts/build_queue_tick.py` (not `execute_code with full write`) for any queue mutation.
+- **Concurrent write protection** — The build queue (`00-HQ/build-queue/build_queue.json`) can be silently overwritten by concurrent cron jobs. This happened Jul 2026: a poker session cron's `execute_code` full-write overwrote the queue, losing 8 newly-added Arc/Bankr items. **Prevention:** (1) The build-queue-tick cron (`no_agent=True`) is READ-ONLY — it never writes the queue. (2) Nightly Build Session uses targeted `patch` on specific item fields, never a full file write. (3) When adding items, append to the array — don't rewrite the whole file. (4) Run `scripts/build_queue_tick.py` (not `execute_code with full write`) for any queue mutation.
 - **Handoffs go to BOTH brains** — `01-HANDOFFS/` files must be pushed to both vault (Obsidian sync via `ob sync`) AND vault's GitHub remote. The vault's `origin` remote is the **portfolio site** — never push handoffs there. Use `git push vault main` (remote named `vault`) to push to `gentech-vault.git`. Verified Jul 14, 2026: `origin` = ProtoJay4789.github.io, `vault` = gentech-vault.git. Check with `git remote -v` before pushing.
 - **"Skip and Focus" — Strategic Cancellation:** Not every opportunity is worth pursuing, even with time remaining. If a project doesn't excite or align with the next 3 moves, cancel it and redirect energy — don't let sunk cost (deadlines passed, effort already spent) keep it in the queue. Cancelled items must have `status: "cancelled"` and a clear `detail` or `notes` field documenting why, so they never re-appear in "pending" counts. Real example (Jul 2026): cancelled #0 OKX AI Genesis Hackathon ($100K prize, deadline 2 days away) and #40 Sui Overflow 2026 to focus entirely on Algorand x402 challenge.
 - **Test command must be self-contained** — script runs from the project directory, not vault root
@@ -632,7 +663,7 @@ PHASE 3: REPORT
    ```
    python3 ${PROFILE_DIR}/scripts/group-returns-scanner.py
    ```
-2. **Load queue** — Read `${VAULT_DIR}/scripts/build_queue.json`
+2. **Load queue** — Read `${VAULT_DIR}/00-HQ/build-queue/build_queue.json`
 3. **Find first pending** — Items with `"status": "pending"`, sorted by `priority` ascending
 4. **Check item** — If `assigned_to` is not you (and not `auto`), skip. If `needs_jordan` is `true`, flag as Jordan action.
 5. **Develop** — Phase 1 on cheap model

@@ -53,7 +53,7 @@ The kit now ships the full A2A lifecycle under `a2a/`:
 Before packaging, publishing, or distributing skills to any external target (npx skills, ClawHub, EduHub, or repository export):
 
 1. **Path variable convention** — Never use hardcoded machine paths (`/root/...`). Always use portable environment variable placeholders:
-   - `${VAULT_DIR}` for vault paths (default `/root/vaults/gentech`)
+   - `${VAULT_DIR}` for vault paths (default `/opt/data/.obsidian-vault`)
    - `${PROFILES_DIR}` and `${PROFILE_DIR}` for Hermes agent profile directories
    - `${SCRIPTS_DIR}` for helper scripts
    - `${INSTALL_DIR}` for runtime/library paths

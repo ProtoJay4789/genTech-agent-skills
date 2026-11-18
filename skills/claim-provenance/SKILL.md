@@ -20,6 +20,11 @@ plainly which claims you actually measured.
 If a claim cannot be checked by the reader, it is not evidence — it is a sentence that happens to
 contain digits. No instrument, no number.
 
+**A number can also be wrong INSIDE a working instrument** — a summary summing a key its reader never sets
+(a permanent, confident `0.0`), or a "last N days" window computed from an assumed rate rather than a measured
+one (a 10× block-rate error turns 7 days into 0.70). Neither throws, neither shows in a diff, and both read as
+a calm system. See `references/instrument-parameters.md` for the two shapes and the one-line checks.
+
 **And naming the instrument is only half the claim — the instrument must measure the THING BEING
 CLAIMED.** A working, correctly-quoted, perfectly reproducible call aimed at the wrong quantity, the
 wrong timescale, or the wrong subject yields a number the reader has no way to doubt. So complete a
@@ -148,6 +153,31 @@ omission, and a neighbouring file with the same wrong claim will keep being beli
   terms had they not been read in context. Print the surrounding text of every hit and classify it
   (real term / substring artifact / unrelated field) before any count enters a finding; the count
   alone cannot distinguish a monetization term from a coincidence inside another word.
+- **A MATCH ON A COMMENT IS NOT A MATCH ON A VALUE — and one file can carry both.** A presence test
+  (`grep -q KEY .env`) hits a commented sample line exactly like a live assignment, so a credential
+  that does not exist is reported as present and every finding built on it inherits the error.
+  Anchor to the assignment (`^KEY=`), read the line, then **test the credential itself** — an auth
+  call returns 200 or it does not. **The trap doubles when the same file mixes both:** a value
+  commented in one env file and live in a per-profile sibling are indistinguishable to a file read
+  and mean opposite things, so a conclusion drawn from one does not transfer to the other. State
+  which file you read, and prove the effect rather than the text.
+  **And a PLACEHOLDER is the same trap one step further in: `KEY=your_provider_api_key` is present, is
+  assigned, is uncommented, and authenticates nothing.** So the presence test, the assignment test AND the
+  file-read test all pass while the capability does not exist — and if the file is commented out to hide
+  the placeholder, a reader concludes the rail is merely un-configured rather than non-existent.
+  **The only proof that a credential works is the ACTION that requires it.** Worse, an unauthenticated
+  endpoint can answer `200` to a listing call — measured, a provider's `/v1/models` returned `200` for no
+  key at all AND for a deliberately bogus one, so a models-list check certified a rail that returned
+  `Unauthorized` on every completion. **Probe the expensive, authenticated operation** (a one-token
+  completion, a balance read, a signed write) and treat any check that succeeds without credentials as a
+  check of the endpoint's public surface, never of the key.
+- **AN UNBOUNDED SECTION PATTERN RUNS INTO THE NEXT SECTION, AND REPORTS ONE RECORD MANY TIMES.**
+  Parsing a config block with `(?ms)^key:\s*\n((?:\s+.*\n)*)` lets `\s+` swallow the blank line that
+  ends the block, so the capture continues into the following section and its entries are counted as
+  this one's — five files reported as ten, one item appearing twice. Bind the block to indented lines
+  and stop at the first non-indented line (`^key:[ \t]*\n((?:[ \t]+.*\n)+)`), then **verify any
+  count against the size of its input** — a total larger than the population it came from is a parser
+  defect, not a finding.
 - **The ABSENCE of a number is itself a finding, and it outranks the authority of a headline.** Where
   a claim is normally priced — a prediction market, an order book, a funding rate — then "there is no
   live market for this" is the strongest available answer, and it deserves the same treatment as a
@@ -214,6 +244,24 @@ rule above.
   one. Note which way the error ran: it AGREED with the conclusion it was supporting, which is how it
   survived. Read the price from the receipt (`gasUsed * effectiveGasPrice`), or quote the live rate and
   state when you read it.
+- **THE CLOCK IS AN INSTRUMENT — never state a day or a time you did not read from one.** An agent has no
+  sense of elapsed time. Its date arrives as a **prompt line refreshed only when the context is rebuilt**, so
+  it is right to the last rebuild and its **time of day is always stale**. Measured: two scheduling sentences
+  in one session named days that were both wrong, in the confident tone of a reading, and the user had to ask
+  whether agents can tell time at all. **Run `date` (in the user's zone) before any sentence containing a
+  weekday, a clock time, 'today', 'tomorrow', or a deadline** — a schedule is a time claim, and it carries the
+  same evidence burden as a number. When the date line and the real clock disagree, the tool wins and the
+  prompt line is what you correct, out loud.
+- **A NUMBER THAT FEEDS A PLAN MUST CARRY ITS AS-OF — and a stale one REFUSES, it does not warn.** Every
+  stored measurement has a vintage; an input consumed by a computation inherits it silently and then lends it
+  the authority of a result. Proven: a strategy plan was computed on a **capital figure read from a note six
+  weeks old**, for a book the operator had already closed — the arithmetic was correct and the output was a
+  well-formed instruction to deploy money that did not exist. Nothing errored; the plan simply answered a
+  question about a past that is gone. **A warning inside a structured result is read once and acted on never,
+  so make it a REFUSAL:** require `as_of` beside the value, compare it to a stated max age, and return an
+  explicit `REFUSED` with an EMPTY result set and the age in the reason — an empty payload cannot be executed
+  by accident. Treat an undated input as `UNVERIFIED`, never as fresh. And when a stale figure is found in a
+  note, label it there as historical: the next reader inherits whatever caption you leave.
 - **An UNPRICED cost is not a cheap cost — "this is expensive" is a claim, and it needs a receipt.**
   The sibling of the rule above, and worse, because it needs no stale constant: a recurring cost can be
   asserted with no measurement behind it at all, as the REASON to stop doing something. Proven: a
@@ -262,6 +310,60 @@ rule above.
   modes leaves the reader unable to tell praise from a warning without already knowing which mode they
   own. Each band's text must state the geometry that produced it, so the sentence is true standing
   alone.
+- **AN AGGREGATION KEY MUST BE PROVEN STABLE BEFORE YOU COUNT ENTITIES BY IT — otherwise you are
+  publishing a count of VALUES wearing the name of a population.** "N callers", "N users", "N returning
+  visitors", "N distinct repos" are all claims that the field you grouped on identifies an ACTOR. A
+  request-scoped or body-scoped hash does not: it is unique per event by construction, so every entity
+  appears exactly once and any "returning" or "repeat" measurement is structurally impossible.
+  **The tell is a cardinality check, and it takes one line:** group the ids by the dimension you intend
+  to reason about (day, session, source) and print the distribution of group sizes. **If every id has
+  cardinality 1, the key is per-event and every entity-level claim built on it is false** — measured, a
+  ledger with 5,040 distinct ids showed every single one on exactly one day, which silently converted a
+  "3,002 callers" report into a count of request bodies. Worse, the error ran in the FLATTERING direction:
+  a large unique-visitor number reads as demand.
+  **Two rules follow.** (1) Print the group-size distribution for the key before quoting any
+  entity-level count, and if it is degenerate say so — *"the log records no stable client identity, so
+  'returning callers' is unanswerable"* is a complete and defensible finding. (2) Before claiming a
+  measurement is impossible because the data is missing, check whether the KEY is wrong rather than the
+  data — the records were all there, the identity field just was not one. And when you fix it, add a
+  stable, privacy-safe fingerprint (a salted hash of network + user-agent) at write time and say plainly
+  that history cannot be backfilled: the old rows are already collapsed.
+- **A PER-RECORD FORMATTER WITH NO SEPARATOR TURNS N MEASUREMENTS INTO ONE ENORMOUS NUMBER.**
+  `ls -la f1 f2 … | awk '{printf "%.0f", $5/1048576}'` prints each file's size with **no terminator**, so
+  four files of 25/47/64/9 MB arrived as **`2548649 MB`** — a figure that reads as a measurement, cannot
+  survive any sanity check, and was one keystroke from entering the user's task list. **A per-record `printf`
+  needs `\n` (or an explicit `ORS`) or it is CONCATENATING, not formatting**; a total needs
+  `awk '{s+=$1} END {print s}'`, a max needs a real comparison, and neither is obtained by printing every
+  value and reading the first line. Prefer `stat -c%s` over `ls -la | awk` — column parsing on
+  human-formatted output breaks the moment a size gains a unit or a field shifts. **Then range-check the
+  aggregate against its own population:** a total larger than (count × plausible max) is a formatter
+  defect wearing a number's clothes, not a finding.
+- **A COUNT THAT DOES NOT EXCLUDE THE OBSERVER IS A CLAIM ABOUT SOMEONE ELSE, BUILT FROM YOUR OWN
+  ACTIVITY.** Every funnel, traffic and revenue figure carries at least three populations wearing one
+  label: **us** (our own probes, our own wallets, our own tools calling home), **infrastructure**
+  (crawlers, indexers, healthcheckers, conformance probes), and **customers**. Summing them answers a
+  question nobody asked, and it answers it in the optimistic direction. Proven: a revenue report printed
+  "1 external payment" for weeks, and the sender was **our own media wallet** — a transfer between two
+  addresses we control, read as a sale; separately, "3,583 knocks from 329 callers" read as demand until
+  a user-agent dump showed ~96% were indexers checking the endpoint exists. **Bucket by ACTOR CLASS and
+  print the buckets, not the total.** Two refinements that matter: a generic user-agent (`node`,
+  `python-requests`, a bare `curl`) must be **left unclassified on purpose** — a real buyer's script
+  looks exactly like that, and calling it a bot erases the only population that can convert; and the
+  only figure allowed to be called revenue is the one drawn from a completed payment on a paid route.
+  **Before quoting any total, name who is in it and who you deliberately left out.**
+  **And make the classification READABLE and FAIL LOUDLY, or it silently reverts to a total.** Two
+  mechanisms turn that rule from a discipline into a property of the code. (1) **Classify from a
+  registry entry that carries its EVIDENCE** — one file mapping address/handle/agent to a label and the
+  reason it is there (`the payTo we charge to`, `funded once with a round number then went silent →
+  test`). A hardcoded set with no stated reason cannot be audited, so nobody ever audits it, and a
+  membership is wrong for months without a single reader able to see why. (2) **An unreadable registry
+  must print UNKNOWN, never a confident total.** When the classifier source fails to load, the default
+  path pushes EVERY actor into the "external" bucket and the report announces customers that are all
+  you — measured: hiding the registry turned `customer USDC in: 0.000000` into `0.281000`, i.e. 100%
+  of our own spend promoted to revenue. So print `UNKNOWN ← <source> unreadable; do NOT read as a sale`
+  beside a loud stderr line naming the path, and **test the failure direction on purpose**: hide the
+  source, re-run, and assert the number disappears. A figure that survives its own blind spot was
+  never measured — and the blind spot is the only state an optimistic default is expensive in.
 - **An uncalibrated probe reports a healthy service as dead.** A probe is an instrument, so the failure
   it returns is evidence about the probe until you have shown the probe can succeed. Proven: a
   synthetic request drew an edge-block response (a bot filter refusing an unrecognisable client) and a
@@ -275,6 +377,15 @@ rule above.
   against your own system (which process owns the target resource; whether any job of YOURS calls it;
   whether the change touches your config or your dependency graph), then state the residual in your
   own numbers. Repeating their estimate back as an ACK launders their guess into your confirmation.
+- **The user's "done" is a claim about HIS side of the system — verify the effect, not the message.** When he
+  reports completing a manual step (reset a session, pasted a key, restarted a service, sent a message), the
+  words name an intent; only the artifact proves it. Measured: a bare "Done" after a request to reset four
+  chats was **one of four** — the other three had never received it, and nothing in the reply could have told
+  anyone that. **Read the durable signal per item** (a new session row with a fresh `created_at`, a config
+  line, a process start time), then report which landed and which did not. A partial completion reported as
+  complete is a false receipt, and it is the user's own words being laundered into your verification. When a
+  step is genuinely his to make and cannot be injected by an agent, say that in one line rather than
+  presenting it as a checklist.
 - **A requested change is a claim that the change is NEEDED — verify that too.** The counterpart to
   the above: an asked-for restart/refresh/reload is only warranted if the running state is actually
   older than the artifact. Compare the artifact's mtime against the running process's start time;
@@ -293,12 +404,35 @@ rule above.
   must be present, and should have GROWN. Then close it plainly and say what you checked.
 - **Before calling a peer's finding stale, reproduce it against the revision they named.**
   "Superseded" and "wrong" are different verdicts, and only the reproduction distinguishes them.
+- **A PEER'S DEFECT REPORT NAMES A PATH — REPRODUCE THAT PATH, AND EXPECT A NAME COLLISION FIRST.** Two
+  products can share a word, so a report that says "service X still charges while declared down" may have
+  been measured against a perfectly healthy sibling with the same name at a different URL. Measured: an
+alarming "we are billing for a dead backend" finding dissolved when the exact path was re-probed — the
+  failing name returned a gated `503` with no challenge, while the similar-looking path belonged to a live
+  product that was entitled to charge. **Verify the two things separately: that the named path behaves as
+  claimed, and that the path you think it means is the one they hit.** When the collision is real, the
+  finding is a NAMING defect worth fixing (a reader, including a senior agent, will conflate them), not a
+  money defect — and the distinction decides whether anyone should panic.
 - **Re-run a number you inherited before building on it.** A figure passed to you was not verified
   by you; carrying it forward into a third party's report propagates someone else's error with your
   authority attached.
 - **Correct your own wrong explanation in place, and say that you corrected it.** A plausible cause
   that was not the measured one is the same defect as a wrong number — leaving it standing is worse
   than having never written it, because the next reader builds on it.
+- **A CORRECTION IS A NEW CLAIM AND CARRIES THE SAME EVIDENCE BURDEN — user disagreement is a LEAD,
+  not an instrument.** When the user says "that can't be right, I saw X", the disagreement is a
+  hypothesis to test, not a verdict to ratify. **Re-measure the specific thing that would have to be
+  true for their version to hold, and cite it, before the correction goes out.** Proven: a report
+  correctly said a count was zero; the user replied that someone had come through and tried to pay;
+  the next message opened with "you were right" and asserted a real sale — and only afterwards was the
+  payer's *funder* traced, showing the wallet had been topped up from our own money and the zero was
+  right. **Two opposite wrong claims in a row, and the second was worse than the first**, because it
+  carried the user's own recall as its authority and made both readings look worthless. So: never open
+  a reversal with agreement — agreement before the check is flattery in evidence's clothing. Name the
+  impossibility instead ("if a stranger paid, their wallet's inbound must NOT come from an address we
+  control — tracing that now"), then report what the trace said. **When your two readings are opposite,
+  the instrument that can tell them apart exists and is usually one hop away; find it before either
+  claim leaves your mouth.**
 - **Naming a CAUSE is a claim, and the instrument must be able to tell the cause from its
   LOOKALIKE.** A diagnosis assembled from an observation that BOTH hypotheses explain is evidence
   for neither. Proven: a funded book found emptied was attributed to concurrent writers because a
@@ -311,10 +445,23 @@ rule above.
 - **An empty or clean result is a claim like any other.** "Nothing found" needs the same proof as a
   filled result: confirm the command's inputs actually resolved and state the denominator. A check
   that never ran and a check that found nothing produce identical output.
+  **And an empty REPLY is not an empty SIDE EFFECT.** When you ask a peer or a service for something and the
+  call returns nothing — a timed-out DM, an empty body, a `[]` — you have measured the *reply*, not the
+  *action*. Measured: two agents "returned nothing" to a nudge while both were concurrently writing the
+  deliverables that nudge was about; the files changed on disk at 21:05 and 21:06 while the messages came back
+  blank. **Before reporting anyone or anything as inactive, check the artifact it would have produced** (mtime,
+  a new record, a changed field). Silence is a statement about the channel, and a channel is the cheapest thing
+  in the system to be wrong about.
+  **And a HARNESS that returned nothing because you starved it is the same error at the far end.** A model
+  verdict of "returns empty content" was measured at an output budget the model spent entirely on hidden
+  reasoning tokens — `finish_reason: length`, zero content. **Raising the budget did not fix it; the low
+  reasoning-effort setting did.** Before attributing an empty or truncated answer to a subject, check the
+  instrument's own limits: a budget, a timeout, a row cap or a filter can each manufacture the finding you are
+  about to report. State the limit you ran under in the same sentence as the verdict.
 - **A tool that reports zero matches silently is not evidence of absence.** Some search/index tools
   return an empty result set when they fail to traverse a path, when their index is stale, or when
   their query parser silently drops the term — and the output is identical to a genuine empty search.
-  Proven: `search_files(pattern='x402', path='/root/vaults/gentech')` returned **0 matches** while
+  Proven: `search_files(pattern='x402', path='/opt/data/.obsidian-vault')` returned **0 matches** while
   `grep -ril 'x402'` on the same tree returned **2,378 files**. The tool produced a confident absence
   that was false, and that false absence was reported as a finding about the organization. **Before
   you write "X does not exist" from any tool, confirm with a second instrument that uses a different
@@ -511,7 +658,24 @@ rule above.
   reader to say UNKNOWN instead of a false zero, the patched code printed `UNKNOWN (read failed)`
   because a broad `except` swallowed an `AttributeError`; print the exception while debugging a repair,
   or the handler will hide the bug you are fixing inside the fix.
+  **And a FAILED READ OF A LOG/FILTER SET IS READ AS AN EMPTY SET BY DEFAULT.** `response.get("result", [])` converts *"the query was refused"* into *"zero matches"*, which then becomes "nobody paid us". **Prove any zero against a record you KNOW EXISTS before reporting it** — same call, narrow window, must return that record; if the control is also empty, the instrument is broken, not the world.
   > **Short form:** "A failed eth_call returns 0x → a FAILED READ reads as a real zero."
+  > *Mechanisms and the full procedure (wildcard encoding, archive depth, chunk-failure counting) live in `falsifiable-tests` under "A query that ERRORED looks exactly like a query that found NOTHING" — read it there before reporting any zero from a remote read.*
+- **A FIELD YOUR INSTRUMENT NEVER RECORDS IS NOT A ZERO — IT IS AN ABSENT MEASUREMENT WEARING A ZERO.**
+  The sibling above is a read that *failed*; this one is a read that *succeeded on a schema missing the field*.
+  A traffic log with no payment column cannot support "zero paid calls" any more than a bank statement
+  without a balance column supports "zero balance" — and a summarising script that counts payments over such
+  a log will happily print `0`, in the same font as a measurement. **Print the field list of the source
+  before quoting any zero from it** (`json.loads(line).keys()` on three records, or `SELECT * LIMIT 1`), and
+  if the field is absent, the zero is unavailable: either read the quantity from the ledger that does record
+  it — a settlement table, a payment provider, an outside observatory that publishes its own methodology —
+  or state that the metric is not instrumented.
+  **This error runs in the FLATTERING direction more often than not**, which is why it survives: `0` looks
+  disciplined and conservative, and a claim that sounds humble is the least audited sentence in the report.
+  Measured: a page published "0 paid calls · 0.000000 USDC received" from a log with no payment field, while
+  an independent ledger showed four paying wallets and one payer that kept returning. **Two instruments, two
+  answers, and the pessimistic one was false.** Small-and-real outranks both extremes — a near-zero that is
+  true is a far stronger claim than a zero that is convenient.
 - **A duplicated constant is not a backup — it is a coin-flip every run.** Every copy of a shared
   endpoint/URL/config value shares the same failure, so one outage disables all of them at once while
   the duplication reads as coverage. When a defect is reported "in your script", grep the whole tree
@@ -522,7 +686,32 @@ rule above.
   0 - 50 blocks range`) looks exactly like an empty result, and a revert looks like a dead provider.
   Classify before acting: a capability limit must ROTATE to the next provider; a revert is a CHAIN
   ANSWER that must not rotate and must not become a zero. Getting this backwards yields either a fake
-  outage across every provider or a confident false negative. **A shared client must assert both
+  outage across every provider or a confident false negative.
+  **Rotation alone does not rescue a SUSTAINED scan, and a partial ledger is worse than none.** Built a
+  settlement reconciler that paged `eth_getLogs` for ERC-20 `Transfer` events in 50,000-block chunks (the
+  public cap). Three runs against a *set* of public endpoints: 97 transfers with 16 chunks lost, then 98
+  with 19 lost, then **zero chunks completed in 4.5 minutes** — free RPCs throttle sustained log queries
+  regardless of how many you alternate between. Two rules came out of it: (1) **cache each chunk by block
+  range**, so a rerun resumes instead of restarting, and a lost chunk gets a second pass before it is
+  declared lost; (2) **refuse to write when any chunk is missing** — print `INCOMPLETE — ledger NOT
+  written` and exit non-zero. Every one of those three runs obeyed rule 2, so no partial file ever became
+  a smaller truth. The measured conclusion was a **missing indexer key**, not a code defect: say that,
+  and mark the work blocked on the key rather than re-running it hopefully.
+  **But before accepting that gate, ask whether a RANGE scan is the only primitive — usually it is not.**
+  A settlement, purchase or transfer you recorded has a hash, and **`eth_getTransactionReceipt` is one
+  free, unmetered call that returns the token `Transfer` log** (payer, recipient, amount, block, status).
+  Measured: a block explorer's free key answered on mainnet and was **refused for the chain that actually
+  mattered** (`Free API access is not supported for this chain` — multi-chain history sits behind a paid
+  plan), so the key was never the unlock; **verifying each receipt by hash was, and it needed no key at
+  all.** Two more traps in that path: a public RPC answers **403 to a default Python `urllib` user-agent**
+  (set one, or the instrument reports "no RPC" forever), and a receipt that resolves to a transfer to a
+  DIFFERENT address is "not a settlement" — never a zero. So state the limit precisely: *range scanning is
+  gated; per-hash verification is not*, and the ledger that exists is the one built from hashes you kept.
+  **Corollary — record the hash at write time, or the primitive is unavailable later.** A payment log that
+  stores "verified: true" but not the transaction id cannot be reconciled by any instrument afterwards.
+  **And ask whether the address you scanned can even separate your customers from you.** The same `payTo`
+  address carried our own test and arb settles, so a complete chain scan would prove *transfers to us*
+  and never *sales* — the honest output is receipts plus a stated limit, not a revenue figure. **A shared client must assert both
   directions in its selftest** so neither reading can silently return. `py_compile` and `ast.parse`
   verify SYNTAX, not name RESOLUTION, so they cannot support a claim that code works. A module calling a
   helper 60 lines above its `def` compiles clean and raises `NameError` the instant anything imports it;
@@ -595,6 +784,18 @@ rule above.
   label it. **Never let "read it from X" turn into a number that X cannot produce.** A wrong source
   and a missing field are different findings, and only one of them is your caller's mistake.
 
+- **A RECORD ENTRY IS A CLAIM BY ITS AUTHOR, NOT A FACT ABOUT THE WORLD — AND AN IDENTITY CLAIM IS THE
+  MOST EXPENSIVE KIND TO GET WRONG.** The vault is the system of record, which makes it tempting to read
+  an old note as settled truth: it is dated, it is confident, and nobody has contradicted it. But
+  "recorded" proves only that somebody believed it when they wrote it. Proven: a consolidated profile
+  stated outright that two people were the same person; it was carried forward for months, and an
+  artifact was built describing one of them — role, memories, family details — for handoff to the other.
+  The correction came from the person, in one sentence, after the work was done. **Before an identity,
+  role or relationship claim leaves the building — and especially before it enters an artifact someone
+  else will act on — confirm it with the subject, and quote the date of the note you are relying on.**
+  The general form: **a claim's cost when wrong decides how hard you verify it**, and a note about a
+  person is the cheapest possible evidence for the most expensive possible error. Correcting it in place,
+  marked with the date and the subject's own words, is part of the fix — see the retraction rule above.
 - **A named thing the user asks about is a claim about its existence.** Before building a strategy,
   handoff, or report around something the user names (a council, a project, a protocol, a file), verify
   it actually lives where the name implies. A mandate that cites "the X402 Council" while the vault
@@ -658,10 +859,15 @@ rule above.
   reading, or take a new one** — an escalation asks the reader to act, so it carries the same
   freshness burden as a number.
 
+- **AN OUTSIDE RATER IS AN INSTRUMENT YOU DID NOT INSTALL — find it before concluding the market is silent.** When your own logs say "no demand" and your own dashboard says "fine", a third party may already be publishing a machine-readable verdict on you: a directory, an index, a trust/uptime grader, a conformance monitor. Measured, one arrived in the logs as a user-agent that literally carried our grade (`…/1.0 (rating D; <their site>)`) while being classified as an anonymous crawler for weeks. **Read the rater's own methodology before believing or dismissing its number** — several compute **uptime as the average across the endpoints you REGISTERED in catalogs**, so every dead or duplicated listing you once submitted is a permanent divisor on your score, and the grader is correctly reporting a surface you cannot edit from the codebase. That is a different finding from "the service is flaky", and only the methodology separates them: probe every endpoint on their list, count how many are structurally dead, and show the ceiling the arithmetic implies. **A low third-party score is a claim about your registrations first, your availability second, and demand third — in that order.**
+- **A TRACK RECORD IS THE ONLY THING THAT TURNS "WE DECIDED" INTO "WE WERE RIGHT".** A record of decisions, with no resolution step, makes a correct call and a wrong one indistinguishable to the next reader, so nothing ever adjusts. Record every claim with a future horizon, resolve it against a measured outcome, and refuse both halves of the fudge: a claim with no horizon can never be scored, and a resolution with no note saying HOW it was checked is an opinion with a timestamp. Schema, refusal rules and commands: `references/prediction-track-record.md`.
+
 ## Support Files
 
 - `references/claim-states.md` — the state table (verified / inherited / superseded / unverifiable)
   and the label to use for each.
+- `references/prediction-track-record.md` — the claim → horizon → resolution ledger: schema, the two
+  refusals that keep it honest, and the commands.
 
 - **A SUPPRESSION MUST BE REPORTED, NOT SILENT.** A hint/tolerance list that lets a sweep drop a hit is
   a false-negative generator unless every drop is counted and attributed. **A false negative and a
@@ -804,7 +1010,17 @@ rule above.
   whether anything POINTS INTO it. The record is the pointer, so the deletion destroys an index, not just
   a file.
 
-- **A MARKER LIST ASSEMBLED FROM ORDINARY ENGLISH IS A SILENCE GENERATOR.** "error", "substring",
+- **A REPAIR INHERITS THE CLAIM'S SURFACE — and a repair verified on a narrower surface is the original defect
+  wearing a fix.** Measured: a secret was removed from one file and the report said it appeared nowhere else in
+  the repository's markdown; the check had opened two files out of thirty, and the address sat in the README
+  table that people actually copy from. **Re-run the SAME sweep the claim covered, printing the count**
+  (`30 files scanned · 0 hits`), and when the sweep is expensive, say which subset you covered in the sentence
+  itself. Two further traps the same loop produced: **a doc that names a mechanism nothing implements is a claim
+  with no reader** — an env var documented in one file and read by no code is as false as the hardcoded value it
+  replaced, so before writing "set $X", grep whether any code reads `$X`; and **a raw CDN URL is a cache, not a
+  revision** — `raw.<host>/<ref>/path` can still serve pre-commit text while the contents API at that ref is
+  already clean, so when a peer disputes that a fix landed, name the instrument each of you used before either
+  calls the other wrong. The API-at-a-ref is authoritative; say which one produced your reading. "error", "substring",
   "conservative", "assumed", "misread" appear by accident in ordinary commentary: measured, any of them
   within four lines silenced a genuine stale constant, and the stated justification for them (the tool
   matching its own docstring) was already handled by AST-blanking the prose. **Keep only phrases that
@@ -813,3 +1029,31 @@ rule above.
 - **A BEFORE/AFTER IS NOT QUOTABLE WHEN BOTH TERMS MOVED.** "17 → 0" concealed four separate changes
   and an 8,285-file shrink in the denominator. Report the change and its universe; a fixed numerator in
   a changed denominator is not a result, it is a headline.
+
+- **A NUMBER PRINTED ON A PUBLIC SURFACE IS A CLAIM ABOUT THE ARTIFACT IT ADVERTISES — count it there,
+  or do not print it.** Marketing prose is written once and never re-derived, while the thing it describes
+  changes daily, so the drift runs in multiples and every reader can check it in one click. Measured in one
+  pass: a front page claimed **175 skills** for a repo holding **7**; a toolkit claimed **12 chains** while
+  the gateway settled on **6**; a site badge claimed **16** services while the manifest served **9**. Each
+  number was true when written and none was true when read — and the two that overstated were the two
+  strangers see first. **Count the artefact at publish time** (`git ls-tree` for files, the live manifest for
+  services/rails), and where the count is a moving target, **replace the numeral with a pointer to the
+  authority** ("the repo is authoritative — N today") instead of swapping one hand-maintained number for
+  another. **Keep advertised and achievable separate**: "chains we can read" and "rails that settle" are
+  different quantities and one sentence naming both is what stops the second being assumed from the first.
+- **A README's first line decides whether the right reader continues.** Lead with the layer that serves the
+  reader's own job and say plainly where to stop if the rest is not theirs; opening with the subsystem the
+  author is proudest of loses every reader whose work is elsewhere, before any substance is reached. Measured:
+  a toolkit whose first line sold payment rails and market data read as a DeFi product to a non-DeFi operator
+  and was dismissed on that line, while the half that would have helped him needed no wallet at all. **Name the
+  layers, name who each is for, and put the "not for you, skip to here" sentence in the intro** — the same
+  boundary discipline this skill asks of numbers, applied to prose.
+- **A SPEND TOTAL IS THE BALANCE DELTA, NEVER A RUNNING TALLY YOU KEEP IN YOUR HEAD.** Summing per-call costs
+  as you go accumulates every remembered figure and misses every call you did not narrate, so the reported
+  total drifts in one direction and is unfalsifiable from the transcript. Measured: a campaign reported as
+  "~1.7 cents" read **4.7 cents** off the wallet — a 2.7× understatement of money actually spent, stated with
+  full confidence. **Read the funded account's balance before and after and subtract** (`eth_call
+  balanceOf` for a token, the provider's usage endpoint for credits), report the two readings beside the
+  difference, and treat any figure you assembled from a list of calls as unverified until the delta agrees
+  with it. When the delta disagrees, the delta wins and the correction goes out loudly — an overrun of a few
+  cents is harmless, a wrong total the operator budgeted against is not.

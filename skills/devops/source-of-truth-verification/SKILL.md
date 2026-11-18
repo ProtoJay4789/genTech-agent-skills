@@ -30,7 +30,7 @@ before the first edit.
 
 A single service commonly has 3-5 copies on disk:
 
-- `/root/vaults/<vault>/10-Labs/<svc>/` — vault working copy
+- `/opt/data/.obsidian-vault/<vault>/10-Labs/<svc>/` — vault working copy
 - `/root/<user>.github.io/10-Labs/<svc>/` — portfolio mirror
 - `/root/repos/<svc>/` — clone
 - `/opt/<svc>/` — deploy copy
@@ -229,6 +229,24 @@ session and left the queue accurate.
   which, and check `git rev-list --left-right --count HEAD...origin/main` per
   clone. Nonzero left = stranded work; nonzero right = behind. A green cron
   status means "my push worked", not "the remote is current".
+- **Two folders holding the same kind of data are usually a LIVE system and a SUPERSEDED
+  one — resolve which before you ever say "unify".** Spotting the same records in two
+  paths reads as duplication, and "consolidate them" is cheap to say and expensive to
+  act on: merging a live instrument with its own predecessor imports the retired
+  contract into the working one, so the merge can only make the good copy worse. Measured:
+  a per-file capture log (last real use weeks earlier, one stale stub since) and a newer
+  ledger carrying a measured baseline, an append-only record and a scoreboard that refuses
+  to compute on a small sample both held "signals" — and the newer system was three days
+  old and strictly better. The correct action was **retire the old path and feed off the
+  new one**, not merge them.
+  **The tell is not which path the docs name.** A plan written before the newer system
+  landed still points at the old one, so a documented path is a claim about when the doc
+  was written. Check, in this order: mtimes; who READS and WRITES each path (crons,
+  scripts, the newest artifact's own header stating its writer and reader); and which one
+  carries MORE constraints (a schema, a refusal rule, a validation step). The copy with
+  more constraints and a recent writer is the live one. **Then ask the owning seat rather
+  than deciding for it** — retiring a lane is its call, and a merge proposed from outside
+  is how a dead format gets resurrected into a live one.
 - **A listing's shape is not a statement about content.** Directories and dotfiles
   at a folder root say nothing about what is inside them — and a lane whose root
   looks empty is often just **archived**. Prefer a recursive git query
@@ -269,7 +287,58 @@ session and left the queue accurate.
   back-porting to the repo, not re-deploying stale repo content over it.
 - **A destructive sync is audited in the TARGET tree, and survivors are the falsification.** A path that does `rmtree(dest)` + `copytree(src)` cannot leave seat-only files behind — it writes exactly the source's list. If seat-only files are still present after the sync was supposed to have run, they disprove that the destructive path executed on that directory. Check their mtimes against the sync window before accepting a claimed loss. Then verify WHICH path the tool actually took: a "blocked" shadow-namespace path and a "warn-then-replace" normal path are different functions, and a survivor in a blocked namespace means the alarm points at the wrong case.
 - **A count that does not move when the counted set moves is an instrument defect, not a stable measurement.** If you remove one member of a set and the reported count is unchanged, the instrument is measuring a different quantity than its name implies — commonly "present or differing" rather than "present only." Report the observation rather than a false confirmation of no change, and fix the instrument to print the names it counts.
-- **When a state-only artifact has no clock, derive movement from git history rather than adding timestamps to every writer.** Adding `created_at`/`updated_at` fields requires every writer to remember them; one forgotten writer corrupts the timeline, and legacy items remain undated forever. Git commits already carry immutable timestamps. Reconstruct snapshots per commit, key items by a stable identity (not the internal `id`, which renumbering changes), and emit events (`created`, `changed`, `returned`). Report unreadable snapshots and refuse to answer if the evidence base cannot be read — "could not look" must never be printed as "no movement". See `references/derive-time-from-git.md`.
+- **When a state-only artifact has no clock, derive movement from git history rather than adding timestamps to every writer.** Adding `created_at`/`updated_at` fields requires every writer to remember them; one forgotten writer corrupts the timeline, and legacy items remain undated forever. Git commits already carry immutable timestamps. Reconstruct snapshots per commit, key items by a stable identity (not the internal `id`, which renumbering changes), and emit events (`created`, `changed`, `returned`). Report unreadable snapshots and refuse to answer if the evidence base cannot be read —  "could not look" must never be printed as "no movement". See `references/derive-time-from-git.md`.
+- **The file you edited and the file that SERVES can be the same type and a different SHAPE — assert the
+  shape before you hand anyone a copy command.** Two manifests of the same format, same keys, same
+  validator, can hold different populations: one is the provider-side document and one is an internal
+  superset, or one is the advertise list and one includes entries deliberately withheld. `json.load`
+  succeeds on both, so nothing about a parse tells you they are interchangeable — and a `cp` between them
+  publishes every extra entry as a live commitment. Measured once as **14 entries in the edited copy
+  against 9 in the serving artifact**; copying it would have advertised five services the operator had
+  chosen to withhold.
+  **Before writing the deploy instruction:** fetch the LIVE artifact (`curl` the public endpoint) and the
+  file you edited in the same check and compare a structural count — entries, keys, sections — plus the
+  set difference. If the counts differ, you edited a sibling, not a copy.
+  **Then put the count in the install path itself:** have the installer read the artifact and refuse
+  unless the count matches the expected population (`if count != 9: exit 1`). A guard on the number is
+  what makes the difference between "I checked once" and "this cannot land wrong later" — a human
+  following your command does not re-measure the file you told them to copy).
+  **A count taken from the public endpoint is a count of the PROJECTION, not of the file.** When the
+  endpoint and the file disagree, **the file is what you edit and the difference is a filter** — settle it
+  by reading the file where the service itself reads it (`docker exec NAME cat <path> | head -c 200`), never
+  by re-reading the endpoint more carefully. Re-reading a filtered view confirms the filter.
+- **A copy that reports success may have written NOTHING — check the inode, not the message.** `docker cp`
+  into a path that is a read-only single-file bind mount prints `Successfully copied …` and then
+  `RemoveAll …: device or resource busy`, while the served bytes never move. Resolve the real source with
+  `docker exec <ctr> grep '<basename>' /proc/self/mountinfo` (mountinfo names the HOST file; `/proc/mounts`
+  shows only the device), then write that host file **in place** — a temp-file-and-rename creates a new inode
+  and the container stays bound to the dead one, so the restart silently serves the old content. Prove it with
+  `st_ino` before/after. Two more traps in the same shape: **`docker cp` runs on the HOST**, so the
+  container's bind target (`/opt/data/...`) is not a valid source path; and **a structural diff of the live
+  payload can point at the wrong file**, because the handler may filter at request time — measured, the payload
+  said 9 entries while the file being served held 14. The mount table is evidence; a payload match is a
+  coincidence.  Full sequence: `references/container-bind-mount-deploys.md`.
+- **STAMP THE VALUE AT THE LAST PLACE IT IS CONSTRUCTED, NOT THE FIRST PLACE YOU CAN REACH — and treat an
+  unchanged live response after a restart as a no-op, not as a stale deploy.** A handler that reads a
+  config, decorates it, and then **rebuilds** the section you edited from a second source will discard your
+  change one line later; the file is correct, the restart succeeds, and the served payload is byte-identical
+  to before. Measured on a manifest: the derived field was written into the manifest copy, and the handler
+  then replaced the whole services block from its own builder — so the deploy verified "successful" and
+  changed nothing, twice.
+  **The procedure:** grep the serving path for every assignment to the field's parent
+  (`doc["services"] =`, `body = build(...)`, a decorator that recreates the dict) and apply the change to
+  the LAST one before serialisation. Then **falsify by comparison, not by restart**: capture the served
+  value before and after and diff it. A restart that returns the previous value is proof the code path you
+  edited does not reach the wire — do not re-run the deploy, go find the rebuild.
+  **And verify against the OUTPUT OBJECT, not the input you just wrote.** A unit test that calls your
+  patched function and passes proves the function, not the route; exercise the function **as the handler
+  calls it** (same argument, same point in the chain) or assert on the final serialised document.
+- **"Not installed" from a bare invocation is a fact about YOUR SHELL, not about the system.** Wrapper
+  scripts commonly prepend a private bin dir and an `XDG_CONFIG_HOME` so a tool resolves outside
+  `/usr/bin`. Running the binary directly then reports `command not found` for something that is present
+  and working, which is a false blocker handed to the operator. **Invoke the owner script** (it sets its
+  own environment) or replicate its exported `PATH`/config vars before concluding anything is missing;
+  `command -v <tool>` under the same environment is the cheap confirmation.
 
 ## Support Files
 
@@ -286,6 +355,9 @@ session and left the queue accurate.
   derive its movement clock from git history instead of adding a `created_at` field.
   Covers identity keying, signature design, unreadable-snapshot handling, and the
   required refusal when the evidence base cannot be read.
+- `references/container-bind-mount-deploys.md` — deploying into a container that serves a bind-mounted file:
+  find the host source from the mount table, why `docker cp` reports success and writes nothing, and why the
+  write must preserve the inode.
 - `references/negative-findings-and-ref-absence.md` — how to prove something is missing without
   overclaiming, and how to distinguish a diverged git ref from an unresolvable one. Use before
   reporting "this ref/object/capability does not exist" to another seat.

@@ -28,6 +28,32 @@ Multiple profiles can have routing context for the same group in their `config.y
 
 3. **Only then check the owning bot's gateway** — process (`ps aux | grep "gateway run"`), log freshness, and the group's inbound/response lines in `gateway.log`.
 
+## Multi-bot rooms — the routing gates decide who answers
+
+In a shared room, silence is often **correct**: the message was addressed elsewhere, or a sibling bot
+was named. Before treating it as a fault, read the gates — all of them live in
+`plugins/platforms/telegram/adapter.py` as `_extra_bool("<key>", "TELEGRAM_<KEY>", "<default>")`.
+
+- `exclusive_bot_mentions` (default **true**) — if the text @-mentions another bot and not us, it is
+  dropped for us. The most common false alarm in a multi-agent room.
+- `bots_require_mention` — another *bot's* message needs an explicit @mention of us; its quote-reply
+  or plain chatter is suppressed, which is what stops two bots answering each other forever. Human
+  replies are unaffected.
+- `require_mention` — whether plain group chatter reaches us at all (default false).
+- `mention_patterns` — regex wake words, an alternative to the @handle.
+- `free_response_chats` / `free_response_topics` — chats, or `<chat_id>:<thread_id>` pairs, where
+  every message dispatches (a forum's General topic is thread `1`). Also the way to serve one topic
+  in a room we otherwise ignore.
+- `allowed_chats` / `allowed_topics` / `ignored_threads` — membership and scope filters.
+- `observe_unmentioned_group_messages` (default **false**) — store unaddressed chatter as context
+  without replying; observation is chat/topic-scoped and needs an explicit chat allowlist.
+
+Gate table, source lines and read-out commands: `references/group-routing-gates.md`.
+
+**In-room routing is not the handoff mesh.** An `@seat` decides *who speaks next*; it is not durable,
+does not survive a machine being off, and leaves no record. Work still moves by vault handoff, and a
+mention or `hermes peer dm` only wakes the seat.
+
 ## Stuck reply ≠ dead gateway
 
 A message received but never answered is usually one of:
@@ -35,6 +61,56 @@ A message received but never answered is usually one of:
 - **Telegram flood control** — `Flood control exceeded. Retry in N seconds` in `gateway.log`. Sends are throttled; replies delay or drop. Restart the gateway to reset retry state if stuck >10 min.
 - **Session compression** — a long session auto-compressing mid-turn can delay the reply.
 - **Stale code after Hermes update** — the gateway process has been running since before an update and now crashes on every inbound message with an `ImportError` or `AttributeError` from a module that changed (e.g. `cannot import name 'slash_confirm' from 'tools'`, `No module named 'tools.send_message_tool'`, `No module named 'run_agent'`). The gateway receives the message and logs `Flushing text batch` followed immediately by the import error — no reply is ever sent. Fix: restart the gateway so it picks up the current installed code. Check gateway start time with `ps -o lstart= -p <pid>` — if it predates the last `hermes update`, this is the cause.
+
+## A token that HANGS is not a bad token — the bot is unreachable, so the messages are undelivered
+
+When the seat is silent, the gateway log will show the *symptom*: repeated `Connecting to Telegram (attempt
+N/8)`, then `Failed to connect to Telegram: Timed out`, then a slower `Secondary telegram reconnect retry in
+Ns`. **That log cannot tell you why** — it records that the connection failed, not whether the credential, the
+bot, or the network is at fault. Probe the token itself.
+
+**Any single-token probe is unreadable — the answer only means something next to two CONTROLS.** Run all
+three against the same endpoint in the same pass:
+
+```bash
+# 1 · control A: a known-good token from another profile  → expects 200, ~0.3s
+# 2 · control B: a deliberately bogus token               → expects 401, ~0.3s
+# 3 · the suspect token                                   → ???
+curl -s -o /dev/null -w 'HTTP=%{http_code} time=%{time_total}s\n' --max-time 25 "https://api.telegram.org/bot$TOK/getMe"
+```
+
+| observation | meaning |
+|---|---|
+| good token → `200`, fast | Telegram is reachable and the endpoint is healthy |
+| bogus token → `401`, fast | the endpoint **answers bad credentials quickly** — latency is not the problem |
+| suspect token → `000`, hangs to the timeout | **Telegram will not answer THAT token.** Not malformed (a malformed one returns 401) and not a network fault (the controls disprove it) |
+
+**Read the pair, never the single value.** `000` alone is "network" if you did not run the controls; `000`
+next to a fast `401` for a bogus token is a credential/bot verdict. **Never report "the token is invalid" from
+a hang** — invalid returns 401 — **and never report "gateway down"**: the gateway is running fine and retrying a
+connection it cannot make.
+
+**What to tell the user: their messages are undelivered, not ignored.** A seat whose token is refused cannot
+receive, so silence is not a colleague choosing not to answer — and saying so plainly is the difference between
+"Arthur is dropping the ball" and "Arthur is cut off".
+
+**Bound the outage before blaming any recent change.** Find the last successful send and the first total
+failure; the window between them is the outage, and it usually starts *after* the last thing you did.
+```bash
+grep -E 'Sending response.*to -' <profile>/logs/agent.log | tail -2      # last known-good send
+grep -E 'Failed to connect to Telegram' <profile>/logs/agent.log | head -1  # start of the failure block
+```
+
+**The human-gated part, and the test that splits the two causes:** the numeric prefix of the token is the bot
+id, and `https://t.me/bot<bot_id>` still renders **200** even when the API will not answer — proving the bot
+still exists. So:
+
+- **exists but unanswered** → the bot is restricted/blocked at Telegram's end (BotFather → `/mybots`), or the
+token was **regenerated elsewhere** and this `.env` holds the superseded one.
+- **no page at all** → the bot is deleted.
+
+The fix is a human action in both branches — an agent cannot mint or restore a bot token. Report which branch
+the evidence supports and stop; do not loop restarts against a credential that is not being accepted.
 
 ## Multiple bots per account — identify the LIVE one first
 

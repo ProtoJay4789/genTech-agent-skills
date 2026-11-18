@@ -30,7 +30,60 @@ trigger: "When Jordan says 'register on X', 'submit to Y', 'list our APIs', 'get
 
 ---
 
-## Purpose
+## ⚡ Before you register on ANY new surface: four gates, in this order
+
+A new "directory", "index" or "marketplace for agent tools" is not automatically a place we can be
+listed. Run these four before opening the build queue item, because each one can make the work
+impossible and only the first is discoverable from the landing page.
+
+**1 · The eligibility gate — what must be TRUE of our endpoint?** Read the vendor/listing doc, not the
+README. Common hard requirements that disqualify us structurally: **self-serve API keys** and **a probe
+endpoint that rejects a garbage key**. x402 has no key — the payment IS the credential — so a pipeline
+built on connect-time key verification cannot admit us without us adding a key tier and letting them
+hold a credential. That is a different product, not a configuration. Ask *"which of their steps assumes
+a secret we do not have?"* and stop there if the answer is the first one.
+
+**2 · The hosting gate — can they LIST us, or must we DEPLOY on them?** This is the trap that looks
+like an invitation. The tell is in the CLI or scaffold: if onboarding says *"write a handler"*, ships a
+`<platform>.json` of services you define locally, and a `deploy` command, then they host your code and
+their marketplace lists **their** endpoints — there is usually **no "point at my existing URL"** option.
+Listing there means **reimplementing services we already serve** — a second copy of the gateway whose
+only job is to disagree with the first. **Never build that to buy discovery.** If the fee structure is
+attractive (free tier, low percentage) that changes the price, not the structure: the cost of a
+permanent second implementation is drift, and drift is what makes "what do we actually sell?"
+unanswerable.
+
+**3 · The licence gate — may we even build on it?** If the plan involves self-hosting their catalog or
+tooling, read the LICENSE before the plan, not after. Apache-2.0 "plus additional terms" routinely
+forbids **offering the software as a hosted, managed or embedded service to third parties** while
+expressly permitting self-hosting for your own team. GitHub reports that shape as `NOASSERTION` — **read
+the licence text, not the badge**. Self-hosting for our own fleet and running a product for others are
+two different permissions and only one is usually granted.
+
+**4 · The demand gate — what traffic does the marketplace actually send?** "Listed" is discoverability,
+never revenue (the same rule as "a catalog row proves discoverability, not revenue" below). And a
+marketplace behind a sign-in has a size you **cannot see**, which is **unknown, not small** — do not let
+an invisible count argue in either direction. If a thin forwarder or a hosted duplicate is being
+considered to buy placement, the honest position is: *we do not know that this surface sends buyers*,
+and the cheap move is to ask them rather than to build for them.
+
+### The ask beats the build
+
+Three surfaces in one pass shared the same shape: **each wants to be where agents find tools, and none
+of them can read a manifest.** The response that costs nothing is a message, not an integration:
+
+> *"Your index covers the paying side / your marketplace needs sellers — here are N live x402 services
+> with a machine-readable manifest. Consume it."*
+
+Most publish a partnership or contact path. That outreach is a **Jordan decision** (it speaks as the
+company); the agent's job is to state the gap, name what we have, and not send it unasked.
+
+**And the honest limits to state alongside any such recommendation:** whether the marketplace's own
+listing is current (it may be a static array in their JS, as current as their last deploy), whether they
+re-serve our manifest or transcribe it, and — if we do end up hosting a forwarder — that it is a second
+surface that must be regenerated from the same inventory or it will drift.
+
+---
 
 ## Purpose
 Systematic workflow for registering GenTech APIs and agent on external platforms. Each platform has different format requirements, submission processes, and costs. This skill captures the patterns so we don't re-research every time.
@@ -157,6 +210,21 @@ the manifest is a discoverability inconsistency worth fixing, not evidence of a 
 **Always run a POSITIVE CONTROL on a `payTo` filter** — an empty result and a broken filter look
 identical. Query a payTo you know is indexed and confirm it returns >0 before reporting absence.
 
+**A NON-EMPTY page of the wrong rows is a stronger false negative than an empty one.** An ignored filter
+returns the catalog's default first page — 50 unrelated entries — and "I searched for us and found nothing"
+reads as a completed search, so it re-confirms a false premise with more confidence than a zero would.
+Measured: a `?payTo=` probe returned 50 rows, none ours, and nearly re-filed "we are not indexed" against a
+catalog that in fact held 11 of our resources.
+
+- **Read the query contract out of the client source, never from a guess at the URL.** The bazaar exposes two
+different endpoints: `/discovery/search` (takes `query`, `pay_to`, `network`, `type`, `extensions`, `cursor`)
+and `/discovery/resources` (pagination only). Using the resources endpoint with snake-case filters, or the
+search endpoint with camelCase, silently returns the default page.
+- **Treat a result set as evidence only when it contains a row you can identify.** Before concluding
+  "absent", assert that the response contains something you expect to be there.
+- **A complete walk is the only absence proof** where the API has no working filter — page until your count
+  equals the declared `total`, and report `walked == total` as the control.
+
 **Presence is the assertion that matters** — "is it buyable?" not "does it 402?"
 
 **And listing is NOT buyability.** A catalog row proves discoverability, not revenue — no USDC has
@@ -266,7 +334,7 @@ or the check is permanently red for the wrong reason.
 **Wallet pre-check ritual (proven Aug 11, 2026):** before promising a settlement, verify the target wallet on the actual settlement chain via RPC — not just that a key exists.
 - USDC: `eth_call` to `balanceOf(addr)` on the chain's USDC contract.
 - Native gas: `eth_getBalance`.
-- A key deriving to a wallet is NOT enough — the wallet must also HOLD spendable USDC on that chain. The Avalanche owner wallet key (`0x7ebff188…`, stored `/root/.blockrun/jordan-avax-secret`) derives fine but has **0 USDC / 0.099 AVAX** because funds are locked in the AVAX/USDC LFJ LP pool. Signing key ≠ liquid settlement funds.
+- A key deriving to a wallet is NOT enough — the wallet must also HOLD spendable USDC on that chain. The Avalanche owner wallet key (`0x7ebff188…`, stored `/opt/data/profiles/gentech/secrets/jordan-avax-secret`) derives fine but has **0 USDC / 0.099 AVAX** because funds are locked in the AVAX/USDC LFJ LP pool. Signing key ≠ liquid settlement funds.   <!-- ⚠️ KEY FILE GONE (checked 2026-11-17): this path does not exist. The treasury wallets were RETIRED as unrecoverable on 2026-11-17 (see Treasury/RETIRED-treasury-wallets-2026-11-17.md). Do NOT assume a signing key is at this path — verify before any tx. -->
 - The AVAX owner wallet is Avalanche-native — its key does not fund USDC on Base/Ethereum either.
 - **Exclude token-CONTRACT addresses from wallet-funding audits.** When candidate addresses are
   enumerated from notes/configs, a token contract (e.g. the USDC contract itself) holds its own
@@ -280,6 +348,56 @@ or the check is permanently red for the wrong reason.
 **Action order once funded:** get USDC into a signable wallet → send $0.01 to our own endpoint → re-curl Agentic.Market search. BUT given the #2112 CDP indexing gap, do NOT expect settlement alone to index us; treat x402scan/OpenDexter (non-CDP discovery via `/.well-known/x402` + OpenAPI) as the reliable listing path, and CDP Bazaar indexing as blocked-until-facilitator-fixed. Flip registry rows only on verified search hits, never on "settlement landed" assumption.
 
 **Detail:** full per-platform registration flows (BountyBook API, OpenDexter, BotWork, Freelance AI/PayAI, Syra contradiction) in `references/marketplace-registration-flows-aug2026.md`.
+
+## Hosted listings have a state machine the owner does not control
+
+A platform that hosts a page for us (project page, agent profile, vendor listing) separates **what the owner
+can set** (`isPublished`) from **what the platform decides** (`approved`). `reviewStatus: pending` means
+SUBMITTED, not unfinished — the only remaining lever is their review team, and the UI badge showing "not
+public yet" is displaying their field, not your to-do.
+
+Before touching a live submission: read the state machine, **omit every field you are not changing** (never
+echo a publish flag back as `true`), remember that array fields REPLACE wholesale, snapshot the object first,
+and verify by re-reading that the untouched fields — state fields above all — are identical. A documented
+trap: unpublishing a project that is still in review returns it to `draft` and out of the queue.
+
+**Detail:** `references/listing-state-and-update-safety.md` — the four-state workflow, the partial-update
+rules, treating a 400 validation body as better documentation than the docs page, why an SPA's `200` proves
+nothing about public visibility (assert on the API logged out), and which derived credibility cards are
+earned by links you already published.
+
+## A listing OUTLIVES the service it advertises — correct it at the source
+
+**Retiring or renaming a service removes it from our gateway and from nothing else.** Every directory we
+ever asked to add it keeps it, keeps publishing it, and keeps polling it. The bill arrives as traffic and
+as a grade, not as an error.
+
+Measured on one such listing: two endpoints advertised that had been dead for a month, still named in the
+entry's own prose — **580 and 650 probes of those two paths in 2.7 days, from 33 and 28 user-agents**, led
+by the directory's own monitor. The same record read `endpoint_count 10` against a manifest of 9 servable
+services, `networks` covering 3 of our 5 rails, and `status: degraded` — the grade was a reflection of our
+stale listing, not of the service.
+
+- **Measure with their API, not their page.** The HTML shows marketing; the endpoint shows the drift:
+  `GET <host>/api/v1/services?search=<name>` → `endpoint_count`, `networks`, `status`, `verified`,
+  `compliance`. Compare each field to the manifest's servable set and declared rails **before** calling the
+  listing correct — a page that renders our name is not a page that describes us.
+- **Answer `410 Gone`, never `404`, for a retired path.** A crawler reads 404 as *this seller's link is
+  broken* and retries forever; 410 says *deliberately removed, stop asking*. Include a pointer to the live
+  inventory in the body so the human on the other end also stops looking.
+- **Retire EVERY alias, not the manifest key.** One route is reachable through several names — the public URL
+  segment, an alias map entry, and a `*_native` routing key. Measured: a path kept answering 404 after the
+  "fix" because the alias resolved to a third name that was not in the retirement set. Enumerate the alias
+  map, and assert membership **and** non-membership in one test.
+- **Find out whether an UPDATE path exists before promising a correction.** A submit form offering only
+  *new service* / *new facilitator* has no edit flow: the correction is a fresh submission (which may collide
+  with the existing row) or a message to their team. Say which one it is.
+- **A correction that needs an email under the company's name is a human decision.** Prepare the exact payload —
+  corrected endpoint count, the paths to drop, the rails to fix, a description with the dead names removed —
+  and ask for the address rather than inventing one.
+
+**The general shape: a listing is a two-way surface.** What you ask them to ADD, you must later ask them to
+REMOVE, and the second request has no owner unless you assign it at the moment the service is retired.
 
 ## Priority Rule (Jordan, Jul 15, 2026)
 
@@ -410,7 +528,7 @@ Before submitting to any curated directory, in THIS ORDER, and do NOT proceed pa
 **PROVEN FIX (Aug 11, 2026) — re-point the on-chain URI to our own site, not GitHub.** The root cause is often that the on-chain `metadata_uri` points at `raw.githubusercontent.com/GentechLabs/...` — the personal GitHub account is **rate-limited/flagged and web-404s**, so AgentScan can never fetch it. GitHub is the wrong host for agent metadata entirely (rate limits + flag risk). The durable fix:
 1. **Host the metadata on our own site** (never rate-limited): `cp gentech-avax-metadata.json /var/www/gentechlabs/.well-known/` → served at `https://gentechlabs.net/.well-known/gentech-avax-metadata.json` (nginx already serves `/.well-known/` from `/var/www/gentechlabs` on both `gentechlabs.net` and `api.gentechlabs.net`). Verify 200 on both.
 2. **Read the current on-chain URI** to confirm the problem: `eth_call` `tokenURI(uint256)` (selector `0xc87b56dd`) on the ERC-8004 registry `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` (same on all chains via CREATE2) against the Avalanche RPC `https://api.avax.network/ext/bc/C/rpc`. Decode the ABI string (offset 32 + length 32 + bytes).
-3. **Re-point via `setAgentURI(agentId, uri)`** on the same registry contract, signed with the owner key read from disk (`/root/.blockrun/jordan-avax-secret`, chmod 600 — never print it). Verify `ownerOf(agentId)` == signer first. ~$0.01 gas on Avalanche. Confirm by re-reading `tokenURI` after the tx confirms.
+3. **Re-point via `setAgentURI(agentId, uri)`** on the same registry contract, signed with the owner key read from disk (`/opt/data/profiles/gentech/secrets/jordan-avax-secret`, chmod 600 — never print it). Verify `ownerOf(agentId)` == signer first. ~$0.01 gas on Avalanche. Confirm by re-reading `tokenURI` after the tx confirms.
 4. **Update the registry row** in `11-Mess Hall/marketplace-listings-registry.md` with the new URI + date.
 
 **Pitfall — don't reach for the Brickken MCP for a single URI update.** The Brickken MCP (`agent_set_uri`) is in sandbox mode by default and needs production config + API key; for a one-off `setAgentURI` the direct registry-contract call (web3 + key on disk) is cleaner and avoids exposing the key in a tool-call transcript. Reserve Brickken MCP for the broader partnership work (tokenization lifecycle), not single metadata re-points.
@@ -422,7 +540,7 @@ Colosseum (colosseum.com) logs in via **GitHub OAuth**. When the GitHub account 
 
 **Fix:** create a **clean GitHub account** for OAuth (e.g. `gentech-builder`), then re-login to Colosseum to mint a fresh Copilot token. This also unblocks any other GitHub-OAuth site. Creating the new GitHub account is a manual Jordan step (email verification) — flag it as a to-do, don't attempt to automate it.
 
-**Related:** the Colosseum Copilot token is a JWT with ~90-day expiry (see `crypto-research` skill for the decode-to-confirm-expiry pattern). Regeneration is manual at `arena.colosseum.org/copilot`.
+**Related:** the Colosseum Copilot token is a JWT with ~90-day expiry (see `crypto-price-fetch` skill for the decode-to-confirm-expiry pattern). Regeneration is manual at `arena.colosseum.org/copilot`.
 
 ## ClawHub Publishing (Alternative to EduHub OAuth)
 
@@ -461,7 +579,45 @@ clawhub skill publish ./my-skill --slug my-skill --name "My Skill" --owner <owne
 
 **Alternative path:** Submit skills via GitHub issue template at `github.com/HKUDS/DeepTutor/issues/new?template=eduhub.yml` — no OAuth needed, just open an issue with the skill details.
 
-## 🔴 The listing audit must ask what a STRANGER sees (build-queue id 1)
+## Registry presence is PER-CHAIN, and a listing is a GENERATED document
+
+**An agent identity on one chain is invisible in every other registry.** ERC-8004 is deployed at the same
+CREATE2 address on each chain, but a registration is a mint on that chain — so "we're on 8004scan" is not a
+fact, it is a fact about one chain. Measure it, per chain, before claiming presence:
+
+```bash
+# agent-token balance for our owner address on each chain's registry
+# balanceOf(address) = 0x70a08231 + 24 zeros + address; registry is the same on every chain
+for rpc in <base-rpc> <bsc-rpc> <avax-rpc>; do
+  curl -s -X POST "$rpc" -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"<registry>","data":"0x70a08231<addr>"},"latest"]}'
+done
+# 0 on a chain = we do not exist there, whatever the directory's search box says
+```
+
+**Rank chains by registry population before minting, not by intuition.** A public explorer's per-chain
+agent/feedback table is a free, machine-readable prioritisation: mint where the agents are. One chain can hold
+>50% of all registered agents while the chain we happened to register on holds <0.1% — that is five months of
+invisibility bought with one wrong chain choice.
+
+**A listing is a GENERATED document, not a hand-maintained one.** Three different service counts (prose 14,
+metadata JSON 16, inventory 10) plus a chain we do not settle all lived on one listing at once. Derive the
+listing from the same inventory that prices the routes (or regenerate it from a readiness/generator script), and
+**never put a count in prose** — a number in a sentence is a claim that drifts silently while the array beside it
+stays true.
+
+- **Every discovery path your own docs cite must return 200.** A referenced `/…/agent-card.json` that 404s sends
+every crawler following our own instructions into a dead end. Grep the vault for `/.well-known/` paths, then
+`curl` each one; a documented-but-absent surface is worse than an undocumented one.
+- **A hand-edited metadata file is a trap with a review cycle.** If the on-chain URI points at a raw file, fix
+  the file's SOURCE (the template/generator), regenerate, then re-read the live URL — not the commit — as the
+  verification.
+- **Registration buys a door; FEEDBACK buys the ranking.** A listing with 9 services and 0 feedback can sit at
+  score 0 across every component (engagement, service, publisher, compliance) and remain effectively invisible
+  in a million-agent registry. **Never report a mint as "listed and findable"** — say registered, and say the
+  rank is 0 until real users rate it. Do not invent a score formula to promise otherwise.
+
+
 
 Every check we owned went green throughout the account-invisibility defect, because **our token is the
 single identity for which those pages exist.** A listing audit that only probes with credentials will
@@ -469,7 +625,7 @@ report a listing as live while a logged-out visitor gets a 404. Run the logged-o
 **separate, additional** step — never as a replacement:
 
 ```bash
-T=/root/vaults/gentech/10-Labs/tooling
+T=/opt/data/.obsidian-vault/10-Labs/tooling
 python3 $T/visibility-coverage.py              # every registry-declared surface has a TARGETS entry? exit 3 if not
 python3 $T/visibility-assert.py --gate         # exit 3 on NEW invisibility, 1 if a control broke
 ```

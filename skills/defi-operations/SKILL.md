@@ -33,7 +33,7 @@ Adds a defense layer to the LP monitoring lifecycle. When price breaks out of ra
 
 NORMAL → SENTINEL (out of range starts timer) → RETREATED (timer expires, breakout confirmed)
 
-**State machine fields in `.lfj-defi-state.json`:**
+**State machine fields in `.lfj-defi-state.json`:**   <!-- ⚠️ NOT PRESENT (checked 2026-11-17): this file does not exist on this seat. Do not assume it; verify before relying on it. -->
 ```json
 {
   "defense_mode": null,
@@ -251,7 +251,7 @@ One-shot workflow for updating LP position parameters across all systems.
 **Batch sync pattern:**
 ```python
 import json, glob
-for path in glob.glob("/root/.hermes/**/.lfj-aae-config.json", recursive=True):
+for path in glob.glob("/opt/data/profiles/gentech/**/.lfj-aae-config.json", recursive=True):
     with open(path) as f:
         config = json.load(f)
     config["position"].update(NEW_POSITION)
@@ -371,7 +371,7 @@ Hub fetch & renders (HTML/CSS)
 **Hub sync problem (discovered Jun 28, 2026):**
 - `hub-sync-nightly.py` was BUILDING entire JSON from scratch, overwriting correct on-chain data
 - `defi-lp-consolidated.py` had correct data but wasn't writing to JSON properly
-- Position tracker path bug in `run-reader.sh` pointed to wrong location (`/root/.hermes/scripts/` instead of `${PROFILE_DIR}/scripts/`)
+- Position tracker path bug in `run-reader.sh` pointed to wrong location (`/opt/data/profiles/gentech/scripts/` instead of `${PROFILE_DIR}/scripts/`)
 - Result: Hub showed wrong shape (bid-ask vs curve), zero efficiency, stale amounts
 
 **Fix implementation:**
@@ -393,7 +393,7 @@ Hub fetch & renders (HTML/CSS)
 **Verification command:**
 ```python
 # Check what's syncing to Hub
-with open("/root/repos/gentechlabs.github.io/DeFi/defi-data.json") as f:
+with open("(GitHub repo, not on this host: gentechlabs.github.io/)DeFi/defi-data.json") as f:
     data = json.load(f)
 lp = data.get("lpPosition", {})
 print(f"Shape: {lp.get('shape')}")
@@ -444,7 +444,7 @@ print(f"In Range: {lp.get('inRange')}")
 ```python
 config_files = [
     "~/.hermes/scripts/.lfj-position-tracker.json",      # Primary source
-    "/root/repos/gentechlabs.github.io/DeFi/defi-data.json", # Dashboard
+    "(GitHub repo, not on this host: gentechlabs.github.io/)DeFi/defi-data.json", # Dashboard
     # ... 7 additional config files
 ]
 ```
@@ -533,8 +533,8 @@ print(f'IL Verification: Dashboard={il}%, Calculated={calculated_il:.2f}%')
 def validate_shape_consistency():
     """Ensure all sources report the same shape"""
     sources = {
-        "Config": "/root/.hermes/scripts/.lfj-aae-config.json",
-        "Dashboard": "/root/repos/gentechlabs.github.io/DeFi/defi-data.json"
+        "Config": "/opt/data/profiles/gentech/state/lfj-aae-config.json",
+        "Dashboard": "(GitHub repo, not on this host: gentechlabs.github.io/)DeFi/defi-data.json"
     }
     
     for name, path in sources.items():
@@ -573,14 +573,14 @@ def validate_shape_consistency():
 
 **Pitfall: Three-Config-File Race Condition (Jun 30, 2026)**
 - THREE copies of `.lfj-aae-config.json` exist with DIFFERENT data:
-  1. `/root/.hermes/scripts/.lfj-aae-config.json` — CORRECT (bid-ask, $6.3792, range 6.3656–6.5856)
+  1. `/opt/data/profiles/gentech/state/lfj-aae-config.json` — CORRECT (bid-ask, $6.3792, range 6.3656–6.5856)
   2. `${PROFILE_DIR}/scripts/.lfj-aae-config.json` — STALE (curve, $6.13, range 6.2771–6.4812)
   3. `${PROFILE_DIR}/home/.hermes/scripts/.lfj-aae-config.json` — STALE (bid-ask but wrong range/entry)
 - `HERMES_HOME` env var resolves to `${PROFILE_DIR}` in cron context, NOT `/root/.hermes`
 - Scripts using `os.environ.get("HERMES_HOME")` read the STALE profile copy, not the correct one
 - Multiple cron jobs (LP monitor + on-chain reader) write to the same dashboard JSON, creating a race condition that overwrites correct data within seconds
 - **Permanent fix:** Created `lp-monitor-v2.py` — a clean, self-contained script that:
-  - Hardcodes config path to `/root/.hermes/scripts/` (NOT env-var-based)
+  - Hardcodes config path to `/opt/data/profiles/gentech/scripts/` (NOT env-var-based)
   - Reads ALL data from config + position tracker (never from dashboard)
   - Fetches live price directly from DexScreener API
   - Has ZERO dashboard read/write dependency — eliminates the race entirely
@@ -592,9 +592,9 @@ def validate_shape_consistency():
 
 ### Manual Rebalance Data Sync Protocol (Jul 1, 2026)
 - **Guiding Principle (User Preference):** When user reports a rebalance or position change, ALWAYS verify with live price data FIRST before assessing monitor output
-- **Pitfall: Rules doc is NOT the source of truth.** The `LP-Monitor-Rules.md` file in the vault is a human-readable summary that goes stale. The live config at `/root/.hermes/scripts/.lfj-aae-config.json` is the actual source of truth. Always read the config file, not the rules doc, when answering "how is the pool?" — the rules doc is for reference, the config is for data.
+- **Pitfall: Rules doc is NOT the source of truth.** The `LP-Monitor-Rules.md` file in the vault is a human-readable summary that goes stale. The live config at `/opt/data/profiles/gentech/state/lfj-aae-config.json` is the actual source of truth. Always read the config file, not the rules doc, when answering "how is the pool?" — the rules doc is for reference, the config is for data.
 - **Config-First Verification (Jul 20, 2026):** When the user asks "how is the pool?" or shows a screenshot:
-  1. Read the live config at `/root/.hermes/scripts/.lfj-aae-config.json` — source of truth
+  1. Read the live config at `/opt/data/profiles/gentech/state/lfj-aae-config.json` — source of truth
   2. Do NOT read the rules doc (`LP-Monitor-Rules.md`) — it's a human-readable summary that goes stale
   3. Verify with live price from DexScreener before assessing monitor output
   4. If user shows a screenshot, update the config files immediately, then run the monitor to confirm
@@ -621,8 +621,8 @@ When the user shows a screenshot of their LP position (from LFJ/Trader Joe mobil
 5. **Pitfall:** The "Deposit Balance" section shows current position composition — this is the most reliable source for token amounts. The "Fees Earned" section shows 24h accumulation, not position value.
 6. **Pitfall: Multiple rebalances in one session.** The user may rebalance multiple times in a single conversation. Each screenshot is a new snapshot — don't assume the previous update is still current. Always extract fresh from the latest screenshot.
 - **Update Protocol (Jul 20, 2026):** When Jordan shows new position data, update these files:
-  1. `/root/.hermes/scripts/.lfj-aae-config.json` — position amounts, range, entry price
-  2. `/root/.hermes/scripts/.lfj-position-tracker.json` — amounts + range
+  1. `/opt/data/profiles/gentech/state/lfj-aae-config.json` — position amounts, range, entry price
+  2. `/opt/data/profiles/gentech/scripts/.lfj-position-tracker.json` — amounts + range
   3. The vault rules doc at `03-Strategies/LP-Monitor-Rules.md` — summary section
   The LP Monitor cron job reads from #1 and #2 — no script changes needed. Next run picks up the new data automatically.
 - PROBLEM: Manual position rebalances aren't automatically reflected in config files and position tracker
@@ -821,7 +821,7 @@ for day, timestamps in day_events.items():
 
 ### Cache
 
-`/root/.hermes/scripts/.lfj-entry-cache.json` — pre-seeded, avoids expensive chain scan.
+`/opt/data/profiles/gentech/scripts/.lfj-entry-cache.json` — pre-seeded, avoids expensive chain scan.
 
 ### Volume-Based Live Fee Calculation (NEW - Jul 3, 2026)
 
@@ -845,9 +845,9 @@ daily_fees = volume_24h × fee_rate × (position_value / TVL) × concentration_m
 
 **Fallback:** When DexScreener returns zero volume, use a flat yield rate (`lp_value × 0.004`).
 
-**Pitfall (Jul 3, 2026):** The cron script was updated in the profile path (`${PROFILE_DIR}/scripts/`) but the global path (`/root/.hermes/scripts/`) had the stale version. Cron resolves relative scripts from the profile path, but other tools may read from the global path. Always sync BOTH copies after changes:
+**Pitfall (Jul 3, 2026):** The cron script was updated in the profile path (`${PROFILE_DIR}/scripts/`) but the global path (`/opt/data/profiles/gentech/scripts/`) had the stale version. Cron resolves relative scripts from the profile path, but other tools may read from the global path. Always sync BOTH copies after changes:
 ```bash
-cp ${PROFILE_DIR}/scripts/*.py /root/.hermes/scripts/
+cp ${PROFILE_DIR}/scripts/*.py /opt/data/profiles/gentech/scripts/
 ```
 
 ### ATH Fee Tracking (User Preference)

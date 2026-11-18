@@ -271,6 +271,58 @@ A nightly cron (`memory-dietician.py`) runs at midnight ET to enforce size limit
 
 Script: `scripts/memory-dietician.py` — runs nightly at 5:00 UTC, silent when healthy.
 
+## 🧊 The memory snapshot is FROZEN at session start — the #1 cause of "the agent doesn't know what we wrote down"
+
+Hermes injects MEMORY.md/USER.md into the system prompt **as a snapshot at session start** and never
+refreshes it mid-session (deliberate — it preserves the prompt cache). On a messaging platform a session
+never ends on its own, so a seat keeps writing facts to MEMORY.md that **it cannot see**. The fact is on
+disk; the reader is frozen. Nothing about this is a bug in the memory file, and editing files never fixes it.
+
+- **The freeze age of a seat = age of its live `source='telegram'` row in that seat's `state.db`.** Past
+  ~3 days the seat is answering without what it learned since. SQL + schema: `references/session-monitoring-commands.md`.
+- **`/new` is the IN-CHAT lever, not the only lever.** `hermes sessions` manages the store and cannot
+  start a conversation, but the gateway's own routing index carries the flag the engine already uses to
+  force a fresh session (`suspended` → "new `session_id` on next access", the same path `/stop` uses;
+  `/new` sets the sibling `is_fresh_reset`). The index is one table — `gateway_routing` in the **default
+  profile's** `state.db`, one row per live chat, keyed
+  `agent:<profile>:<platform>:<chat_type>:<chat_id>:<user_id>`. Recipe, verification and failure modes:
+  `references/session-reset-levers.md`.
+- **A peer DM is NOT a refresh — measure this before promising one.** A `hermes peer dm fleet/<seat>` or
+  `-p <seat> chat --oneshot` turn runs on that seat's own `api_server` routing key and leaves its Telegram
+  session completely untouched. Measured: a seat answered a DM with a 151-message history while its
+  Telegram routing row still pointed at a session **weeks** old. Waking a seat is not refreshing it, and
+  reporting one as the other is the exact false receipt this fleet keeps re-learning.
+- **Do not hand the user a manual per-chat checklist as the plan.** A fleet-wide refresh is automation
+  work — a keyed state write plus a verification read — and "please type `/new` in four chats" is the
+  fallback when that write is unavailable, never the recommendation. Jordan's standing objection: *"are
+  you saying I have to do that manually in each group? I hope I don't."*
+- **Ask for it at a natural pause.** A mid-task reset drops whatever the seat was holding, so a fleet-wide
+  `/new` round should be requested when the seats are idle, not when they are mid-build.
+- **Verify a reset in the DB, never from a log.** After a reset the OLD session id still dominates the
+  `agent.log` tail, so a mode-of-ids heuristic reports the dead session and the seat looks frozen when it
+  is not. A confirmed reset = an old telegram row with `end_reason='session_reset'` whose `ended_at` sits
+  immediately before a NEW telegram row's `started_at`. No new row at all = the bot never received the
+  command; that is a room/gateway finding, not a user error.
+- **Report capacity beside freshness.** A seat at 98–99% of its memory budget is one lesson away from a
+  silently refused write, and freezing is what kept it there. Both numbers belong in the same answer.
+
+## When asked whether `/new` is needed daily — the answer is no
+
+A daily `/new` is a ritual, not a requirement. Sessions persist across days and compression manages
+length, so nothing in the design asks for a timer. The only hard driver is the frozen snapshot
+above: `/new` is how a fact written to MEMORY.md *this session* becomes readable again.
+
+Answer the cadence question in three lines:
+
+- **No schedule — a trigger.** Use it when the seat is missing something it clearly wrote down, or
+  when a long session has gone mushy and it is re-reading history instead of working.
+- **Right moment.** A natural pause, never mid-build — a reset mid-task drops what the seat held.
+- **What it does not fix.** A reset does not refresh the vault, prove a gateway healthy, or reach a
+  peer. A gateway restart is a different lever that also clears in-memory sessions; do not blur them.
+
+Offering "once a day, just in case" as advice trains the human to do work the seat should own, and it
+hides the real signal (a seat that forgot something is a freeze, not a lack of resets).
+
 ## 🔄 Post-/New Flow
 
 After Jordan runs /new:
@@ -314,7 +366,7 @@ Sessions accumulate context from cron deliveries until they hit limits. Without 
 
 The system crontab script at 6:25 AM ET:
 ```bash
-25 6 * * * ${PROFILE_DIR}/scripts/daily-gateway-restart.sh >> /root/.hermes/logs/gateway-restart.log 2>&1
+25 6 * * * ${PROFILE_DIR}/scripts/daily-gateway-restart.sh >> /opt/data/profiles/gentech/logs/gateway-restart.log 2>&1
 ```
 
 This script:
@@ -322,7 +374,7 @@ This script:
 2. **Restarts the gateway** via `systemctl --user restart hermes-gateway-gentech`
 3. **Clears ALL in-memory sessions** across all groups
 4. **Waits 10 seconds** for initialization
-5. **Logs result** to `/root/.hermes/logs/gateway-restart.log`
+5. **Logs result** to `/opt/data/profiles/gentech/logs/gateway-restart.log`
 
 **Why 6:25 AM:**
 - Before first morning cron jobs (typically 6:30-7:00 AM)
@@ -333,7 +385,7 @@ This script:
 **Who can also trigger `/new`:**
 When a user sends `/new` in a group, it resets ONLY that group's session. This is useful mid-day when one group gets stuck but others are fine.
 
-**Recovery when `/new` isn't enough:** See `agent-recovery` skill — gateway restart from outside the process, MCP server diagnostics.
+**Recovery when `/new` isn't enough:** See `agent-recovery` skill — gateway restart from outside the process, MCP server diagnostics.   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `agent-recovery` exists on this seat -->
 
 ## Integration
 

@@ -10,21 +10,54 @@ tags: [wallet, clawrouter, blockrun, media, treasury, usdc, base]
 
 Wallet identification, disambiguation, and ClawRouter proxy wallet swaps.
 
+## ⛔ WALLET STATUS — changed 2026-11-03
+
+**`0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (F8) is RETIRED.** Key lost in the Oct 12 wipe. It holds
+**0.00151 ETH + 0.4868 USDC that nobody can spend**. **DO NOT fund it; do not expect it to work.**
+Jordan, 2026-11-03: *"We don't have to use it anymore. We can retire that one."*
+
+**Current BlockRun wallet: `0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0`** — **ONE** shared key file at
+`/opt/data/.blockrun/.session`, symlinked into every seat (verified 2026-11-03: five paths, one inode
+`2162580`; all four seats derive this address through their own path).
+
+⚠️ **It holds 0.9687 USDC and 0.000000 ETH on Base** — every BlockRun call fails until gas is funded.
+That is a funding decision, not a config problem.
+
+## 🚨 RULE — a media wallet is not "funded" until it has BOTH legs
+
+**MEASURED 2026-11-03 (Jordan: *"we should have a BlockRun wallet with funds ready to go already"*).** The
+wallet carried **0.968736 USDC and 0.000000 ETH**. BlockRun settles on-chain, so every call reverted *before
+the USDC was touched* — the lane was down fleet-wide while the dashboard showed a funded balance.
+
+- **This has now happened twice.** The retired F8 wallet worked because it had `0.00151 ETH` of gas; it was lost
+  in the Oct 12 wipe. Its replacement was topped up with USDC only. **The gap is not the key, it is the second
+  asset.**
+- **Cost, measured:** Base base fee 0.005 gwei at ETH ≈ $2,294 → a simple transfer is **$0.000002**, a USDC
+  transfer **$0.000007**, a media call with settlement **$0.00002**. **$1 of ETH ≈ 50,000 media calls.** This
+  is never a budget question.
+- **THE RULE:** funding a media or rails wallet means **spend asset AND gas, verified on-chain in the same
+  breath**. Never accept "it has USDC" as "it is funded", and never accept a send confirmation as proof — read
+  `eth_getBalance` and `balanceOf` after every top-up.
+- **And never let a monitor describe this as a missing key.** `tool-liveness.py` reported "no image provider key"
+  for five runs while the real fault was zero gas — fixed 2026-11-03. A wrong cause in a monitor costs more than
+  no monitor, because it sends the fix in the wrong direction.
+
 ## Wallet Map
 
 | Wallet | Address | Nickname | Purpose |
 |--------|---------|----------|---------|
-| **BlockRun (F8)** | `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` | "the one ending in 72F8" | Media generation ONLY (image, video) |
+| ~~**BlockRun (F8)**~~ | `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` | "the one ending in 72F8" | **RETIRED 2026-11-03** — key lost in the Oct 12 wipe; its 0.4868 USDC is unspendable. **Do not fund, do not use** |
+| **BlockRun (CURRENT)** | `0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0` | "the one ending in 64a0" | Media generation ONLY (image, video) |
 | **GTA / Treasury (280D)** | `0xf5f99007Fc7e14133D3817dee2BA45169eA9280D` | "the Agentic Treasury" | DeFi, yield, trading, treasury ops |
 | Jordan's personal | `0x7ebff188f2Eba16518C02864589b1403a5d1296a` | "Jordan's wallet" | User EOA — don't touch |
 
 ## Three-Tier Architecture (canonical — Jordan, Sep 3, 2026)
 
-Hard separation, three tiers: **Tier 1 PERSONAL/EXTERNAL** (Jordan's own — agent never transacts without an explicit ask; his Polymarket login proxy key is NEVER stored locally) / **Tier 2 AGENTIC-TREASURY** (capital: Steward LFJ `0x572A…5037`, CDP treasury `0x77C6…7dE`, CDP telegraph-miner `0x03d2…856E`, Solana homebase `BE815V7…pUvP` — all keys held by fleet) / **Tier 3 AGENTIC-RAILS** (service-bound plumbing: BlockRun agent `0xebc8…72f8`, per-platform credentials). Canonical detail file: vault `00-System/wallet-architecture.md`. New-rail onboarding: gen keypair → store in profile secrets → register in that file → verify address on-chain BEFORE funding.
+Hard separation, three tiers: **Tier 1 PERSONAL/EXTERNAL** (Jordan's own — agent never transacts without an explicit ask; his Polymarket login proxy key is NEVER stored locally) / **Tier 2 AGENTIC-TREASURY** (capital: Steward LFJ `0x572A…5037`, CDP treasury `0x77C6…7dE`, CDP telegraph-miner `0x03d2…856E`, Solana homebase `BE815V7…pUvP` — all keys held by fleet) / **Tier 3 AGENTIC-RAILS** (service-bound plumbing: BlockRun agent `0xc0A1f229…64a0` (F8 retired 2026-11-03), per-platform credentials). Canonical detail file: vault `00-System/wallet-architecture.md`. New-rail onboarding: gen keypair → store in profile secrets → register in that file → verify address on-chain BEFORE funding.
 
 ## Identity Proof Before Delete (Sep 3, 2026 lesson)
 
-When a "mystery" key file appears (e.g. `.session`), NEVER delete on label alone. Derive the address from the key material (`eth_account.Account.from_key(hex).address`) and match against the known wallet map, plus check the on-chain balance. Sep 3: a file was initially mislabeled "Jordan's Polymarket proxy" — derivation proved it IS the BlockRun agent wallet (`0xebc8…72f8`, key held); deletion would have broken the live rail. Jordan: "we don't want to delete anything keeping our wallets from disappearing." Corollary: credential ≠ wallet — `almanak-steward-key` is a 64-char API token, not a private key; the wallet it references is Steward `0x572A…5037` either way.
+When a "mystery" key file appears (e.g. `.session`), NEVER delete on label alone. Derive the address from the key material (`eth_account.Account.from_key(hex).address`) and match against the known wallet map, plus check the on-chain balance. Sep 3: a file was initially mislabeled "Jordan's Polymarket proxy" — derivation proved it IS the BlockRun agent wallet (`0xebc8…72f8`, key held — **that address is retired as of 2026-11-03**); deletion would have broken the live rail. Jordan: "we don't want to delete anything keeping our wallets from disappearing." Corollary: credential ≠ wallet — `almanak-steward-key` is a 64-char API token, not a private key; the wallet it references is Steward `0x572A…5037` either way.
 
 ## CDP Server Wallets (keys held via CDP, not files)
 
@@ -32,21 +65,24 @@ CDP-managed wallets count as key-held (we control them via the CDP API): treasur
 
 ## Golden Rule
 
-> **Media gen → BlockRun F8 (72F8). Treasury → GTA (280D). Never the other way around.**
+> **Media gen → BlockRun `0xc0A1f229…64a0` (CURRENT). Treasury → GTA (280D). Never the other way around.**
 
 Jordan's directive (Aug 8, 2026): "Only use the block run wallet ending in 72f8 for media creation" — "Gta wallet is my Agentic Treasury, not for media creation."
+
+> *The rule stands; **the address in it does not** — 72F8 was retired 2026-11-03. Read it as "the BlockRun
+> wallet, currently `0xc0A1f229…64a0`".*
 
 ## How to Find the BlockRun Wallet
 
 The health endpoint may report the GTA wallet — do NOT trust it for BlockRun.
 
 ```bash
-cd /root/.hermes/blockrun-mcp && node -e "
+cd /opt/data/tools/blockrun && node -e "
 const { getOrCreateWallet } = require('./node_modules/@blockrun/llm/dist/index.js');
 console.log('ADDRESS: ' + getOrCreateWallet().address);
 "
 ```
-→ `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (ends in `72f8`)
+→ `0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0` (ends in `64a0`) — **if this prints 72F8 you are reading a stale key file**
 
 ## How to Check Which Wallet ClawRouter Uses
 
@@ -73,7 +109,7 @@ Swap the proxy from GTA wallet to BlockRun F8 (or back):
 
 ### Step 1: Extract F8 private key
 ```bash
-cd /root/.hermes/blockrun-mcp && node -e "
+cd /opt/data/tools/blockrun && node -e "
 const { getOrCreateWallet } = require('./node_modules/@blockrun/llm/dist/index.js');
 const w = getOrCreateWallet();
 console.log(w.privateKey);
@@ -99,7 +135,7 @@ systemctl restart clawrouter-proxy
 ### Step 5: Verify (wait 3s for startup)
 ```bash
 sleep 3 && curl -s http://127.0.0.1:8402/health
-# Should show: "wallet":"0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8"
+# Should show: "wallet":"0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0"   (72F8 = retired, wrong)
 ```
 
 ### Revert to GTA

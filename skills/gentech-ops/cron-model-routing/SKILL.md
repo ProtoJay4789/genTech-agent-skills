@@ -1,9 +1,9 @@
 ---
 name: cron-model-routing
-description: "Cron job model routing V2 — tiered provider routing. OpenCode Go (primary, unlimited) for daily crons. Ollama Cloud (weekly cap) reserved for weekly-only jobs. Script-only (no_agent) jobs skip LLM entirely. V2 routing document at 11-Mess Hall/references/model-routing-v2.md"
+description: "Fleet cron routing measured: gate on the provider."
 version: 3.0.0
 author: gentech
-tags: [cron, model-routing, tiered-routing, cost-optimization, opencode-go, ollama-cloud]
+tags: [cron, model-routing, tiered-routing, cost-optimization, opencode-go, nous]
 ---
 
 # Cron Model Routing V2 — July 2026
@@ -34,7 +34,7 @@ Cron jobs specify provider + model explicitly in `jobs.json`. Bulk edits via `sk
 - jobs.json `model_snapshot`/`provider_snapshot` fields must match the new global config or Hermes fails the job closed (drift protection). Sync them when re-pinning.
 - PA Suite (`ac736cacf5e5`) now enforces handoff accountability: runs handoff-watcher every run, escalates stalls >6h to Jordan, tracks repeat offenders per agent.
 
-**Why this changed (Jul 27):** Jordan instructed switch back to ollama-cloud. All 29 LLM-using cron jobs moved from `opencode-go` → `ollama-cloud`. Model names normalized from `deepseek/deepseek-v4-flash` (OpenCode Go format) to `deepseek-v4-flash` (ollama-cloud format). Verified all 29 on target; confirmed 10 no-agent script jobs were NOT touched.
+**HISTORICAL — superseded.** This Jul 27 migration moved 29 jobs to `ollama-cloud`; that provider is no longer live. **Measured 2026-10-19: 23 cron jobs fleet-wide — 19 `no_agent` (pure scripts, zero LLM), 4 inherit the seat model, 0 declare an explicit model or provider.** There is nothing to bulk-route. Model names normalized from `deepseek/deepseek-v4-flash` (OpenCode Go format) to `deepseek-v4-flash` (ollama-cloud format). Verified all 29 on target; confirmed 10 no-agent script jobs were NOT touched.
 
 **Kimi K3 note:** Available on Ollama Cloud but requires extra usage credits (not in base plan). Do NOT set Kimi K3 on any cron until Jordan adds credits.
 
@@ -43,7 +43,7 @@ Cron jobs specify provider + model explicitly in `jobs.json`. Bulk edits via `sk
 **Key technique:** Direct `jobs.json` edit via Python JSON manipulation (not `cronjob` MCP tool, not `hermes cron edit` CLI — neither supports `--model`/`--provider` flags). The gateway picks up changes on the next tick — no restart needed.
 
 **Model name format by provider:**
-- **Ollama Cloud:** `deepseek-v4-flash` (no slash, no prefix)
+- **Ollama Cloud:** ⛔ retired — no seat or job uses it as of 2026-10-19.
 - **OpenCode Go:** `deepseek/deepseek-v4-flash` (slash between org/name)
 - Wrong format = 400 error at inference time. Always verify after a batch switch.
 
@@ -59,7 +59,7 @@ Cron jobs specify provider + model explicitly in `jobs.json`. Bulk edits via `sk
 
 ## Provider Model
 
-Every cron specifies its provider and model in `jobs.json`. There is no runtime routing tier — the model field is what the job uses. A job on `opencode-go` with `deepseek/deepseek-v4-flash` stays there until edited.
+Crons MAY specify a provider/model in `jobs.json`, but **none of ours do** — `model` and `provider` are `null` on all 23 jobs, so every LLM-bearing job inherits its seat's model (`opencode-go` / `deepseek-v4.1-flash`). There is no runtime routing tier. Set the field only to pin one job elsewhere.
 
 ```
 Critical/Standard/Weekly/Harness → OpenCode Go (primary) → Ollama Cloud (emergency fallback only)
@@ -85,7 +85,7 @@ python3 ~/.hermes/profiles/gentech/scripts/cron-provider-sync.py
 ```
 No gateway restart needed for crons/jobs.json — they pick up on the next tick. Gateway restart only refreshes interactive sessions (must be run by Jordan from a separate shell — agents cannot restart their own gateway).
 
-## Switch-Back Runbook — Ollama Cloud (planned ~Aug 31, DECIDED by Jordan)
+## Switch-Back Runbook — ⛔ ABANDONED (was planned ~Aug 31; Ollama Cloud is not a live provider as of 2026-10-19)
 
 > **⚠️ UPDATE Aug 29, 2026 — DO NOT blindly switch back to DeepSeek.** After the DeepSeek nationalization scare + OCG region-block (403), Jordan decided: keep **glm-5.3-flash primary**; when Ollama billing clears, reassess with **diversification** — add gpt-oss-120b + nemotron-3-super as fallbacks (live-test first), demote DeepSeek to cheap booster. Reasoning + decision chain: `00-HQ/brain-snapshots/brain-snapshot-2026-08-29.md` + `09-Green Room/specs/model-strength-score.md` (v2 — sovereignty is now a product factor). The fleet's diverse fallback chain is itself Phase 0 of the Sovereign Model Router build (#71).
 
@@ -101,7 +101,7 @@ curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 60 -X POST "https://oll
 HTTP 200 = go. HTTP 403 "past due" = wait.
 2. **Flip each profile's primary** (4 profiles: gentech, gentech-treasury, gizmo, pixel):
 ```bash
-for p in gentech gentech-treasury gizmo pixel; do
+for p in gentech gentech-treasury arthur protojay; do   # gizmo + pixel RETIRED 2026-10-15
   hermes config set --profile $p model.default "deepseek-v4-flash:0731"
   hermes config set --profile $p model.provider ollama-cloud
   hermes config set --profile $p model.base_url "https://ollama.com/v1"

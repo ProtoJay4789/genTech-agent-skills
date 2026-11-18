@@ -27,8 +27,14 @@ Managing multiple family members' hubs, dashboards, and intelligence systems wit
 - **Group:** HQ, Treasury, Labs, Entertainment
 
 ### Vanito
+
+> **HUB RETIRED.** Vanito's hub files were moved to `10-Archive/retired-vanito-hub-*/`; the pages below no longer
+> serve. He builds his own going forward. **Do not redeploy them and do not add him to a hub refresh job.** His
+> cron jobs are unaffected — retiring a *page* is not retiring a *person*, so leave his game/shop jobs alone
+> unless he says otherwise. Re-check before acting: a retired page and a 404 look identical from the URL alone.
+
 - **Steam ID:** `76561198132811363`
-- **Hub URL:** `https://gentechlabs.net/vanito.html`
+- **Hub URL:** `https://gentechlabs.net/vanito.html` *(retired — see banner)*
 - **Music Vault:** `https://gentechlabs.net/vanito.html#tab-music`
 - **Cronjobs:**
   - `[Vanito] GenTech Shop — Game Release Intelligence` (e28c895e6a11) — 3:00 PM
@@ -38,14 +44,42 @@ Managing multiple family members' hubs, dashboards, and intelligence systems wit
 
 ## Hub Architecture Pattern
 
-### VPS Deployment (Current) — Not GitHub Pages
+### Where a hub is ACTUALLY served — resolve it by fetching, never by this file
 
-**Change as of Jul 2026:** Personal hubs are served from the VPS (`/var/www/gentechlabs/`) as flat HTML files behind nginx. The old GitHub Pages approach is legacy.
+**A hub has historically lived on three surfaces and they drift apart:** flat HTML behind nginx on the VPS
+(`/var/www/gentechlabs/`), a **Cloudflare Pages** project, and `gentechlabs.github.io`. This section has been
+wrong before in both directions, so treat it as a list of candidates to test — not as the answer.
 
-**Hub URLs — `<name>` matches the flat HTML file:**
-- Jordan: `https://gentechlabs.net/jordan.html`
-- Vanito: `https://gentechlabs.net/vanito.html`
-- Main landing: `https://gentechlabs.net/` (serves hub.html)
+**A 200 is not proof you found the hub.** A catch-all or landing page answers 200 at every path, in a
+plausibly hub-ish size. Measured: `gentechlabs.net/jordan.html` returned the same bytes as the company
+landing page — the "hub" URL was serving the homepage. Compare **title and byte count** across candidates:
+
+```bash
+for u in https://gentech-hub.pages.dev/ https://gentechlabs.net/jordan.html; do
+  printf '%-42s %s %7sB  %s\n' "$u" \
+    "$(curl -s -o /tmp/h -w '%{http_code}' --max-time 15 "$u")" \
+    "$(wc -c < /tmp/h)" \
+    "$(grep -oE '<title>[^<]*' /tmp/h | head -1 | sed 's/<title>//')"
+done
+```
+
+- **Two URLs with identical size and title are one page** — the one that looks hub-shaped is usually the
+  catch-all, and editing it changes nothing a person sees.
+- **A DNS record is not a route.** A subdomain can resolve, be proxied, and answer **404** for want of content
+  behind it. Check the body, not the zone entry.
+- **Cloudflare Pages is the deploy path that works from a seat** (the origin host is not reachable for
+  `/var/www` writes). List targets with the **account-scoped** endpoints — `accounts/<id>/pages/projects` and
+  `accounts/<id>/workers/scripts`; the zone-level `/pages/projects` path returns a 404 *route* error, which is a
+  wrong endpoint, not a dead token. `user/tokens/verify` reporting invalid while those reads succeed is a known
+  quirk: **measure capability by doing the read.**
+- **Deploying REPLACES the live site.** Pull the current deployment's file list and diff it against what you
+  are about to upload before pushing. The hub a person opens daily is not a test page, and a missing
+  dependency file breaks a tab that was working yesterday.
+- **Hub pages and their data files ship together.** A page that fetches `defi-data.json` is broken by a deploy
+  that updates the page and not the file (or the reverse), so treat them as one unit and re-fetch both after.
+
+**Legacy URLs still exist and still get edited by mistake** — record what each surface currently answers in the
+change you make, so the next session does not have to rediscover which one is live.
 
 ### Hub Tab Design — Lifestyle over Business
 
@@ -170,6 +204,24 @@ name **hardcoded into the page** at build time.
 when its fetch fails (`Could not load position data — not showing stale numbers`). A page that
 quietly falls back to hardcoded values is visually identical to a working one, so the failure goes
 unnoticed for weeks.
+
+**A person's hub shows what they are DOING, not what they LOST.** A hub is opened voluntarily; a page
+that reminds its owner of money they cannot reach is a page they stop opening, and it is not the
+agent's call to make that choice for them.
+
+- **A position whose key is gone is still readable on-chain but must not be rendered on the hub.**
+  Record it once in a brain ledger (wallet, pool, bins, composition, `reachable: false`) — framed as a
+  **recovery ledger, not a P&L**, because the point of keeping it is a future recovery attempt. Then
+  publish the hub with no position and one honest line: *"No active position tracked. This hub shows
+  live positions only."*
+- **Use the page's existing error path to say it** (`d.error` → a single sentence) rather than adding a
+  banner or a zeroed-out card. A zero reads as "you earned nothing"; an absent section reads as "this
+  person has no position", which is the true statement.
+- **Prove it by executing the page, not by reading the diff.** Run the page's own script under Node with
+  a stubbed `document`/`fetch`, then assert **none** of the old values (amounts, prices, bin ids) appear
+  in any populated element. Neutralise `setInterval(load, …)` in the harness or Node never exits.
+- **Never wire a nightly job to a position nobody can reach.** Re-reading it is motion, not information;
+  re-read only when a recovery attempt makes it relevant.
 
 **A back-link must be CHECKED, not assumed.** A person without a hub page yet gets a back-link to a
 404 from their own dashboard. HEAD-check `<person>.html` at build time and fall back to the landing
@@ -381,8 +433,8 @@ cronjob action=update job_id=a564b3353770 schedule="30 15 * * *"
 **Implementation:**
 ```python
 # Sync script: /root/my-music/vanito-music-sync.py
-HUB_DATA_FILE = "/root/repos/gentechlabs.github.io/hub-vanito-data.json"
-GITHUB_MUSIC_JSON = "/root/repos/gentechlabs.github.io/Gaming/vanito-music.json"
+HUB_DATA_FILE = "(GitHub repo, not on this host: gentechlabs.github.io/)hub-vanito-data.json"
+GITHUB_MUSIC_JSON = "(GitHub repo, not on this host: gentechlabs.github.io/)Gaming/vanito-music.json"
 
 # Read from local hub JSON
 with open(HUB_DATA_FILE, 'r') as f:
@@ -402,9 +454,9 @@ github_data = {
 with open(GITHUB_MUSIC_JSON, 'w') as f:
     json.dump(github_data, f, indent=2)
 
-subprocess.run(['git', 'add', 'Gaming/vanito-music.json', 'hub-vanito-data.json'], cwd='/root/repos/gentechlabs.github.io')
-subprocess.run(['git', 'commit', '-m', f"music(vanito): sync from hub - {len(github_data['songs'])} songs"], cwd='/root/repos/gentechlabs.github.io')
-subprocess.run(['git', 'push'], cwd='/root/repos/gentechlabs.github.io')
+subprocess.run(['git', 'add', 'Gaming/vanito-music.json', 'hub-vanito-data.json'], cwd='(GitHub repo, not on this host: gentechlabs.github.io)')
+subprocess.run(['git', 'commit', '-m', f"music(vanito): sync from hub - {len(github_data['songs'])} songs"], cwd='(GitHub repo, not on this host: gentechlabs.github.io)')
+subprocess.run(['git', 'push'], cwd='(GitHub repo, not on this host: gentechlabs.github.io)')
 ```
 
 **Cronjob:**
@@ -428,7 +480,7 @@ cronjob action=create \
 **Verification Pattern:**
 ```bash
 # Commit and push
-cd /root/repos/gentechlabs.github.io
+cd (GitHub repo, not on this host: gentechlabs.github.io)
 git add Gaming/vanito-music-dashboard.html hub-vanito.html hub-vanito-data.json
 git commit -m "feat: add music sync for Vanito's hub"
 git push
@@ -505,7 +557,7 @@ async function loadMusic() {
 
 **Fix:** Include data file in git add:
 ```python
-subprocess.run(['git', 'add', 'Gaming/vanito-music.json', 'hub-vanito-data.json'], cwd='/root/repos/gentechlabs.github.io')
+subprocess.run(['git', 'add', 'Gaming/vanito-music.json', 'hub-vanito-data.json'], cwd='(GitHub repo, not on this host: gentechlabs.github.io)')
 ```
 
 ### Pitfall 6: Hardcoded HTML Data Instead of Dynamic Loading (`Gaming/poe2-jordan.html`) showed Level 28 even though `poe2-jordan-monk.json` had Level 31 because HTML had hardcoded `const characters = { "monk-jordan": { level: 28, ... } }` instead of fetching from JSON.
@@ -581,8 +633,8 @@ renderCharacters();
    → TAG:title=Fight Forever Never Quit  (this is the real title)
 
 3. COPY TO HUB — Place in a dedicated directory
-   mkdir -p /root/repos/gentechlabs.github.io/music/<person>/
-   cp <audio_path> /root/repos/gentechlabs.github.io/music/<person>/<kebabed-title>.mp3
+   mkdir -p (GitHub repo, not on this host: gentechlabs.github.io/)music/<person>/
+   cp <audio_path> (GitHub repo, not on this host: gentechlabs.github.io/)music/<person>/<kebabed-title>.mp3
 
 4. CHECK GITIGNORE — The repo likely blocks **/*.mp3
    Add an exception BEFORE the **/*.mp3 rule:
@@ -1039,14 +1091,14 @@ def ensure_clean_repo_state():
     # Check if repo has divergent branches
     result = subprocess.run(
         ['git', 'fetch', 'origin'],
-        cwd='/root/repos/gentechlabs.github.io',
+        cwd='(GitHub repo, not on this host: gentechlabs.github.io)',
         capture_output=True
     )
 
     # Check if local is behind or divergent
     status = subprocess.run(
         ['git', 'status', '--short', '--branch'],
-        cwd='/root/repos/gentechlabs.github.io',
+        cwd='(GitHub repo, not on this host: gentechlabs.github.io)',
         capture_output=True,
         text=True
     )
@@ -1055,7 +1107,7 @@ def ensure_clean_repo_state():
         print("Divergent branches detected, resetting to origin/main")
         subprocess.run(
             ['git', 'reset', '--hard', 'origin/main'],
-            cwd='/root/repos/gentechlabs.github.io',
+            cwd='(GitHub repo, not on this host: gentechlabs.github.io)',
             capture_output=True
         )
         return True
@@ -1069,7 +1121,7 @@ ensure_clean_repo_state()
 **Fallback Pattern for Manual Recovery:**
 ```bash
 # When sync script hangs, manually recover
-cd /root/repos/gentechlabs.github.io
+cd (GitHub repo, not on this host: gentechlabs.github.io)
 
 # Stash any local changes
 git stash push -m "Temporary stash for sync"
@@ -1093,7 +1145,7 @@ GIT_TIMEOUT = 120  # 2 minutes for git fetch/push
 
 subprocess.run(
     ['git', 'push'],
-    cwd='/root/repos/gentechlabs.github.io',
+    cwd='(GitHub repo, not on this host: gentechlabs.github.io)',
     timeout=GIT_TIMEOUT,
     capture_output=True
 )

@@ -1,7 +1,7 @@
 ---
 name: skill-library-maintenance
 description: "Use when a SKILL.md hits the size limit or an edit fails."
-version: 1.0.0
+version: 1.0.1
 author: Gentech
 tags: [skills, maintenance, editing, limits, fleet, references]
 ---
@@ -9,6 +9,12 @@ tags: [skills, maintenance, editing, limits, fleet, references]
 # Skill Library Maintenance
 
 Editing, extracting from, and propagating skill files that are at or near the platform size limit.
+
+> **Before you write a NEW skill at all: SEARCH, then STACK.** The full rule is **Rule 0 in
+> `fleet-compatible-skills`**. A *variation* of an existing skill — same lesson, new name, rules renumbered
+> — is far harder to spot than a duplicate, and it leaves the doctrine split in two files that each look
+> healthy. Extend the existing file; author new only when the lesson is genuinely new, and say which search
+> you ran.
 
 The platform keeps skills loadable by capping them. **The cap is enforced at WRITE time, not at
 write-intent time** — so a skill can absorb lessons for months and only reveal it is full on the day
@@ -33,7 +39,7 @@ reads perfectly and that no seat can ever add a lesson to.** The cap is enforced
 ## ⚠️ `skill_manage` edits the SEAT copy — never the vault core
 
 **The tool operates inside the profile's `skills/` dir.** Measured: a patch against a skill whose core copy
-sits in `10-Labs/skills-distribution/` landed in `/root/.hermes/profiles/<seat>/skills/...` while the core
+sits in `10-Labs/skills-distribution/` landed in `/opt/data/profiles/<seat>/skills/...` while the core
 file's hash did not move.
 
 **The consequence is the reason this section exists: a shared core is edited ONLY by direct file writes, and
@@ -50,12 +56,95 @@ fleet-wide.
    gate can never see the file the apply is about to copy.** Checking the core before `copytree` is the only
    place the check is reachable.
 
+### A reconcile tool with a BASELINE must validate the baseline's SHAPE — or it never completes a run
+
+**A sync tool that classifies each skill by comparing CORE against a stored per-seat baseline hash will raise on
+the FIRST skill if the stored shape and the reading code disagree — and because the crash precedes the writer, the
+baseline is never updated either. So it has never completed a run, on any schedule.**
+
+Measured: the state file holds a **bare hash string** per seat (`{"<skill>": {"<seat>": "a08c73867492"}}`) while
+the classifier called `.get("agreed")` on it → `AttributeError: 'str' object has no attribute 'get'`.
+
+**Read the file the WRITER produces before trusting the reader.** Accept both shapes cheaply:
+
+```python
+prev = (state.get("skills") or {}).get(name, {}).get(seat)
+if isinstance(prev, dict):        # older files may hold {"agreed": <hash>}
+    prev = prev.get("agreed")
+if prev == c_hash:   ...          # compare STRINGS, never dict-vs-string
+```
+
+- **A crash on row 1 is indistinguishable from "no drift" when a wrapper swallows the exit code.** A reconcile
+  that has never reported a decision COUNT has probably never run to completion. **Ask for the count, not for the
+  absence of errors.**
+- **The first successful run is a FIRST-EVER comparison, not a delta.** With no valid baseline the classifier
+  falls back to content-direction (which file contains the other) and mtime — a usable signal and a weak one.
+  Say which basis produced the verdict when you report it.
+- **Never blanket-apply a `review` verdict.** `review` means *both* sides changed since the last agreement; a
+  whole-file copy in either direction deletes the other side's work. Merge **by section**, and apply only the
+  verdicts you can justify individually — a strict-superset `promote` is the safe one. Measured on one repair:
+  113 decisions → 38 promote · 14 sync · **61 review**, and the one skill that actually needed changing was a
+  `review` that had to be merged by hand rather than applied.
+- **Prove the tool by making it PRINT A VERDICT TABLE, not by reading its source.** A repair is unverified until
+  the dry run emits decisions and a deliberately inconsistent fixture still exits non-zero.
+
+## ⚠️ Verify the edit reached CORE — one grep, every time
+
+**A successful `skill_manage` edit says the write landed. It never says it landed in the file that
+survives.** Treat every skill edit as unproven until the CORE copy contains it:
+
+```bash
+grep -c '<a distinctive phrase you just added>' \
+  /opt/data/.obsidian-vault/10-Labs/skills-distribution/<category>/<skill>/SKILL.md
+# 1 → the rule is in the source of truth
+# 0 → it is only on this seat, and the next sync will overwrite it
+```
+
+**Pick a phrase that exists nowhere else.** A generic word matches text that was already there and
+reports a false pass — the same keyword-as-fact error these skills keep catching.
+
+**When the grep returns 0:** extract the section from the seat copy and insert it into CORE, then
+propagate from CORE to every seat and confirm the hashes are identical. Do **not** copy the whole seat
+file over CORE — the seat may be a stale or locally-edited variant, and the whole-file overwrite is how
+a good CORE becomes a bad one.
+
+### Which side is AHEAD? Determine it before copying in either direction
+
+**"Edit CORE, never a seat" is a rule about where edits are AUTHORED. It is not a claim that CORE is
+newer**, and treating it as one loses work in the other direction.
+
+Measured: a skill's CORE copy was weeks older and was missing an entire section the seat had gained —
+the seat was the superset. A naive "push CORE to all seats" would have deleted that section fleet-wide,
+and a naive "CORE is authoritative, leave it" would have left every seat permanently one version behind
+while the tool reported success. Neither error raises.
+
+**Diff before you propagate, and classify the result:**
+
+```bash
+diff <core>/SKILL.md <seat>/SKILL.md | grep '^<'   # lines ONLY in CORE
+# nothing  -> the seat is a strict superset: promote seat -> CORE, then fan out from CORE
+# some     -> both sides have unique content: merge BY SECTION, never by file
+```
+
+- **A strict superset promotion is the safe case**, and it is the one to take when the diff proves it:
+  copy seat → CORE, then CORE → every seat, then prove it with a hash table — all N seat hashes identical
+to CORE is the only evidence the fleet agrees.
+- **Never whole-file copy when both sides carry unique sections.** Extract the missing section and insert
+  it, exactly as for the reverse direction.
+- **Do not use mtime as the tell.** The newer file may be the wrong one; the diff is the evidence, the
+  timestamp is a hint.
+- **Say which direction you promoted, in the record.** The next reader needs to know whether CORE led or
+  followed, or they will re-run the same guess.
+
+The corollary worth remembering: **a rule that only exists on the seat is worse than a rule that does
+not exist at all**, because the agent using it believes the fleet has it.
+
 **Sweep the whole fleet, not the seat you happen to be in** — the same skill exists on every seat and
 they drift:
 
 ```python
 import glob
-for p in glob.glob('/root/.hermes/profiles/*/skills/**/SKILL.md', recursive=True):
+for p in glob.glob('/opt/data/profiles/*/skills/**/SKILL.md', recursive=True):
     n = len(open(p, encoding='utf-8', errors='replace').read())
     if n >= 90000:
         print(f'{n:>7}  {p}')       # 90k = act now. 100k = already too late.
@@ -89,6 +178,39 @@ reads perfectly while every write against it refuses.
 (`MAX_SKILL_CHARS`, exit 4) that refuses to install any over-cap file. Refusal rather than a warning is
 deliberate: that apply runs unattended at 04:30, and **a `[WARN]` there has no reader** — which is this same
 defect one layer up. *A check whose output nobody can act on is a log line.*
+
+## ⚠️ Placement: a rule that must fire on EVERY task does not belong in a skill
+
+**Skills load by TRIGGER.** A standing rule placed inside a skill is read only when that skill is loaded —
+so a rule about how to treat any external repo, how to speak, or what never to touch is invisible on exactly
+the runs where the skill does not fire. Three placements, in order of reach:
+
+| reach | where | use for |
+|---|---|---|
+| **every turn** | each seat's `SOUL.md` standing-rules list | user preferences and gates that apply to *every* instance of the task |
+| **when the skill fires** | that class-level skill's `SKILL.md` | the procedure for the class of task |
+| **on demand** | `references/<topic>.md` | decision tables, recipes, domain depth |
+
+**Seats do not all use `## Rules`.** One may carry *"the lines that do not move"* and have no `## Rules` at
+all. Find each seat's equivalent section and append there — **adding a new heading that nothing loads is
+the same defect as writing the rule nowhere**, while looking like a completed task.
+
+**Propagation is four steps, and only the last one is proof:**
+
+1. Write it in the **CORE** skill (`10-Labs/skills-distribution`) — then grep CORE for a distinctive phrase,
+   because `skill_manage` writes the SEAT copy (see the section above). A successful edit message never says
+   *which* file it landed in.
+2. Add the **same wording** to every seat's standing-rules list. Do not paraphrase per seat — differing
+   phrasings make the fleet answer the same question differently, which reads as disagreement.
+3. `hermes -p <seat> sessions refresh-prompts` for each seat, so live sessions rebuild from the file without
+   a `/new`.
+4. **Ask a seat cold** — one question whose correct answer *is* the rule, with no context. A seat that
+   answers with all the parts from memory has loaded it. **A file containing the text proves nothing about
+   the prompt**, and the gap between them is where "we told them" quietly fails.
+
+**A rule buried at the end of a large `SKILL.md` is effectively not loaded.** If you re-derive a rule that
+already exists deep in a file, the fix is **placement, not another copy** — move it to where it is actually
+read, then delete the stale duplicate so the two cannot drift.
 
 ## Procedure — extract to `references/`, never delete
 

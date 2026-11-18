@@ -46,7 +46,7 @@ who sent it to whom.
   ```
 
 ## The overnight scanner
-`/root/vaults/gentech/scripts/group-returns-scanner.py` reads EVERY
+`/opt/data/profiles/gentech/scripts/handoff-ack-check.py` reads EVERY
 `<from>-to-<to>/` folder (not just `-to-gentech/`) plus every
 `<group>-completions.md`, extracts shipped `#<id>` tokens + notes, and emits
 JSON for the Nightly Build Session + Morning Digest. It also auto-creates
@@ -106,6 +106,52 @@ missing return folders. Groups list includes `gizmo` (Labs bot).
   `--query-file`, not `-q`, so quotes and `$(…)` survive the shell); the vault handoff stays the durable
   record; the note says the DM failed and why. **A wake that never landed must never be reported as a
   wake** — and once the peer answers, verify its claim yourself rather than relaying it.
+- **Every handoff note ends with an `## Agreement` block, written at authoring time.** `signoff-check.py`
+  reads a note with no block as *uncovered* — nobody was asked to agree — so it can never be closed and it
+  joins a backlog whose only growth pattern is neglect. The block is `| seat | state | at | evidence |`,
+  one row per seat that must agree, states `pending` / `acknowledged` / `not-applicable` / `blocked`.
+  **The heading level is load-bearing: `## Agreement`, literally, at line start.** A block that *looks*
+  complete under `**Agreement**` (bold) or `### Agreement` is read as **no block at all** — a note can carry
+  the full `| seat | state | at | evidence |` table for days while the checker reports "nobody was asked to
+  agree". Verify with the tool, never by eye: `dispatch-guard.py <seat> <slug>` printing
+  `ANSWERED (## Agreement present)` is the only proof the signature counts.
+  **Never date a line with an event you did not timestamp.** "re-sent on <date>" reads like a measurement and
+  is an invention; write "delivered twice; timestamp not captured" instead. A receipt with a fabricated date
+  is worse than a receipt with a gap, because the gap is visible.
+  **Fan-out is not covered by the guard.** `dispatch-guard.py` resolves a `<sender>-to-fleet/` note only when
+  addressed as that sender's lane — ask it about any *other* seat and it answers "clear to send". So a
+  fleet-wide note signed by three seats still looks unsent to the fourth, and the guard's silence there is
+  not a green light. The answered-check for a one-to-many note is explicit:
+  `grep -c '^## Agreement' <lane>/<slug>.md`.
+  `acknowledged` **requires evidence** (a number you measured, a command you ran) or it counts as
+  `unproven`; `pending` is honest only when the gate is named in the evidence column ("no registered peer
+  DM for this seat; released when X appends its row"). Fill your own row `acknowledged`, leave the
+  `receiver's `pending` — a missing row is worse than a pending one, because pending can be aged. Measured before the rule existed: **50 notes had accumulated by 2026-11-03**, and the fix for each one was one table — which is what makes a bare `pending` a shrug rather than a status.
+- **Re-stamp a block when you re-verify it, and never blanket-sign a backlog.** A block written at send time
+  carries a claim; days later that claim may have expired (a due date passed, a milestone slipped) while the
+  signature still reads as a fresh yes. **Re-measure and add the later state beside the original** — the block
+  is a record of two claims, not a checkbox. And when an inbox has accumulated N unsigned notes, do **not**
+  sign them in a batch to clear a counter: for each, find whether the answer already exists in another note
+  and either sign pointing at it, or write `## Supersede` naming what replaced it. **A signature asserts you
+  verified the outcome** — signing one you did not check is the same fabrication as a false receipt, one step
+  later, and it is worse because it looks like diligence.
+- **An ACK rule with no per-seat trigger is a wish — audit the ENFORCER and the CITED FILE before
+  reporting that seats are ignoring the protocol.** Measured 2026-11-04: `INBOX/README.md` mandated
+  "ACK + START (MANDATORY)" for every pickup, yet of four live seats only **one** ran any scheduled inbox
+  check; across 28 notes sitting in the inboxes **zero** carried a real "Picked up" line, and exactly one
+  file had ever been archived — the README itself, while the README **was missing from the vault** (only
+  `.premerge-bak` / `.rolledback-*` survived a merge incident) even though the checker's docstring cited it
+  by line number. Rules that follow:
+  - **Look for a trigger per seat** (a job that reads that seat's own `INBOX/<seat>/`) before calling
+    non-acknowledgement a behaviour problem. **A rule nobody schedules is not being disobeyed — it is
+    unbuilt**, and saying so is the difference between a fix and a reprimand.
+  - **Open the file the protocol cites.** A rule pointing at a path that no longer exists is folklore;
+    restore it from the backup/git history with a dated header stating what was measured.
+  - **Never mix "undelivered" with "unacknowledged" in one list.** A seat with no wake path has notes that
+    *cannot* be acked; folding them in with live seats makes the whole list unreadable and the real gap
+    invisible.
+  - **One inbox per seat.** Two folders for one destination (a legacy alias the checker patches over in
+    code) is why notes sit — retire the alias instead of teaching every reader the exception.
 - Don't assume a handoff must go back to Gentech — route peer-to-peer when the target group owns the decision/context.
 - The scanner regex `^([a-z]+)-to-([a-z]+)$` matches peer folders; `-to-gentech` is handled separately in `scan_group`, so don't double-count.
 - Group agents sometimes push only to GitHub — always `git push vault main` before reading handoffs.

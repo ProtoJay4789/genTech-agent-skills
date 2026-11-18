@@ -6,6 +6,15 @@ tags: [media, video, image, proxy, clawrouter, seedance, gpt-image-2, wallet]
 
 # ClawRouter Proxy Media Generation
 
+## ⛔ WALLET STATUS — 2026-11-03
+
+`0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (F8) is **RETIRED** — key lost in the Oct 12 wipe; its 0.4868 USDC is unspendable.
+**Do not fund it; do not expect it to work.** Current BlockRun wallet:
+`0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0` — one shared key file at `/opt/data/.blockrun/.session`, symlinked into every seat.
+It holds 0.9687 USDC and **0.000000 ETH** on Base: calls fail until gas is funded.
+Detail: `gentech-wallet-management` → WALLET STATUS.
+
+
 ## Model Lock (Standing Rules Aug 2026)
 
 - **Images:** GPT Image 2 ONLY (`openai/gpt-image-2`). Never switch unless Vanito says.
@@ -18,8 +27,8 @@ tags: [media, video, image, proxy, clawrouter, seedance, gpt-image-2, wallet]
 
 ## Wallet
 
-- Address: `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` on Base
-- Balance check: `cd /root/.hermes/blockrun-mcp && node bal.mjs`
+- Address: `0xebc8c719…72f8 (RETIRED)` on Base
+- Balance check: `cd /opt/data/tools/blockrun && node bal.mjs`
 - GPT Image 2: ~$0.06–0.13/image, Seedance 2.0: ~$1.14/clip
 
 ## Critical Pitfalls
@@ -47,4 +56,4 @@ If wallet has funds but generation rejected: `sudo systemctl restart clawrouter-
 
 ## Image Editing (img2img)
 
-Use BlockRun `ImageClient` directly: import from `/root/.hermes/blockrun-mcp/node_modules/@blockrun/llm/dist/index.js`. Pass scene as `image`, character sheet in `images` array. Model: `openai/gpt-image-2`.
+Use BlockRun `ImageClient` directly: import from `/opt/data/tools/blockrun/node_modules/@blockrun/llm/dist/index.js`. Pass scene as `image`, character sheet in `images` array. Model: `openai/gpt-image-2`.

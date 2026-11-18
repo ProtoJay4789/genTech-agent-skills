@@ -84,7 +84,7 @@ Lead with the verdict, not the architecture explainer:
 ```
 
 ## Where the borrows land
-- Mechanisms worth adding to our design → `agent-handoff-enforcement`, `considerations.md`, build queue, or a new spec under `09-Green Room/specs/`.
+- Mechanisms worth adding to our design → `agent-handoff-enforcement`, `considerations.md`, build queue, or a new spec under `09-Green Room/specs/`.   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `agent-handoff-enforcement` exists on this seat -->
 - Deep-dive analysis notes → `09-Green Room/specs/{topic}-deep-dive.md` (or `03-Projects/Research/`).
 - Vault changes should follow the wiring: one link can trigger multiple vault files (spec + queue item + skill patch).
 
@@ -97,3 +97,14 @@ Lead with the verdict, not the architecture explainer:
 - **LoopX** (state kernel / control plane, 680★) → borrowed: explicit user gates, quota-aware `should-run`, evidence-lineage stubs; rejected: the tool + Feishu projection + Bytedance-adjacent control plane. Wired into `agent-handoff-enforcement` skill; spec at `09-Green Room/specs/loopx-a2a-handoff-borrow.md`.
 - **awesome-llm-apps multi-agent trust layer** (Apache-2.0, 130K★, verified running) → borrowed: delegation-scope narrowing + trust scoring; cloned to `/root/repos/`; deep-dive at `09-Green Room/specs/a2a-trust-layer-deep-dive.md`.
 - **kroger-mcp** (66★) → evaluated, found it still needs the Kroger API key the user can't get → pivoted to the real Cookbook substitution problem (no external keys needed).
+
+## ⚠️ Same phrase, different job
+
+**"Eat the meat, spit out the bones" is used in two places, and they are not the same procedure:**
+
+- **here** — evaluating a reference repo or link: extract the mechanism, reject the tool
+- **`agent-kit/eat-the-meat-spit-out-the-bones`** — processing an *archive*: read it once, keep what
+  earns keeping, drop the rest, write the receipt
+
+**If the task is "someone shared a repo/idea," use this skill. If the task is "we have an old folder /
+backup / dump," use the other one.**

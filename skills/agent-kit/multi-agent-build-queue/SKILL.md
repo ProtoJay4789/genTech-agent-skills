@@ -90,6 +90,34 @@ A null group is not "no group." It is a label somebody forgot.
 
 ---
 
+## Failure 2b — Two files wearing one name
+
+**A canonical store plus a hand-maintained human-readable mirror is two queues, not one.**
+
+Measured on a real fleet: the canonical JSON held **102 items**, the markdown mirror held **14 rows**,
+**11 of those 14 rows existed nowhere in the canonical file**, and **88 canonical items appeared in no
+mirror**. The orienting doc described both as live — so the instruction *"work the build queue"* resolved to
+a different list depending on which file the agent happened to open. Neither list was wrong; together they
+were unusable.
+
+**The root cause is design, not discipline.** Two writers on two files always diverge, and every addition
+lands in exactly one, so the next person re-adds what the other file already holds. This is what an owner
+experiences as *"the list keeps ballooning"* and *"we keep chasing a duplicate"* — the duplicate is the
+steady-state output of the file pair, not an occasional mistake.
+
+Rules:
+
+- **Pick one direction and generate the other.** The mirror is rendered output, regenerated on every write.
+  Two-way sync is how you arrive back here.
+- **The mirror must carry the canonical id** on every row, so it can be matched to its record without
+  name-fuzzy inference.
+- **A mirror row describing already-finished work is worse than none.** It reads as live and invites an agent
+  to redo it; measured, one mirror row still requested an enrichment that had shipped days earlier.
+- **Never merge the orphans by name.** Rows that exist in one file only are frequently renames of records in
+  the other; a name-match merge deletes real work. Surface them for a human read instead.
+
+---
+
 ## Failure 3 — The queue with no completion timestamp
 
 If items carry no `completed_at`, then **"what shipped recently?" is unanswerable** — and the
@@ -165,6 +193,50 @@ wearing a different hat.
 
 ---
 
+## Who owns it — ask before you start, and record the answer
+
+**A row is a stale claim. The owner is the live fact.** A queue records what someone believed when they wrote the
+row; the seat that owns the lane knows what is true now. Working another seat's row without asking is how you
+"fix" code that was deliberately held, or edit a file the owner replaced two hours ago.
+
+**The rule: before starting a row owned by another seat, ask them and record the answer on the row.**
+
+```
+--record <id> --who <seat> --said "still reproduces; I am taking it"   # timestamped on the row
+--start  <id>                                                          # refuses without it
+--audit                                                                # every open row never checked
+```
+
+Three refusals, each of which is a real defect when missing:
+
+- **No check-in in the last 24h → refuse.** An answer from last week describes a different build; the owner's
+  context moved even when the row did not.
+- **Check-in from anyone but the row's owner → refuse.** *Someone else's opinion is not the owner's answer.* An
+  HQ-written "I looked at it" is exactly the fake receipt the queue already suffers from.
+- **An empty `--said` → refuse.** *A check-in with nothing said is not a check-in.*
+
+**The answer is worth more than the row.** Asking a seat about its seven open defects returned, in one reply:
+four **no longer reproduced**, one **was never a defect** (zero hits for the mechanism in the whole tree), one
+**unmeasurable** (no data to measure), and one **still reproduces**. The queue had been carrying six fictions —
+and the owner killed them faster than any re-audit could, because it remembered why each row was written.
+
+**Ask for those four verdicts explicitly:** *does it still reproduce today · what is actually left · do you keep
+it or does HQ · and what is the measurement.* A bare "still open" is the same shrug as a bare `blocked`.
+
+**When the owner says it no longer reproduces, close the row with THEIR measurement as the evidence** — and when
+they say the defect was never built, reclassify it as a build, not a fix. `not-a-defect` and `unmeasurable` are
+both legitimate verdicts, and leaving them as `needs-evidence` forever is how a queue holds work that does not
+exist.
+
+### Testing the guard must not write to the real queue
+
+A test that exercises the check-in recorder leaves a **fabricated check-in on a live row** — a fake receipt in
+the file the guard exists to protect. Point the test at a copy (`BUILD_QUEUE=/tmp/q.json`), and if you do run it
+against the live file, **remove exactly the rows you touched and say so**. Verify the removal by counting the
+field across the whole file, not by trusting the pop.
+
+---
+
 ## Two traps that will bite you when writing to the queue
 
 These are not hypothetical — both happened in a single edit.
@@ -215,6 +287,36 @@ revert and redo.
 - **Verify a negation-aware check.** A check that greps for a name will match the name inside its
   own negation — *"no human gate"* reads as *"human-gated"*. Real false positives, three in one
   run. Match structured fields first; if you must scan prose, strip negated mentions.
+- **`owner` records the machine; `department` records the work — do not route on the wrong one.** A field
+  whose vocabulary is a host name answers *"which box runs this"*, and department routing built on it
+  silently mis-buckets: measured, **41 of 77 open items** collapsed into a catch-all because they were owned
+  by a host rather than a domain. Adding a `department` field is only half the fix — **the backfill reveals
+  that most items have no domain assigned at all**, and re-sorting them is the actual work.
+- **The vocabulary validator must REJECT, not warn.** An unenforced field drifted to **nine spellings** across
+  a 102-item queue, two of which named the same department. A warning is read once and ignored; a refused
+  write is read immediately.
+- **The first tool you point at a live queue is read-only and has no write flag.** Print the distribution and
+  nothing else, then prove it touched nothing by comparing the file hash before and after. Trust in a tool
+  that *cannot* write is worth more than a review of a tool that can.
+- **Status enums drift validation-side.** If two items already carry a value the schema does not list
+  (`blocked` while the enum offered only pending/in_progress), the schema is missing a value the data depends
+  on — and the canonical file lies by omission while the readable mirror is correct. Fix the enum, do not
+  re-label the items.
+- **A status is not a boolean, and a boolean is not a status.** A row that is *waiting on a human* is a
+  `status: pending` **plus** `needs_jordan: true` — writing `status: "needs_jordan"` invents a value outside the
+  vocabulary and breaks anything that switches on it. Check which field carries the meaning before you set it.
+- **One status doing several jobs is the real backlog defect — not a wrong count.** Measured on a 111-row
+  queue: **12 rows sat in `in_progress`** and their own notes said four different things — *actually running*,
+  *waiting on a human*, *deliberately held with a release condition*, and *shipped but never marked*. Nine of
+  the twelve announced their own completion in prose while the status stayed `in_progress`. A second bucket
+  (`needs-evidence`, 47 rows) was worse: only **10** were genuinely *work that exists and cannot be proven*; 28
+  described **an action not yet taken** — *"remove it"*, *"add a check"*, *"reconcile"*. An overloaded bucket is
+  indistinguishable from a backlog that is half-done, so every "what's next" answer built on it is wrong.
+  **Re-bucket by reading each row's own text, and reserve each status for exactly one meaning.** Do not bulk-move
+  on a keyword heuristic; read the tail of each note, where the next step is usually stated.
+- **A row can be `blocked` with the gate MEASURED, not just named.** *"Blocked on capital"* is a shrug; *"blocked:
+  wallet holds 0.200010 USDC, idle capital 0.4% against a >25% or ≥$10 trigger, both watchdogs `enabled=False`,
+  released when idle capital crosses the trigger"* is a status a reader can act on months later.
 
 ## The one-line summary
 

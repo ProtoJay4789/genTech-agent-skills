@@ -67,7 +67,7 @@ If the docs fetch fails or times out, continue with the local skill and live API
   ```bash
   SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"   # when running a script in scripts/
   # or, from a skill-root shell:
-  # SKILL_DIR="/root/.hermes/profiles/$(basename "$PROFILE_DIR")/skills/productivity/here-now"
+  # SKILL_DIR="/opt/data/profiles/$(basename "$PROFILE_DIR")/skills/productivity/here-now"
   ```
 
   Scripts: `${SKILL_DIR}/scripts/publish.sh` for publishing sites, `${SKILL_DIR}/scripts/drive.sh`
@@ -77,7 +77,7 @@ If the docs fetch fails or times out, continue with the local skill and live API
 ## Create a site
 
 ```bash
-SKILL_DIR="${SKILL_DIR:-/root/.hermes/profiles/${PROFILE_ID:-gentech}/skills/productivity/here-now}"
+SKILL_DIR="${SKILL_DIR:-/opt/data/profiles/${PROFILE_ID:-gentech}/skills/productivity/here-now}"
 PUBLISH="${SKILL_DIR}/scripts/publish.sh"
 bash "$PUBLISH" {file-or-dir} --client hermes
 ```
@@ -96,7 +96,7 @@ You can also publish raw files without any HTML. Single files get a rich auto-vi
 ## Update an existing site
 
 ```bash
-SKILL_DIR="${SKILL_DIR:-/root/.hermes/profiles/${PROFILE_ID:-gentech}/skills/productivity/here-now}"
+SKILL_DIR="${SKILL_DIR:-/opt/data/profiles/${PROFILE_ID:-gentech}/skills/productivity/here-now}"
 PUBLISH="${SKILL_DIR}/scripts/publish.sh"
 bash "$PUBLISH" {file-or-dir} --slug {slug} --client hermes
 ```
@@ -112,7 +112,7 @@ Use a Drive when the user wants private cloud storage for agent files: documents
 Every signed-in account has a default Drive named `My Drive`.
 
 ```bash
-SKILL_DIR="${SKILL_DIR:-/root/.hermes/profiles/${PROFILE_ID:-gentech}/skills/productivity/here-now}"
+SKILL_DIR="${SKILL_DIR:-/opt/data/profiles/${PROFILE_ID:-gentech}/skills/productivity/here-now}"
 DRIVE="${SKILL_DIR}/scripts/drive.sh"
 bash "$DRIVE" default
 bash "$DRIVE" ls "My Drive"
