@@ -32,12 +32,24 @@ the gentech bot had been **kicked from Labs** — Labs is served by the gizmo bo
 not gentech. A bot kicked from a supergroup returns 403 on `sendMessage`/`getChat` for that chat
 even while its `getMe` is healthy. Always map group→bot before posting.
 
-Live fleet map (verified Aug 16 2026):
-| Profile | Bot username | Serves |
-|---------|--------------|--------|
-| gentech | ProtoJaybot | HQ (-1003863540828) + Entertainment (-1003893562036) |
-| gizmo   | FollowTheCodebot | Labs (-1003872552815) |
-| gentech-treasury | GentechDeskbot | Treasury (-1002916759037) |
+Live fleet map — **RE-MEASURED 2026-10-16** (`getMe` per seat; the Aug-16 names below were WRONG):
+
+| Profile | Bot username | Bot id | Serves |
+|---------|--------------|--------|--------|
+| gentech | `@Gentechlabsbot` | 8983403162 | Gentech HQ (-1003863540828) |
+| gentech-treasury | `@AgenticTreasurybot` | 8859788654 | Strategies/Treasury (-1002916759037) |
+| arthur | `@GentechEDU_bot` | 8695731797 | Gentech EDU (-1003872552815) |
+| protojay | `@ProtoMagicbot` | 8572791411 | Gentech Social media (-1004298089413) |
+| forge | *(desktop — no bot on this host)* | — | — |
+
+Retired: `gizmo` (`@FollowTheCodebot`, served Labs before the EDU rename), `pixel` (Entertainment).
+
+> ⚠️ **The Aug-16 map was wrong on every row and stayed wrong for two months.** It named
+> **`ProtoJaybot`** for gentech (live: `@Gentechlabsbot`) and **`GentechDeskbot`** for treasury
+> (live: `@AgenticTreasurybot`) — and it sent the 2026-10-16 bot-out-of-group diagnostic chasing
+> `GentechDeskbot` (id 8981389550), a bot that isn't the treasury seat. A name in a doc is not a
+> measurement. **Re-run `getMe` per seat before diagnosing a 403** — and when you learn a bot's
+> real identity, fix this table in the same breath.
 
 Diagnose a 403:
 ```bash
