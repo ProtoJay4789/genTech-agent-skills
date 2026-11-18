@@ -18,7 +18,7 @@ it as *"Could not find … in any source"* — which reads like a broken skill i
 ## The six — in this order
 
 ```bash
-BASE=https://raw.githubusercontent.com/GentechLabs/genTech-agent-skills/master/skills
+BASE=https://raw.githubusercontent.com/ProtoJay4789/genTech-agent-skills/master/skills
 
 hermes skills install $BASE/development/develop-and-verify/SKILL.md        --yes
 hermes skills install $BASE/agent-kit/verify-after-every-action/SKILL.md   --yes
@@ -57,7 +57,7 @@ no discipline.**
 **Skills live in `$HERMES_HOME/skills/`** (per profile: `profiles/<seat>/skills/`).
 
 ```bash
-git clone https://github.com/GentechLabs/genTech-agent-skills.git ~/gentech-agent-skills
+git clone https://github.com/ProtoJay4789/genTech-agent-skills.git ~/gentech-agent-skills
 cp -r ~/gentech-agent-skills/skills/* "$HERMES_HOME/skills"/
 hermes skills list | wc -l
 ```
