@@ -54,6 +54,80 @@ scored as absent, no matter how good the code is.
 **Never reuse a `GentechLabs` PR number, branch or receipt as if it were `ProtoJay4789`'s.** They are different
 accounts with different histories. When migrating a listing, move the *reference*, never the *claim*.
 
+**⚠️ An org and a user can differ by ONE HYPHEN and carry opposite write permissions for the same token.**
+Route the credential by the repo's OWNER (an explicit owner→token map), then **preflight
+`GET /repos/{repo}` → `permissions.push`** before composing anything. A write that fails `403` is a routing
+mistake; a write that SUCCEEDS with the wrong token publishes in the wrong person's voice.
+
+**And INBOUND is not OUTBOUND.** The human-in-the-loop rule protects someone else's repo; a question on **our
+own** repo is support, and silence there is the damage. The bounded reply lane — owner gate, token-by-owner,
+`can_push` preflight, published-fact-only replies, idempotence, HUMAN-by-default — is
+**`references/inbound-reply-lane.md`**. Read it before any agent answers a stranger on our repos.
+
+## 🔴 ONE THROTTLED CLIENT — a job that reads 403 correctly can still be the burst
+
+**Jordan, 2026-11-18:** *"let's double-check the other GitHub cron jobs also have this built in... I don't wanna mysteriously get rate limited because we're not doing something right."*
+
+**Measured across every GitHub-touching script the same day.** Reading a 403 correctly and *being* a
+throttled client are different properties, and a job can pass the first while failing the second:
+
+| script | throttled client | stops on 403 | spacing |
+|---|---|---|---|
+| `github-inbox-check.py` | `gh_guard` | yes | — |
+| `github-secret-audit.py` | `gh_guard` | yes | — |
+| `front-door-link-check.py` | **was bare urllib** | yes | **none** |
+| `x402-stuck-scanner.py` | **was own curl** | yes | fixed sleep only |
+| `github-compliance-sweep.py` | own | yes | 3s + 40-call cap |
+| `github-compliance-monthly.py` | delegates (0 calls) | n/a | n/a |
+
+- **`front-door-link-check` was the instructive one.** It handled 403/429 *perfectly* — refused to call a
+  throttled response a "broken link". That correctness is exactly why nobody looked at the client: the
+  **reading** was right and the **caller** was still unspaced. A correct interpretation of a throttle does
+  not make an unspaced burst safe.
+- **Fix: one `gh_get()` from `gh_guard` in every script.** Per-script cleverness is how the fleet ended up
+  with four independent clients that each believed they were inside the same budget.
+- **A 404 is an ANSWER, not a boundary.** `gh_get` returns it as an error string; a caller that maps every
+  error to UNKNOWN turns a genuinely missing repo into "we could not check" — the opposite mistake, and a
+  quieter one. Branch on `"404" in err` and report it as a real break.
+- **Verify with a call that returns a real 404**, then confirm the report says BROKEN and not UNKNOWN.
+- **Jobs that share an account share a budget.** Scheduling is not isolation: a weekly check firing a burst
+  spends the same hourly pool as the daily ones.
+
+## 🔴 A RULE IN A SKILL IS NOT A RULE IN THE SCRIPT — wire the read into the tool
+
+**Jordan, 2026-11-18:** *"all of our cron jobs should by default try to get you to read their contribution MD or just kinda read the room and see what's going on so we can be helpful."*
+
+**Measured the same day:** the stuck-developer scanner promised to obey `CONTRIBUTING.md` and **never opened it.**
+`policy_note()` returned a hardcoded sentence describing **x402's** rules for **every repo**; the venue check read
+`config.yml` only, regex-matching one phrase (`"do not open an issue"`). So the tool that drafts replies had never
+read a single contribution contract — and a rule that lives only in a skill is loaded by whoever remembers to load it.
+
+**The fix pattern — the tool reads the room itself, every run:**
+
+```python
+def contribution_rules(repo) -> list[str]:
+    """The repo's OWN stated obligations, read from the file. [] means UNREADABLE, not 'no rules'."""
+    text = read(repo, "CONTRIBUTING.md") or read(repo, "CONTRIBUTING.rst") \
+           or read(repo, ".github/CONTRIBUTING.md")
+    if not text:
+        return []                       # caller must treat as UNKNOWN and WITHHOLD
+    return [msg for pat, msg in CLAUSES if re.search(pat, text)]
+```
+
+- **Print the rules WITH the draft**, not in a separate document. Obligations must travel attached to the
+text that will be posted, or the sender never sees them.
+- **Empty is not permission.** No readable CONTRIBUTING ⇒ downgrade `REPO-SPECIFIC` to `UNKNOWN` and print
+`do not post`. Silence about the contract is the strongest reason to withhold.
+- **Match clauses to OBLIGATIONS, not keywords.** "non-Draft PR", "human must review AI output", "strip
+verbosity", "no batch-generated PRs", "disclose AI usage", "commit signing", "run their formatter" — each
+maps to something we must DO. A rule we cannot act on does not belong in the list.
+- **Prove it on two repos with different contracts.** Measured: `x402-foundation/x402` returned **6** rules;
+`xenia-project/xenia` returned **1** (formatter only). A scanner returning the same rules for both is still
+hardcoded, whatever the docstring says.
+- **Same rule for `config.yml`, recent closed PRs and merge cadence** — if the tool claims to check it, the
+tool must run the check. Anything asserted in prose and not executed is a claim about the tool, not a
+property of it.
+
 ## 🔴 THE VENUE RULE — a true statement in the wrong place is still spam (Jordan, 2026-11-14)
 
 > *"we gotta make sure we're reading the contribution MD that they have. We don't wanna come off as spam."*
@@ -187,6 +261,87 @@ asks nothing, pings nobody, and mentions no maintainer.
   returns success is a claim; a closed-but-uncommented PR looks like a drive-by close.
 - **Never withdraw a thread where a human replied.** That is a conversation to answer, not a deposit to reclaim
   — a silent close into an answered thread costs more than leaving it open.
+
+## 🔴 CODE CONTRIBUTIONS — reproduce it, prove it, then stop at the design decision
+
+A fix to someone else's source is a different job from adding a listing: it must compile in *their*
+toolchain, fail before the patch and pass after. Three of these four steps exist because skipping them
+produces a confident PR that is wrong.
+
+### 1 · Find the real issues — `/issues` returns PULL REQUESTS too
+
+`GET /repos/{o}/{r}/issues` mixes both. A PR carries a `pull_request` key; a real issue does not.
+
+```python
+kind = "release" if "releases" in url else ("pr" if it.get("pull_request") is not None else "issue")
+```
+
+**Label from the payload, never from the URL.** A watcher that reported twelve `[issue]` lines when
+**11 of 12 were PRs** could not be acted on at all — and the one real issue was invisible in the noise.
+Print `pr-open` / `pr-closed` / `pr-merged` separately; **a merged PR is a change that already shipped**
+(an upgrade we may owe), a closed-unmerged one is a rejected idea, and those need opposite responses.
+
+### 2 · Match THEIR toolchain before writing a line
+
+Read the version the repo declares and install that, not whatever is already on the box:
+
+```bash
+grep -m1 '^go ' go/go.mod        # e.g. go 1.26.10 — a 1.23 toolchain will not build it
+curl -fsSL "https://go.dev/dl/go1.26.10.linux-amd64.tar.gz" | tar -xz -C <toolchain-dir>
+```
+
+**A fix you cannot compile is a draft you must not open.** Verify `go build ./<pkg>/` on pristine
+`HEAD` *first* — if upstream does not build as shipped, every later failure is unreadable.
+
+### 3 · Write the test BEFORE the fix, and give it a CONTROL
+
+Assert on the **observable behaviour**, not on the variable the fix introduces — a test of the fix
+tests your own reasoning, not the bug.
+
+- **Red first:** run it against unpatched `HEAD` and require it to fail with the real symptom.
+- **Always add a control:** the inverse case must PASS. Without it, a test can pass because the
+  harness never triggers the effect at all — which proves nothing and looks green.
+- **Stub the collaborator with a realistic payload.** Returning an empty response made the constructor
+  fail validation for an unrelated reason, so the test measured *that* failure instead of the flag.
+- **If it will not go green, say so and stop.** A patch you could not turn red→green is a hypothesis.
+
+**Proving RED after an API-shape change needs a SECOND checkout — your own tree can no longer compile the old shape.**
+Once the field/helper/type has changed, a test written against the previous API fails to *build* rather than failing
+an assertion, and `build failed` is not a red test: it proves nothing about behaviour. Worse, the rest of the suite
+now references the new helper, so reverting one file is not enough to get back to a compilable old shape.
+
+The recipe that works, in this order:
+
+1. Write the test against the **OLD** API first and confirm it fails with the **real symptom** (an assertion message
+   naming the wrong behaviour), not a compile error.
+2. Keep a **pristine clone** of upstream at the same commit; apply the test there, run it, capture the red output.
+3. Only then apply the fix in the working tree and run the same test for green.
+4. Save the working diff as a **patch file** and check it applies to a clean clone (`git apply --check`) — that is
+   the artifact a reviewer can reproduce, and it survives your scratch tree being wiped.
+
+A helper the fix introduces (a pointer constructor, a wrapper) must exist in **every** package that calls it — the
+suite that fails to build is usually the second adapter, not the one you were editing.
+
+### 4 · When the root cause is a TYPE, that is a design decision — stop and ask
+
+Measured: a `bool` config field documented "Default: true" **cannot represent "unset" vs "explicitly
+false"**. The reporter diagnosed the symptom (a check reading a value defaulted two lines earlier); the
+cause was that the type erases the distinction, so **no internal logic can honour it.**
+
+- **Do not "fix" it by rewriting the branch.** A rewrite that still sets the flag true when a facilitator
+  is present reproduces the identical bug in fewer lines. Prove it with a temporary `println` probe, then
+  **revert your own patch** — never leave a wrong fix in the tree while you think.
+- **Changing `bool` → `*bool` is a breaking change to an exported struct.** Count the blast radius
+  (`grep -rn 'FieldName:' --include=*.go .`) — internal literals *and* every external caller. That is the
+  maintainer's call, so put the options to the human and open nothing until they answer.
+- **A behavioural test that reproduces a real bug is a deliverable even with no PR.** It is the receipt
+  that the claim is true.
+
+### 5 · Draft PR, human un-drafts it
+
+Their rule, and ours: *do not open a non-Draft PR until the code has been personally verified.* Post as
+**Draft** with the failing-then-passing test output; the human un-drafts. **One PR at a time** — batch
+low-effort PRs is the single fastest way to be treated as spam.
 
 ## Phase 0: Pre-Flight — Token & Account Health Check (Mandatory — Run Before Anything)
 
@@ -1037,9 +1192,10 @@ Zero bot-rejected PRs. Every submission passes template checks on first try.
 
 ## Cross-Reference
 
+- **Commit signing from a headless node (SSH, no GPG):** See `references/commit-signing-ssh.md` — **this SUPERSEDES the older bot-trap row that said signing "cannot be automated from a headless build node" and should be Tier-3 escalated.** It can be automated: `gpg.format=ssh`, and the key must be registered at `POST /user/ssh_signing_keys` (not `/user/keys`, which registers an auth key and leaves GitHub answering `unknown_key`). An unsigned PR is a one-week countdown to auto-close, not a slow review.
 - **Rate limit management for 50+ PR batch scans:** See `references/rate-limit-management.md` — tiered REST→GraphQL fallback strategy
 - **YAML catalog repo submissions (projects.yaml format):** See this skill's "YAML Catalog Repos" subsection under Awesome Lists for the worked best-of-mcp-servers example
-- **Full PR compliance sweep (when bot feedback triggers a full audit):** See `open-source-contribution` skill → "PR Compliance Sweep" section and `references/pr-compliance-sweep-checklist.md`   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `open-source-contribution` exists on this seat -->
+- **Full PR compliance sweep (when bot feedback triggers a full audit):** See `open-source-contribution` skill → "PR Compliance Sweep" section and `references/pr-compliance-sweep-checklist.md`   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `open-source-contribution` exists on this seat --> *(reference not shipped with this release — the body was consolidated and the file was not carried across; treat the guidance above as complete)*
 - **Curated-list PR workflow (awesome lists, pay-skills catalog):** See `open-source-contribution` skill → "GitHub Curated-List Campaign" section
 - **Greptile handling (pricing, categories, specs):** See `open-source-contribution` skill → "Dealing with Auto-Review Bots" section
 - **Pay-skills catalog fix workflow (per-service OpenAPI, Algorand sync, multi-branch git):** See `references/pay-skills-catalog-fix-patterns.md`
@@ -1142,3 +1298,9 @@ Treat them as *claimed*, not *confirmed*, until an authenticated read re-proves 
    (`vendored/` reads 35 from contents, 33 from the tree).
 8. **Patching a skill and then syncing from the vault will silently revert your patch** if you patch the seat copy.
    Patch the canonical vault copy first, then propagate outward.
+
+## Missing references
+
+The following paths are cited above but are not shipped with this release. They were written on our own seat and belong to work that was never published. The guidance in this skill stands without them.
+
+- `references/pr-compliance-sweep-checklist.md`

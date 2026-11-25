@@ -99,6 +99,46 @@ placeholder's own length exactly, because it *looked* like content.
 - **Recognise the signature:** a length that exactly equals your placeholder's length, or a value starting
   `<`, means the placeholder was copied — say that plainly and kindly rather than implying a bad key.
 
+### A redacted secret is not a runnable command
+
+**When a command needs a credential you must not print, do not put the elision INSIDE the command.**
+Measured: a handoff contained `-H "Authorization: Bearer $GATEW..._KEY"`, redacted so the secret would not
+appear in chat. The user pasted it verbatim and got `{"error":"unauthorized"}` — twice, once per command —
+because `$GATEW..._KEY` is a shell expansion of a variable that does not exist, so the header carried the
+literal elided text. **The failure then reads to him as "my key is wrong"**, which sends him to look for a
+credential problem that is not there.
+
+- **Hand the LOCATOR that puts the value into the shell, in the same block — and make every line runnable AS
+  WRITTEN.** A bracketed token is a placeholder like any other, and the rule above applies to it: an earlier
+  version of this very example read `docker exec <container> printenv GATEWAY_ADMIN_KEY`, it was pasted
+  verbatim, and it answered `-bash: container: No such file or directory` — which reads as a missing container
+  rather than a missing substitution. **An example that fails its own gate teaches the failure.** Resolve the
+  actor *inside* the command so nothing is left for the reader to substitute:
+  ```bash
+  ADMIN=$(docker exec "$(docker ps --format '{{.Names}}' | grep -i <service> | head -1)" printenv ADMIN_KEY_NAME)
+  curl -s -X POST "https://<the real api host he was given>/v1/keys/K_ID/revoke" -H "Authorization: Bearer $ADMIN"
+  ```
+  The command substitution resolves the container at run time, `$ADMIN` is set by the shell he is already in,
+  and the only thing you supply is the URL — which you know, so **write it out in full**. Nothing is elided
+  and nothing is guessed.
+- **Resolve or DISCOVER a value; never leave the slot open.** Three legitimate moves, in order: (1) you already
+  know it — write the literal in; (2) you do not — make the *first* handoff a one-line discovery whose output
+  hands it to you (`docker ps --format '{{.Names}}'`), then send the literal in the next message; (3) fold the
+  discovery into the command itself with `$( … )`, as above. A fourth move — `"<name>"` in the line and a
+  sentence asking him to fill it in — is the one that fails, because the sentence is not what gets pasted.
+- **Run the checker on the example, not just on the runbook.** `scripts/command-readback.py` refuses
+  `<placeholder>` tokens; an illustrative block that trips it is evidence the block cannot be handed over,
+  however educational it looks.
+- **A redaction inside a `$VAR` is the worst shape**, because `$` signals "the shell will resolve this" — the
+  reader has no cue that the token is prose. Redact by **naming the credential**, not by truncating it:
+  `# needs GATEWAY_ADMIN_KEY`.
+- **If you cannot hand a locator** (the value is not readable by any command he can run), do not present the
+  block as runnable. Say which secret is needed and stop; a command that cannot be printed in full is not a
+  handoff.
+- **Recognise it in the reply and own it.** A paste that returns `unauthorized` / `command not found` while the
+  elided token is visible in it is *your* placeholder, not his credential — lead with that correction before
+  any diagnosis, or he will go and rotate a working key.
+
 ### An ellipsis is a placeholder too — and the most dangerous one
 
 **Never abbreviate a command with `...`.** A skeleton is read as a complete command by someone who is pasting

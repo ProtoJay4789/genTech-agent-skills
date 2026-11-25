@@ -105,10 +105,36 @@ echo "PERSON_VOICE_ID=voice_id_here" >> ~/.hermes/profiles/gentech/.env
 
 ## Common Pitfalls
 
-### Audio Quality
-- **Telegram voice messages are compressed (Opus)** — acceptable but not ideal
-- **Noisy recordings produce muddy clones** — ask for quiet environment re-record if quality is poor
+### Audio Quality — measure the SOURCE before spending on a clone
+
+**A clone inherits the room it was recorded in, and no amount of post-processing removes a constant.**
+`loudnorm` and `atempo` make a ceiling fan *louder*, not quieter. Measured on a delivered narration: one clone's
+noise floor was **517** against a premade voice's **60** — an SNR of 26 dB versus 46 dB — and the only way it was
+discovered was the owner hearing a fan in a finished 101-second video.
+
+**Run `scripts/clone-preflight.py <recording>` BEFORE cloning anything.** It reports floor / peak / SNR /
+clipping / DC offset / longest pause and returns GOOD (SNR >= 45 dB), MARGINAL (35–45: denoise, re-measure) or
+REJECT (< 35: re-record in a quiet room). Clipping and DC offset are auto-rejects because neither is fixable
+after capture.
+
+- **Probe the source first, name the number, then clone.** "It sounded fine" is the assertion that produced the
+  fan; a floor measurement is the check.
+- **When a clone is already noise-scored badly, do not delete it to make the number look better.** The noisy
+  clone is the evidence of the bad recording; the repair is retraining from a clean capture. Delete only for
+  respect or retirement.
+- **Prefer a premade library voice over a mediocre clone for narration.** Premade voices are studio-miked and
+  carry no inherited room; a clone with a bad source is worse than no clone.
+- **Rank candidate voices by measurement, not preference** — same sentence, same settings, identical script, then
+  pick on the measured floor. Offer the user two finished cuts to choose with their ears; a description of a
+  voice is not an audition.
+- **Cloned voices need `eleven_multilingual_v2` for clips beyond ~30 s** — `eleven_turbo_v2_5` drifts on long
+  reads, and the drift is audible before it is measurable.
+
+### Capture basics
+- **Telegram voice messages are compressed (Opus)** — acceptable but not ideal; ask for a file if it matters
 - **Short recordings (<15s) produce weak clones** — aim for 30-60 seconds of clear speech
+- **A take with no natural pauses usually has noise underneath it** — the pre-flight's longest-pause field is the
+  tell, and such a source is usually unusable for cloning whatever its SNR says
 
 ### Voice Management
 - **Renaming a voice (Jordan's rule, Aug 13 2026):** voices are named by the VOICE, not the agent they're tied to. Rename agent-tied clones (e.g. "YoYo" → "Optimus Prime", "Gentech-Mako" → "Mako", "Gentech-Iroh" → "Uncle Iroh"). Real-person voices (Vanito, Christel, Jocelyn, Steve Harvey, IvanOnTech, D-Mob) keep their names. Correct endpoint is `POST /v1/voices/{id}/edit` with **form-data** `-F name=`:

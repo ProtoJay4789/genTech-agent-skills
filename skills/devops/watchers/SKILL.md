@@ -119,3 +119,13 @@ All three scripts use the same template: load watermark, fetch, diff, save, emit
 
 8. **A message must carry its own context.** Emitting a bare state code (`LONGS_PAYING`), a bare delta, or a number with no scale forces the reader to remember a convention that only exists in the code. Print the value, a sentence saying what it means, and the direction of the change. **If the reader has to ask what the message means, the watcher has failed at the only thing it does.**
 
+9. **An endpoint that returns a UNION of record types must be classified from the record's own discriminator — never from the URL you fetched it with.** GitHub's `/repos/<owner>/<repo>/issues` returns **pull requests and issues in one list**; a record is a PR if and only if it carries a `pull_request` key. Deriving the label from the endpoint gave every entry the same tag, so a feed of twelve rows said nothing about any of them — and a reader who cannot tell a shipped fix from a bug report will stop reading the feed rather than ask. Classify from the payload:
+
+    ```python
+    kind = "release" if "releases" in url else ("pr" if it.get("pull_request") is not None else "issue")
+    ```
+
+    **Then expose the sub-state that decides whether the reader should act.** For a PR: `state` (`open`/`closed`) and whether `merged_at` is set — **merged means the change already shipped and may imply an upgrade owed; closed-unmerged means the idea was rejected.** Those are opposite verbs, and a single `[pr]` tag hides both. Report them as distinct labels (`pr-merged` / `pr-closed` / `pr-open`).
+
+    The same shape recurs wherever an API merges collections into one endpoint — Jira subtasks, a mailbox listing sent and received, any `/issues`-style route. **Before choosing a label, check whether the collection is homogeneous**; if it is not, the discriminator field is the only honest source of the type.
+

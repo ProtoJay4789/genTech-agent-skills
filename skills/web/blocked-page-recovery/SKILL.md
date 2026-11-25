@@ -1,7 +1,7 @@
 ---
 name: blocked-page-recovery
 description: "Use when a fetch fails: 403/429, paywall, WAF, bot wall."
-version: 1.0.0
+version: 1.1.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -90,8 +90,14 @@ rate-limit HTML that looks like a success to a size check alone.
 ### 3. Jina Reader (requires JINA_API_KEY)
 
 `r.jina.ai` re-renders the live page in a real browser server-side and
-returns markdown. Anonymous access is dead (401 → Turnstile); a key is
-required:
+returns markdown. Anonymous access is dead — measured 2026-11-24 it answers
+**HTTP 403** with a JSON body
+`{"code":403,"name":"AbuseAlleviationError","message":"Anonymous access to
+domain … blocked until <timestamp> due to previous abuse"}`. That body is
+**not HTML and not an error page** — a naive caller parses it as the fetched
+page, matches nothing, and reports "fetch failed" with no clue why. Check the
+status code before the body, and treat a 403-with-JSON as "route unavailable",
+never as content. A key is required:
 
 ```bash
 curl -s -H "Authorization: Bearer $JINA_API_KEY" "https://r.jina.ai/{URL}"
@@ -124,6 +130,31 @@ rejects them automatically; reject them manually too:
   original (blocked) URL. Treating that as success creates a fetch loop.
 - **Rate-limit bodies**: archive.today 429 pages are multi-KB HTML. Check for
   the target's actual content (title words, expected strings), not just size.
+- **Hollow same-size 200s**: a blocked data surface can return **HTTP 200 with
+  nearly the same byte count as the real page and none of the data** (measured
+  on Google Flights: 1.90 MB hollow vs 2.02 MB rich, zero price tokens, and
+  the word "captcha" in the body). A byte floor cannot reject it. Assert on
+  CONTENT the page must carry — a price token, a row count, a known phrase —
+  and give the response a NAME ("hollow / no fare block"), because an unnamed
+  failure is unreportable.
+
+### Retrying a hollow wall: rotate the endpoint, slow down
+
+- **Rotate the endpoint, not just the user agent.** Measured: while
+  `www.google.com?gl=US` served hollow back-to-back, `www.google.co.uk` served
+  the same route rich at the same moment. A second host or locale is a
+  different gate.
+- **Before quoting a rotated reading, prove product equivalence.** Pin the
+  params that define the product (`curr=USD`, locale) on every endpoint, and
+  confirm the number and window match across them; a point-of-sale change can
+  silently change the price, which is worse than a failed fetch.
+- **The block is rate-based, so retries can deepen it.** Back-to-back attempts
+  (even 3/6/10 s apart) turn a short block into tens of minutes; a 60 s and
+  then 120 s idle probe both stayed hollow. Retry a few times with growing
+  gaps, then STOP and report loudly. Schedule one run a day, not a hammer.
+- **Corollary for monitors:** "no data" must never render as "no change". A
+  fetch layer that returns `""` on failure and a report layer that returns `""`
+  on no-alert is a silent outage generator. Emit a named failure line instead.
 
 Detection heuristics the script applies: body under a per-route byte floor;
 meta-refresh/JS-redirect stubs whose target is the original host; interstitial

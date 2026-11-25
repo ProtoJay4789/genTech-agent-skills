@@ -206,4 +206,10 @@ After mastering basics:
 ## References
 
 - `references/hardhat-dependency-fix.md` — Full troubleshooting for dependency conflicts
-- `references/sepolia-deployment.md` — Testnet deployment workflow (coming soon)
+- `references/sepolia-deployment.md` — Testnet deployment workflow (coming soon) *(reference not shipped with this release — the body was consolidated and the file was not carried across; treat the guidance above as complete)*
+
+## Missing references
+
+The following paths are cited above but are not shipped with this release. They were written on our own seat and belong to work that was never published. The guidance in this skill stands without them.
+
+- `references/sepolia-deployment.md`

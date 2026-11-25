@@ -242,6 +242,23 @@ outage. **Nothing about those three rows was ever actionable by that seat.**
 **This is the same defect class as lane-verifiability (below), one layer up:** *no reply in lane* and *no reply*
 are different findings — and *could not have received it* is a third, which belongs to the transport, not the seat.
 
+## Rule 13 — Two ways a watcher passes its own tests while delivering nothing
+
+**a) Quiet hours make a correct watcher look blind.** In quiet mode the watcher writes its report to a log
+instead of stdout. A harness that asserts on stdout therefore fails on a perfectly working watcher, and the
+failure is reported as *"the watcher is blind"* — the exact accusation the suite exists to make honestly.
+Give the watcher a mode override (`HANDOFF_QUIET=0|1`) and **test the quiet path as a case** (no stdout AND
+the log contains the item) rather than bypassing it. Also: a daily job whose machine was off at its slot will
+**catch up on wake**, which is often inside quiet hours — set `catch_up: false` so a missed check is skipped,
+never replayed at 1:40am as an alert about a non-problem.
+
+**b) "Reported once" is not "delivered", and permanent dedup turns one into the other.** Measured: a 15-minute
+watcher with `deliver: local` wrote every report to a cron output file nobody opens, then suppressed each item
+forever. Three HQ asks — two restart gates and a question — sat unread for three days while the job logged
+`ok`. **Store a timestamp with each reported item and re-nag while the item is still open** (72 h is a sane
+cooldown); read legacy bare keys as "long ago" so the first run under the new rule re-reports once. And check
+the *delivery target* of any monitor you trust: `local` means "saved somewhere", not "someone knows".
+
 ## Deploying a fix to all seats
 1. Back up the existing script AND state file per seat (`*.bak-<change>-<stamp>`).
 2. Copy the one good script to every seat's `scripts/`.

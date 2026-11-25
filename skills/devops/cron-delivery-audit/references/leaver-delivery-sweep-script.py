@@ -11,7 +11,7 @@ only READS; use its output to drive explicit `cronjob update` commands.
 
 Example:
     python3 leaver-delivery-sweep-script.py \
-        --leaver-chats -1003893562036 \
+        --leaver-chats <telegram-group-id> \
         --leaver-users 8774981477 \
         --profiles pixel gentech gentech-treasury gizmo
 """

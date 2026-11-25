@@ -216,6 +216,85 @@ The next question is always: **does our exposure actually match what the claim i
 - Check the positions: the two exposures are often at *opposite* ends of their range at the same moment. If
   they are, that contrast is the answer, not a footnote.
 
+## The headline is a claim with its own verb — check it against the body before anything else
+
+**A title is a compressed assertion, and compression is where claims get upgraded.** Compare the verb in the
+headline to the verb in the reporting underneath it, and to the primary source, before spending a single tool call
+on the substance.
+
+Measured shape: a video titled *"<Person> Accepts: Return as CEO"* whose own transcript said *"is **considering** a
+comeback"* and *"the board said **no formal process** has been initiated"* — and whose attributed source additionally
+reported the board approaching an **outside successor**. The title's verb was two steps ahead of every source in the
+piece: *considering* → *accepts* → *returns*. The body was honest; the headline was not, and the headline is what
+travels.
+
+- **Extract the operative verb and rank it.** *rumoured < reported < considering < agreed < signed < effective*.
+  A claim is only as strong as its weakest stated step, and a headline that jumps a rung is a different claim.
+- **Quote the body's verb back, with its attribution** (*"the FT reports he is **considering**"*), and name the gap
+  between that and the title explicitly. Do not silently adopt either.
+- **Look for the counter-fact in the same reporting.** A piece that also says a successor is being approached points
+  the *opposite* way; the omission of that line is usually the difference between analysis and advocacy.
+- **State what would settle it**, and prefer a dated primary artefact — a filing, a press release, a named officer —
+  over any number of outlets restating one wire story. *"No source says he accepted"* is a finding; *"nobody has
+  denied it"* is not.
+
+**Compression widens the NOUN too, and the noun decides whether it applies to you at all.** The verb ladder
+catches *considering → accepts*; the noun phrase catches *"traditional markets" → "derivatives markets"* and
+*"perpetuals" → "perpetual contracts on energy commodities only"*. Measured: a viral post announced that an agency
+would discuss *"24/7 trading in traditional markets"*; the agency's own release said **"derivatives markets"**, and
+the request-for-comment underneath scoped its perpetual half to **physically delivered or storable energy
+commodities**. Two widenings, and the second one decides the answer — an energy-perp framework creates **no** route
+for an equity perp, which was the only part we cared about.
+
+- **Read the primary document's TITLE and scope line and quote the exact noun phrase.** A sub-heading is often the
+  most honest sentence in the whole release.
+- **Check the jurisdiction boundary.** Different agencies own different instruments: a derivatives regulator's view
+  of "markets" does not reach securities, so an adjacent regulator's interest in a *neighbouring* asset class is
+  **not a door** into ours. Say which agency, and which instrument, before implying anything opens.
+- **Check the STATUS of the process.** A roundtable is not a rule; an agenda with no published speakers is not even
+  a roundtable yet. "Will discuss" is the weakest verb in the class — rank it below "proposed" and far below
+  "adopted".
+- **Check whether the input window is still open before proposing to contribute.** Measured: the comment period had
+  closed **months** before the announcement circulated, with the count already published. "We should comment" is
+  advice that cannot be followed, and it reads as competence until someone checks the date.
+- **Check who the event is FOR.** An industry roundtable taking speaker nominations is not a public-comment channel;
+  confusing the two turns a press release into a plan of action.
+
+**Then ask whether it moved anything.** An announcement that changes no measurable input is worth reporting as
+**priced already / not priced yet**, with the number that shows it — a flat close on the day a story broke is the
+answer, not a footnote.
+
+## Recency: a search index is not a wire
+
+**A search result is true when it was WRITTEN and may be false when you READ it.** Every result carries a
+publish date; compare it to the claim's date before using it to adjudicate anything. **A result published
+before the claim cannot refute the claim** — it can only describe the earlier state.
+
+Measured shape, and it is the one that embarrasses you: a body publicly refuses a decision for days, then
+reverses it in a single announcement. Search for the question afterwards and **the top results are all the
+refusal** — high-ranking, well-indexed, carefully argued. Every one is accurate. Together they describe a
+world that no longer exists, and you will quote them as the current state and tell the user their breaking
+news is wrong.
+
+- **When the user reports something hours old that contradicts your search, "my index is stale" is the FIRST
+  hypothesis, not the last.** Recency lag is the default explanation for a fresh contradiction, and treating
+  the user's report as the claim to be falsified inverts the burden for no reason.
+- **Go to the issuing body's own feed before contradicting anything.** A company newsroom, a regulator's
+  release page, an exchange announcement — one fetch settles it. An aggregator restating a wire story is
+  never the primary artefact, and a press release is.
+- **A fact-check headline is evidence the claim was VIRAL, not that it was FALSE.** Never cite one as proof of
+  falsity without opening it. The existence of "fact check: was X true?" tells you X spread widely; it says
+  nothing about which way the answer went, and the article is usually about a *different* version of the claim.
+- **Check what the primary document says beyond the headline claim.** A reinstatement release that also
+  discloses an ongoing investigation is a materially different fact pattern from a clean reversal, and only
+  the primary source carries it.
+- **When you are wrong, correct it loudly and name the mechanism.** State the source and timestamp you used,
+  say plainly what you got wrong, and name the rule that failed — not "I apologise" but "I read a dated index
+  as current state, and here is what I will check first next time." A quiet correction reads as two answers.
+- **Do not let the standing posture harden.** The habit of checking primary sources is right; the habit of
+  assuming a startling claim is false, because startling claims are often false, will eventually be wrong in
+  public. Verify, do not disbelieve by default — they are different operations and only one of them is yours.
+
 ## Precision honesty
 
 - **Report the quantity in the unit THE READER DECIDES IN — a raw token/byte/count is not actionable.**
@@ -230,6 +309,19 @@ The next question is always: **does our exposure actually match what the claim i
 - **Where a unit is AMBIGUOUS, the ambiguity is the defect.** A ticker that reads like an amount, bytes vs
   MiB, a count vs a rate, per-day vs per-year, a percentage of a pool vs of a position — the reader cannot
   tell an ambiguous unit from a wrong number, and will supply their own reading.
+- **A published percentage with no stated PERIOD is not quotable — decline it out loud.** The same figure can be
+  a since-inception return, an annualised yield or a trailing-week payout, and the three differ by orders of
+  magnitude. Measured: a vendor page listed **6.94% · 6.18% · 4.14%** beside four portfolio products with **no
+  period anywhere on the page**; quoting any of them as "the yield" would have invented the most decision-relevant
+  fact. The correct output names the number, says the period is unstated, and does not rank or compare them.
+  **This is the same refusal as an un-cross-checked APY** — a figure whose denominator the publisher withheld is a
+  marketing asset, not a measurement.
+- **Never render a real value as zero — format by magnitude.** A formatter that divides by 1e6 and always prints
+  "M" turns a genuine **$37,816** book into **"$0M"**, on exactly the small positions where the number is the
+  whole question — measured, that hit **10 of 13** tracked markets, every thin one. Rounding a number to zero is
+  the same defect as reporting UNKNOWN as UP: the value existed and the card said it didn't. Use adaptive units
+  (`$10.6M` / `$37K` / `$812`) and keep an explicit `$0` for a genuine zero, so "small" and "empty" never share
+  a rendering.
 - **When you notice you shipped a raw unit, correct it in place and say that you corrected it.** Do not
   let the next message quietly switch units as if the first had been right — a silent unit change reads as
   two different measurements of the same thing.
@@ -241,6 +333,36 @@ The next question is always: **does our exposure actually match what the claim i
   "$1B TVL") describes the size of a pool, not the yield to one person in it.
 - **Never round a hard number into agreement.** If the data contradicts the premise, say the premise is
   wrong, cite the number, and move on. Agreement because the user said it is worth nothing.
+
+## A published series has a DATE, an ORDER and a LENGTH — verify all three before you quote it
+
+Two silent failures dominate public statistical APIs. Neither returns an error; both return plausible numbers.
+
+- **Check the ORDER of the rows before you pick "latest".** The BLS public API returns observations
+  **newest first**. A probe that sorted ascending and took row 0 reported **October 2023** as the current shelf
+  price — a correct number from the wrong year, which survives review because nothing about it looks wrong.
+  Sort explicitly on `(year, month)` with a stated direction, and never trust the response order.
+- **Check what the AGGREGATE parameter actually did.** The World Bank CPI endpoint accepts `country=all`; with
+  it, a per-country loop returned the **same figure for twelve different economies**. Treat a unanimous result
+  across independent sources as a **data error, not a finding** — twelve countries do not share a CPI. Fix:
+  one country per request, and print the country name beside the value so the bug is visible.
+- **Print the as-of period next to every value, and read it out.** Annual series lag years (World Bank CPI's
+  newest full year was two behind); monthly series lag a month. **A correct number from the wrong period is
+  worse than an error, because it survives review.** Never describe a lagging series as a nowcast — say
+  "history, not current" in the same line.
+- **A stalled source is COULD NOT READ, never the last value you saw.** Rate-limited statistical APIs stall
+  mid-loop; a country that did not answer must print as unread, not silently vanish from a table that still
+  looks complete.
+- **Cross-check one value by hand before looping.** Pull a single well-known series first and confirm it
+  matches a published figure you already know. One confirmed value tells you the order, the units and the
+  aggregate behaviour before you spend twelve calls learning it the hard way.
+- **A period average needs N x periodicity bars — assert the count, do not assume the endpoint gave you enough.**
+  Measured: a "200-week" average computed over 1,000 *daily* bars is a 143-week average, and it printed
+  **$77,746** where the true 200-week figure from 375 *weekly* bars was **$68,373** — a 14% error in the one
+  number a "is it below the long-term mean" question turns on. The bar count was correct for the request and
+  wrong for the label. **Fetch the N bars at the periodicity the name implies, or fetch N x periodicity daily
+  bars, and print `len(series)` beside the result** so the label can be checked against the input. A moving
+  average is defined by its window; an endpoint silently truncated at 1,000 rows redefines it.
 
 ## Reusable keyless measurements
 

@@ -26,6 +26,27 @@ because the sender believes the work moved.
 | `01-HANDOFFS/<from>-to-<to>/<YYYY-MM-DD>.md` | durable, survives a machine being off, read by the digest/scanner | **everything that matters** |
 | `hermes -p <profile> chat --query-file <f> --oneshot` | the **local twin** — runs a real turn as that seat on this box | the peer path is dark |
 
+## Step −1 — establish WHICH "DM" is meant before diagnosing anything
+
+**Two unrelated mechanisms carry the name, and answering the wrong one wastes a whole turn.**
+
+| what the human may mean | mechanism | what breaks it |
+|---|---|---|
+| **agent-to-agent peer DM** | `hermes peer dm fleet/<seat>` → the multiplex gateway → a turn in that seat (`platform=local user=api-peer`) | no registered peer, no key, no listener |
+| **a Telegram message into another bot's room** | the platform, not us | **a bot can only see groups it was added to — bots cannot DM or read across rooms at all** |
+
+**Measure the room membership per bot instead of inferring it** (read-only, one call each):
+
+```bash
+curl -s "https://api.telegram.org/bot$TOKEN/getChat?chat_id=<group>"   # ok:true = member, "chat not found" = not
+```
+
+Measured: each seat's bot was a member of exactly one group and returned `chat not found` for every other, so
+"HQ's bot never appears in EDU" was not a messaging defect — the bot was never added there. **When the human says "the
+groups should be able to DM each other", they usually mean the first row: separate rooms, agent-to-agent reach,**
+and it is already the better design (one wake per address, no cross-talk, no token storm). **Say which mechanism you
+measured before proposing a fix**, or you will spend the turn debugging rooms that were never supposed to talk.
+
 ## Step 0 — MEASURE the path before you rely on it
 
 A peer DM fails in two very different ways and they look nothing alike: the peer *refusing* (you get
@@ -321,6 +342,17 @@ all. Report those two numbers separately or the conclusion is wrong in both dire
    you are doing about it, and a **`by` date**. This is a read receipt *with a promise*, and it is not an
    agreement: it never closes the note, and the checker strips it before asking "is this answered?" so
    the word `received` cannot satisfy the agreement matcher.
+   - **A Receipt DOES close a DIRECTIVE — but only when it states an OUTCOME.** A restart checkpoint is an
+     order (*finish, log, verify, then ACK*); it has nothing to agree TO, and its closure lane is the receipt
+     the receiving seat writes back (`READY` / `NOT READY — mid-<task>` / `NO ACTION NEEDED`). A briefing that
+     only ASKS for agreement cannot escape on a stray receipt. So teach the checker the difference rather than
+     treating every receipt alike: recognise it as a closure only when the note states a required action
+     (an imperative at line start — must / finish / write / run / reply / ACK / hold) **and** the receipt
+     names an outcome. Otherwise it stays a promise.
+   - **Test both directions before shipping the rule**, or one of them silently inverts: `ORDER + Receipt`
+     → closed · `BRIEFING + bare Receipt` → still counted · `BRIEFING + Agreement` → closed. A checker that
+     accepts a receipt from anyone stops asking its question; one that refuses it from an order reports a
+     five-day-old completed checkpoint as new debt, and a false accusation trains the reader to skip the report.
 2. **`## Agreement` on COMPLETION** — the block below, unchanged.
 
 **Why the receipt exists:** with only one artifact, *"read and working"* and *"nobody opened it"* both
@@ -466,6 +498,18 @@ Disconnected from server
 - **`Connection successful` is not a delivery proof.** A bidirectional sync connects, *detects*, then fails the
   write. Check that an upload **completed**, or that the far side can see a file you just wrote — never that the
   socket opened.
+- **Resolve the ACTIVE sync state directory by mtime — never hardcode a vault id.** Re-creating a vault mints a new
+  id and a new `sync/<vaultId>/` directory; the old one stays on disk, frozen, and every tool pointed at it keeps
+  reading a dead log forever. Measured: a checker hardcoded the retired vault's path and reported "transport down
+  six days" while a probe file uploaded in the same minute. Pick `max(glob(sync/*/sync.log), key=mtime)`, print the
+  resolved id and the log's age, and return `UNKNOWN` (not healthy) when the freshest log is itself stale. Same rule
+  for any state file keyed by an id the system can regenerate.
+- **The sync client lives in the container, not the host shell.** Run it as
+  `docker exec -it <container> sh -lc 'XDG_CONFIG_HOME=/opt/data/home/.config <ob-path> sync --path <vault>'` —
+  without `XDG_CONFIG_HOME` it answers "No sync configuration found" and exits 0, which reads as success.
+- **A probe file is the only end-to-end proof, and it must not start with a dot.** Write a visible file, sync, then
+  confirm `Upload complete <path>` in the live log; dot-prefixed paths are excluded by the client and produce
+  "Fully synced" with no upload.
 - **Deletes propagate even when uploads are refused.** The failure is asymmetric, so the far seat sees a brain
   that shrinks and never grows — the most confusing possible signal, and one that reads as "my colleagues
   stopped writing to me."
@@ -474,11 +518,28 @@ Disconnected from server
   `SILENT` and `UNDELIVERABLE` are different findings with opposite owners, and the fix for the second is ours.
 - **Say which one you measured.** "Six notes undelivered, transport down since <date>, seat not at fault" — a
   report that only prints `ESCALATE` sends a human to chase a colleague who never received the request.
+- **TWO sync configs on the same vault path are a loaded gun — remove the retired one.** Re-creating a vault
+  leaves the old `sync/<vaultId>/` directory on disk with the *same* `vaultPath`, and the client chooses between
+  them by its own order rather than by freshness. Consumers then read a dead log while the live one looks fine;
+  worse, if the active config is ever lost the client silently reconnects the retired vault and pushes current
+  notes into a dead brain — with no error, because the old remote still exists. Procedure: confirm the active id
+  from what the sync itself prints (`Vault: <name> (<id>)`), back the retired directory up **outside** the sync
+  root (tar it, then list the archive to prove it is not empty), delete only that directory, write a visible
+  probe file and confirm `Upload complete` in the surviving log, then re-run every resolver and assert it reports
+  exactly one config.
 - **A seat's own last note often names the cause.** Read the newest thing it wrote before asserting anything
   about its diligence; a seat reporting that it is reading a stale copy of the brain is a transport alarm
   wearing the clothes of a complaint.
 - **Suspend the clock in the artifact.** When the SLA row is a transport fault, append a block to the note saying
   the ACK cannot arrive, why, and who owns the fix — otherwise the next run re-derives the same false accusation.
+- **Your own outbound lane being current proves NOTHING about the far side.** Measured: one seat's inbound lane was
+  written minutes earlier while four of its outbound lanes had not moved in 3–7 days. **Delivery to a vault-only
+  seat is evidenced by notes IT authored, never by notes you uploaded** — check every return lane's newest mtime
+  (`ls -t 01-HANDOFFS/<seat>-to-*/ | head -1`) side by side with yours, and report the gap in days. Uploading is a
+  claim about your half of a bidirectional channel.
+- **Two of those lanes going quiet at different times is the useful signal.** All four quiet since one date = the
+  machine is off or its client is unbound. Quiet only on the reply lanes = it receives and does not write. Same
+  symptom, opposite owners; measure the spread before asking a human to act.
 
 ### Better than annotating the artifact: make the suspension MEASURED, so it un-suspends itself
 
@@ -502,6 +563,34 @@ that outlives its reason. Suspend the clock in **code, from a live probe**, and 
 - **A reachable seat that ignores you is still reported as ignoring you.** The band suppresses only seats whose
   channel is measurably down — that is the entire value of the distinction, and collapsing it back into
   "everything peer-less is excused" destroys it.
+
+### A third bucket: the destination has NO MAILBOX AT ALL
+
+**Transport health and destination existence are different questions, and a checker that only asks the first
+will bill you for mail to an empty house.** A seat can be reachable in the roster and still have nowhere for a
+note to land — no profile directory on this host (so no cron, no gateway) and no registered peer. For that
+seat the vault is not a degraded channel, it is the only one, and it needs a human to boot the machine.
+
+Measured: five notes escalated at such a seat over five days while its own newest authored note was the same
+age — it had not gone quiet, nobody could read what we sent.
+
+```bash
+ls -d /opt/data/profiles/<seat>      # no directory = no mailbox on this host
+hermes peer list                    # only `fleet` = no peer channel for that seat
+```
+
+- **Keep it SEPARATE from the transport-band.** `BLOCKED` means *the channel is down and will come back*;
+  a no-mailbox seat means *the channel does not exist*. One releases itself on the next healthy sync, the other
+  releases when a human opens the machine or the lane is retired as a live correspondent. Collapsing them makes
+  a permanent condition read as a temporary one.
+- **Report it as `NO READER` with its gate and release condition, and stop counting it as debt** in the headline
+  number. The count a human reads must be the count of things a seat can actually answer.
+- **Declare the set by hand, but prove it can lift.** A literal set of seats is correct here because it is a fact
+  about the host, not a judgment about diligence — but assert the release path: empty the set, re-run the
+  checker, and confirm those rows return to `ESCALATE`. A park you have never seen lift is indistinguishable
+  from a permanently suppressed row.
+- **Re-derive it whenever a seat is provisioned or retired** — this set is exactly the kind of literal that goes
+  stale the moment the fleet changes shape.
 
 ## Related rules that bite here
 
@@ -583,3 +672,48 @@ When the key must physically travel to another host:
    because "everyone has it now" is the moment it stops being scoped to one machine.
 6. **The only proof is a keyed call** — `curl -H "Authorization: Bearer $KEY" …/v1/models` → 200. `/health`
    answers 200 to a wrong key and to no key, so it can never be the acceptance test.
+
+## Learned on arthur (merged 2026-11-24)
+
+> Promoted verbatim from the seat that learned it. Kept separate on purpose: this is a second writer's evidence, not a rewrite of the section above.
+
+3. **Key every spool entry by a hash of its CONTENT.** That stops a duplicate ROW; **it does not stop a duplicate
+   DELIVERY** — and the difference is the whole defect. A bounded wait that expires says only that the *sender*
+   stopped waiting: the message may be sitting in the far seat's log already. Retrying it then delivers a second
+   copy of a request that landed, and one probe run proved it — the same text arrived **three times** while the
+   spool held one row and the content key never changed.
+   - **Before any retry, look for the text in the target's own inbound log** (`/opt/data/profiles/<seat>/logs/
+     gateway.log`, whitespace-normalised, first ~60 chars is enough) and on a hit mark the row **delivered** and
+     drop it. Checking the spool is not delivery proof; the far seat's log is.
+   - **A spool row that outlives a successful send is a guaranteed duplicate**, because nothing records "already
+     arrived". So the flush must be able to answer *"did this land?"*, not just *"did my last attempt return?"*.
+   holding it open. **Lock the read-modify-write** (`fcntl.flock` on the spool) around load→send→save: two flushes
+   that overlap otherwise each load the same row and each deliver it, and an atomic `os.replace` does not help
+   because the READ was stale, not the write.
+6. **The spool belongs to the SENDER's profile** (`profiles/<sender>/state/dm-spool.jsonl`). One shared path means
+   a message addressed to X is later retried BY X, TO itself — an inbound duplicate loop that looks like the
+   recipient being spammed by a colleague. And **a default fallback to another seat's profile silently restores
+   the loop** whenever the profile env var is unset, so resolve it from the running seat and prove it: print the
+   resolved spool path beside the send.
+7. **Prove it on the failing path before trusting it:** force a 1-second timeout, confirm the entry is QUEUED,
+   queue. Then run **two flushes at once** and count the deliveries — one delivery is the pass, two is the bug
+   above. **Test the WRITE path as well as the flush:** N concurrent enqueues should leave N rows, and a shortfall
+   is a lost update on the load→append→save. Scale the concurrency until it either fails or you have real evidence
+   it holds — a 60-attempt run passed clean on a writer that lost **half of 400**, so a gentle rate proves nothing.
+   A flock probe is the cheapest liveness check: open the lock file non-blocking and expect `BlockingIOError`
+   while a flush is in flight, which confirms the serialisation instead of assuming it.
+### When you are the TARGET of a delivery probe, COUNT the copies and touch nothing
+A concurrency test ("two flushes are racing, exactly ONE delivery is the pass") is measured on the receiving seat,
+so the receiver's job is to be a passive counter, not a debugger:
+- **Count deliveries of the identical text. Two copies is a FAIL, and the second copy arriving minutes after the
+  first is the result, not a new question** — report the count, the content key, and the spool state, and stop.
+  Re-diagnosing a probe that has already failed burns the run the probe exists to produce.
+- **Never run the flush yourself while a probe is in flight.** You will manufacture the second copy and fail the
+  test you were asked to observe. Reading `--status` and hashing the spool is safe; sending is not.
+- **Check the spool's per-row state before concluding anything about delivery:** `attempts`, `last_attempt`,
+  `last_reason`. A row sitting at `attempts=2` with `last_reason="no answer within 60s"` **while the text has
+  already arrived** is the exact signature of the defect — the queue cannot see a delivery that only the
+  receiver's log can prove.
+- **A lock probe is the cheap liveness read:** open the lock file non-blocking; `BlockingIOError` means a flush
+  holds it (serialisation working), `LOCK_EX` acquired means the path is idle. Report which you saw.
+

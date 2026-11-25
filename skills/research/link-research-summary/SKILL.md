@@ -11,11 +11,28 @@ tags: [research, summary, github, twitter, link-analysis]
 
 When Jordan shares a URL, research it and provide a structured summary. Optimize for speed and depth.
 
+## Resolve WHICH link before you answer
+
+Two links in one thread are **two different objects**, even when they sound alike. A fellowship and a
+certification, a job board and a company page, a repo and its hosted product — merging them produces a
+confident answer about the wrong thing.
+
+- **When a follow-up says "the first one", "the second one", "that other link", enumerate the actual URLs from
+  recent history first** (this profile's `state.db` messages, or `session_search`) and match his own words to
+  the real object. He remembers sending two; if you remember one, you are the one who is wrong.
+- **If his reason for a decision rests on an attribute, check that attribute against the right object BEFORE
+  recording the decision** — a decision filed under a false premise misleads every later session that reads it.
+- **Record the decision and, separately, the correction.** The decision stands even when the stated reason does
+  not: say both, and keep the correction in the note rather than in a reply that scrolls away.
+- **A link Jordan pastes with his own description is a request to measure, not to read.** See
+  `references/measuring-a-code-library.md` for the install-and-run procedure and the verdict shape.
+
 ## URL Type Detection
 
 | URL Pattern | Method | Tool |
 |---|---|---|
 | `github.com/{owner}/{repo}` | GitHub API | `curl` + `python3` |
+| `github.com/...` README that says `pip install` / `npm install` | **install and run it in a venv, then break it on purpose** | see `references/measuring-a-code-library.md` |
 | `x.com/{user}/status/{id}` or `twitter.com/...` | **fxtwitter API (MUST TRY FIRST)** | `curl api.fxtwitter.com` |
 | `facebook.com/share/v/...` or `facebook.com/.../videos/...` | **No automated extraction** | `web_search` for context, ask Jordan to describe |
 | `clawhub.ai/skills*` or `clawhub.ai/skills?search=*` | ClawHub browse | `browser_navigate` → search → click listing |
@@ -287,7 +304,7 @@ Returns JSON with `items` array (each: name, chain_id, owner_address, x402_suppo
 
 **Monitor cron job:** Runs hourly, delivers to Labs group. Script at `/opt/data/profiles/gentech/scripts/8004scan-monitor.py`.   <!-- ⚠️ ABSENT (verified 2026-11-17): this tool is not present on this host. Do not assume it runs. See build-queue #108. -->
 
-> **Reference:** `references/8004scan-agent-monitor.md` — full API reference, monitor script details, and ecosystem context.
+> **Reference:** `references/8004scan-agent-monitor.md` — full API reference, monitor script details, and ecosystem context. *(reference not shipped with this release — the body was consolidated and the file was not carried across; treat the guidance above as complete)*
 
 ## Monid — Agent-Native Tool Router
 
@@ -406,11 +423,36 @@ Structure the summary as:
 4. **Relevance to GenTech** — how it connects to our projects
 5. **Action** — save to vault? Try it? Bookmark?
 
+### Licences — read the FILE, not the API field
+
+- **`NOASSERTION` is not "no licence", and it is not "open source".** The API reports it whenever the file is
+  non-standard — which is precisely when the terms matter. Fetch `LICENSE` / `LICENSE.md` / `LICENSE.txt` from
+  `raw.githubusercontent.com` (try `main`, then `master`) and read the first paragraph. Measured on a
+  "10 open-source projects, all free" listicle: `NOASSERTION` resolved to **CC BY-NC-SA (NonCommercial)** on one
+  repo and a **vendor community licence** on three others — a territorial exclusion plus a commercial trigger
+  above a named monthly-user count. **Four of ten were unusable for a paid product**, and the API field alone
+  would have called them all fine.
+- **Grep the licence text for the words that decide it:** `non-commercial`, `commercial use`, `monthly active`,
+  `territory`, `not permitted`, `DOES NOT APPLY IN`. One hit moves the verdict from *build on it* to *demo only*.
+- **A `null` licence field and a missing licence file are the same answer:** unverified, therefore not permitted.
+  Say which one you found.
+- **Stars do not sort by usability.** Read `pushed_at` too and quote it: an item in a "try these" list that has
+  not been pushed for a year or two is a maintenance surprise, not a candidate.
+
+### Lists: measure every item, never nod at the list
+
+When the link is an N-item list ("10 projects", "5 tools"), the deliverable is **a row per item carrying the
+fact that decides it** — exists on the API, licence, last push, and whether it can run where we run. A summary
+that agrees with the listicle has done no work: the list's own framing ("all free", "production ready", "runs
+on a laptop") is **a claim to test**, not a finding to repeat. Publish the count you checked against N, and name
+which items failed the claim.
+
 ### Pitfalls
 - README truncation at 8000 chars is usually fine; the important stuff is in the first section
 - If README is missing, check the repo description and topics for context
 - Some repos have massive READMEs — focus on Quick Start and Features sections
-- `license` field can be null — note "no license" explicitly
+- The `description` field is the author's marketing line. A README that says "built to be written by an AI
+  agent" is a positioning statement; the mechanism is in the API surface (`describe()`, a JSON spec, a CLI)
 
 ## Search Engine & Site Blocking
 
@@ -707,6 +749,7 @@ After extracting a link's content, the FIRST thing to determine is: where does t
 | **Decision needed** | Integration choice, architecture fork, partner eval | `11-Mess Hall/considerations.md` (with options + impact + priority) |
 | **Ecosystem signal** | Competitor move, partnership, funding round | `09-Green Room/ideas.md` (market context update) |
 | **Grant / funding opportunity** | Builder grants, incubator applications | `00-HQ/build-queue.md` as ecosystem item + `jordan-queue.md` quick win |
+| **Job lead** | A hiring thread, careers page, or "DM me" post | `HQ/jordan-queue.md` (one section per lead, with the honest gaps) + `09-Green Room/job-apps/<company>-<date>.md` for the brief |
 
 ### Step 1: Check brain FIRST (mandatory, not optional)
 
@@ -1098,6 +1141,61 @@ When Jordan says "let's investigate" about a protocol pivot, competitor move, or
 - "Contributing to Linux Foundation" is aspirational until merged — check if the contribution actually landed
 - Price data (CoinMarketCap, TradingView) is noise for strategic analysis — focus on tech and adoption
 
+## Job posts & hiring threads — a tweet that is a requisition
+
+**The tweet is the advert; the company's careers page is the requirement list.** Fetch both, always.
+
+### Verify the requisition before you call a role open
+
+A status code is not a requisition. `HTTP 200` on a job page can be a closed-req shell, a company home page,
+or an aggregator's cached copy — and a listing that *looks* junior can be a repost of something else entirely.
+
+1. **Find the employer's own ATS API and read the role there.** Greenhouse
+   (`boards-api.greenhouse.io/v1/boards/<token>/jobs` then `/jobs/<id>`), Lever
+   (`api.lever.co/v0/postings/<token>?mode=json`), Ashby (`api.ashbyhq.com/posting-api/job-board/<token>`).
+   The detail record gives you the four facts a digest needs to say "open": **title**, **location**,
+   **`first_published`/`updated_at`**, and the **body**. A role missing from the board's own job list is not
+   open, whatever the aggregator says.
+2. **Treat a stale `updated_at` as a question, not a verdict.** A role can sit unedited for weeks and still be
+   live; a role with a fresh `first_published` is the strongest signal you have. Quote which one you read.
+3. **Aggregator listings are second-hand — say so.** RemoteOK / Himalayas / Jobicy / Wellfound rows can be
+   reposts, talent-pool catch-alls, or a training funnel wearing an engineering title. The tell for a funnel is
+   **identical wording under several unrelated company names** at a low flat rate; the tell for a catch-all is
+   a **generic Typeform** as the only action on the company's own careers page, with no role-specific
+   application anywhere.
+4. **A company careers page whose only button is a generic form has no requisition.** Do not report it as a
+   role with a pay band; report it as unverified and name what you found.
+5. **Cloudflare on the aggregator is not evidence either way.** A blocked page means *unmeasured* — get the
+   employer's domain or say you could not check. Never let a 403 become "closed".
+
+**Report shape:** `verified open` (ATS record + the fields you read) · `unverified` (what blocked you) ·
+`closed` (absent from the employer's board, or a closure message). Three states, never two.
+
+- **Read the live careers page and record three things:** which roles are listed, which are remote, and
+  **whether the tweeted role appears at all.** A role absent from the careers page is a direct hire through
+  the person who posted it — a DM or a reply, not a portal — and the two doors need different messages.
+- **Score every stated requirement against Jordan's ACTUAL stack and say NO where it fails.** His rule is
+  roles he already qualifies for **now**, not closeable in N days. A hard gate on a language, a framework or
+  years he does not have is a **NO stated plainly**, even when the rest of the post fits beautifully.
+  Softening it costs him an application and costs you his trust in the next verdict.
+- **Separate the poster's claims from the page's facts.** A figure in a tweet ("from $X/mo") is a floor and
+  an unverified claim; a number on a careers page is checkable. Label them differently in the note, and mark
+  the claim `unverified` rather than repeating it as compensation.
+- **Check the Sent folder BEFORE drafting any outreach.** A draft sitting in the vault is not proof nothing
+  was sent. Search `in:sent (to:<domain> OR <name>)`, then check for a reply with `from:<domain>`, and read
+  the sent timestamp. A "first message" that is actually a second one breaks your own contact-frequency rule
+  and reads as pressure — measure the elapsed time before you write a word.
+- **An open, topic-specific solicitation is a real exception to a no-follow-up window — but only if the
+  reply stands alone.** New information answering *their* public question is an answer, not a chase; it stops
+  being one the moment it references the earlier message or repeats the ask. Gate it explicitly: no "as I
+  mentioned", **no attached ask**, and re-verify every link the hour it sends — a dead link in a message about
+  your own work is worse than silence.
+- **Give the message something usable whether or not they are hiring.** A design decision they can steal
+  lands better than a résumé line, and it survives a "no". Lead with the one thing in our build that is
+  genuinely unusual, and make every claim clickable.
+- **Write the next-contact date down.** State the earliest date a second message is allowed and what would
+  release it, so the next session does not re-litigate the judgement call.
+
 ## Accelerator & Venture Fund Links
 
 When Jordan shares an accelerator, venture fund, or incubator URL (e.g., `alliance.xyz`, `colosseum.com`, `era.xyz`):
@@ -1185,3 +1283,43 @@ Skip the "what is X" explanation. Lead with the verdict:
 ### Pitfall: Don't explain the obvious
 
 When Jordan shares a link about a **hot topic** (Kimi K3, Claude, GPT, crypto game with 100K+ players), the threshold for "obvious" is high. He's not asking what it is — he's asking what WE can do with it. Skip the architecture explainer, go straight to the thesis mapping.
+
+## Learned on gentech (merged 2026-11-24)
+
+> Promoted verbatim from the seat that learned it. Kept separate on purpose: this is a second writer's evidence, not a rewrite of the section above.
+
+**Try fxtwitter FIRST for X/Twitter** — it returns structured JSON (author, date, media, quoted article) that a page fetch never does. `web_extract` on an x.com URL is not a substitute: it usually yields a login wall or a fragment.
+**On `web_extract` generally: call it, then read what came back.** It fetches and extracts clean markdown for ordinary pages (blogs, docs, GitHub READMEs) when the configured backend supports extraction. If it returns a backend-capability error (see below), that is a CONFIGURATION state on this host — fall back for this call and note it, rather than concluding the tool is broken and refusing it in every future session.
+**If `web_extract` returns a backend-capability error** (the message names `search-only backend` or `ddgs`), extraction is not configured on this host — the search backend is answering but cannot fetch pages.
+- **For this call:** use **TinyFish Fetch** (primary) or **`browser_navigate`** (fallback), or `curl -sL` for raw markdown.
+- **`web_search` is unaffected** — only page extraction is.
+- **The permanent fix is configuration, not avoidance:** set `web.extract_backend` to `firecrawl`, `tavily`, `exa`, or `parallel`. Offer that fix; do not encode "extraction does not work" as a standing rule, because it becomes false the moment the config changes.
+- **First, ask what we ALREADY have in this org — before proposing a single new submission.** A launch page links
+the org's repos, and we have a history; the highest-value fact in the whole analysis is usually our own existing
+standing in one of those repos, not anything on the page. One search answers it:
+  ```bash
+  # our open PRs / issues across the whole org (substitute our login + the org)
+  curl -s "https://api.github.com/search/issues?q=is:pr+is:open+author:<our-login>+org:<org>" \
+    -H "Authorization: Bearer $GH_TOKEN" | python3 -c "
+  import json,sys
+  d=json.load(sys.stdin)
+  for i in d.get('items',[]): print(f\"#{i['number']} {i['created_at'][:10]} {i['title'][:60]} — {i['html_url']}\")
+  print('total open:', d.get('total_count'))"
+  Measured: a foundation launch featured a repo we had an **open, mergeable PR in** — three rounds of review fixes
+  already answered, then four months of silence. The launch was sending traffic to a queue we were already in. **A
+  launch that promotes a repo where our PR sits unanswered is a follow-up opportunity, not a new-submission
+  opportunity** — and proposing a fresh PR into the same org while one is open is churn. Read the PR's
+  `mergeable_state`: `blocked` with no human comment is an unanswered queue, not a rejection.
+- **Re-read the repo's CONTRIBUTING before reviving an old PR.** The contract moves; an entry format valid when the
+  PR was opened may now require a field it did not. Never answer an old submission from memory of its original
+  rules.
+- **Animated stat tiles read as `0`.** Launch pages commonly ship counters that hydrate client-side, so a fetched
+  page contains `0 Finality · 0 x402 transactions · 0 Payments per second`. **Never quote those numbers** — treat a
+  zero in a marketing stat block as "unrendered", not as data, and say so if the shape is worth reporting.
+- `license` field can be null — note "no license" explicitly
+
+## Missing references
+
+The following paths are cited above but are not shipped with this release. They were written on our own seat and belong to work that was never published. The guidance in this skill stands without them.
+
+- `references/8004scan-agent-monitor.md`

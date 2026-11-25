@@ -335,3 +335,64 @@ ACK obligation. **Check identity by substance — does it name its own seat? —
 seat that "won't follow the behaviours" is usually a seat that was never given any; verify before
 diagnosing discipline.
 
+**11. Reconcile by CONTENT DIRECTION, and expect CONVERGENCE to take more than one pass.** A
+whole-tree sync is a convergence loop, not a single apply, and every cheap way of shortcutting it
+produces a confident wrong answer.
+
+- **A file's MTIME is not its direction.** A seat copy can be newer for a trivial reason (a cron touched
+  it) while CORE holds the richer text, and CORE can be newer because another seat promoted first. Sorting
+  by which side is newer produced **162 "promote"** on a tree where the content-hash reconciler found
+  **53 promote · 13 sync · 145 both-changed**. A timestamp cannot express "both sides changed", so a
+  mtime classifier silently files every merge as a promotion and drops the other half. **Direction is a
+  content question; timestamps are only a hint about activity.**
+- **Look for the reconciler before writing one.** The sync usually already has a mode that classifies by
+  content and REFUSES ambiguity — `python3 <sync> --reconcile` (dry-run) then `--apply`. Its refusals are
+  the feature: an item it will not decide is an item a human must merge (#2). A second, hand-rolled
+  classifier is the variation Rule 0 forbids, and it will disagree with the sanctioned one.
+- **Apply the safe half, then expect the numbers to MOVE — that is propagation, not regression.**
+  Promoting content into CORE makes CORE newer than the seats that did not get it, so the very next
+  dry-run reports those as `sync` (measured: sync went 13 → 103 after a promote pass). Run `--apply`
+  again to push them down; it then collapses (synced 103, failed 0). **A post-apply count that looks
+  worse than the pre-apply count is the loop working, not damage** — judge it by re-running, not by
+  the first number you see after writing.
+- **Converged is not zero — it is `review` only.** The irreducible remainder is the set where both sides
+  changed. Counting it to zero would mean the tool started guessing. Report it as a review backlog with
+  a size and a plan, and never automate it.
+- **Verify the WRITE, not the tool's verdict.** An `--apply` printed `APPLIED — promoted 53 · synced 13
+  · failed 0` on an invocation that changed **zero files**; a plain `git status` showed nothing touched.
+  The next run reported the identical backlog. **Confirm with a changed-file count before reporting
+  success**, then re-run the dry-run and compare category counts — the printed summary is a claim by the
+  same instrument you are trying to verify.
+- **SEAT-ONLY skills are the one irreversible loss, and no diff shows it.** They exist on exactly one
+  seat and nowhere else, so a seat rebuild deletes work nobody knows is gone, and a set-difference report
+  lists them as ordinary "extras". Rescue them by ADDING to CORE and **refusing any overwrite**: copy to
+  a temp directory and `os.replace` into a destination that must not already exist. A `copytree` over an
+  existing path is a merge decision disguised as a copy, and it deletes the evidence that the decision
+  was ever needed.
+
+**12. A SHARED QUEUE IS THE MOST DANGEROUS ARTIFACT TO GET THE SEAT WRONG — and a send is not a delivery.**
+A spool, an outbox, a ledger written by several seats looks like any other script, and its hardcoded path is
+the literal the checklist above already forbids. What makes it worse than a hardcoded read path is that a
+hardcoded **write** path makes every seat's outbound mail land in ONE seat's file — and when a message is
+addressed **to** that seat, its own flusher picks the row up and retries it **to itself**. The author sees a
+working transport; the recipient sees the same handoff arrive on every retry.
+
+- **Resolve the queue from the caller's profile** (`HERMES_PROFILE_DIR`, or an explicit env override), never
+  from a literal. One file per sender; the consumer reads what was written *to* it.
+- **A read-modify-write on a shared file needs a lock.** `os.replace` makes the WRITE atomic and does nothing
+  about the READ: a cron flusher and a manual flusher both load the same row, both deliver it, both write back
+  a file that no longer contains what the other saw. Measured — the same message logged twice by the receiver,
+  ninety seconds apart, with neither run reporting an error. `fcntl.flock` around load → act → save is the
+  one-line fix.
+- **A subprocess that RETURNS is not a message that ARRIVED.** Three separate meanings hide behind one call:
+  a non-zero exit is a **failure** (so check `returncode`; an unchecked one is a row deleted on a send that
+  never happened), a **timeout** is usually a successful post with a slow reply, and only the receiver's own
+  log is evidence of delivery.
+- **Retrying on timeout multiplies REAL deliveries.** If the transport cannot distinguish "posted, no reply"
+  from "never sent", every slow recipient gets the same message up to `MAX_ATTEMPTS` times — a colleague
+  receiving one handoff five times is the queue, not the colleague. **Before re-sending anything, grep the
+  receiver's inbound log for the text**; if it is there, mark it delivered and stop.
+- **Test a queue's failure directions deliberately.** Queue one labelled probe and run two flushers
+  concurrently: the pass is *exactly one* delivery and a clean spool. Then run it against an
+  already-delivered row and assert it is recognised rather than re-sent.
+

@@ -74,6 +74,27 @@ You MUST complete each phase before proceeding to the next.
 - Read stack traces completely
 - Note line numbers, file paths, error codes
 
+**But the message is a CLAIM about the cause, not the cause.** A diagnostic reports the suspect its
+author coded into it, and that suspect is frequently the wrong one. **Verify the named cause against
+actual state before you act on it** — one probe of the thing it blames is cheaper than a fix aimed at
+it.
+
+Two shapes recur, and both hide a real cause behind a plausible one:
+
+- **A boolean helper that discards the reason.** `svg_to_png() -> bool` returned `False` for every
+  failure, so the caller printed its one hardcoded guess — *"browser not found"* — while the real error
+  was a sandbox fatal. **A helper that returns bare `False`/`None` hands the caller no reason, so the
+  caller invents one.** When you own the helper, return the reason (or raise with it) and let the
+  message name the actual failure.
+- **A bare `except` that converts an exception into a benign default.** `except Exception: return None`
+  turned a `NameError` into "no history yet", and the caller printed **green** — a swallowed error that
+  reads as health. **Catch narrowly, or return the error text and surfacing it as `UNMEASURED`.** A
+  blanket except is where a broken instrument starts reporting good news.
+
+**Test the message itself:** if the named cause does not reproduce when you check it directly, the
+message is the bug's second defect, and fixing the first one will not stop the next reader being
+misdirected. Note it, so the next person does not re-run your investigation.
+
 **Action:** Use `read_file` on the relevant source files. Use `search_files` to find the error string in the codebase.
 
 ### 2. Build a Tight Feedback Loop

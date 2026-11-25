@@ -200,3 +200,5 @@ The wake routine itself (what to read, in what order) and session hygiene (when 
 separate PROCEDURE skills. This skill audits whether they can work; if one of them carries wrong paths or
 an unverifiable trigger, correct it in place — and if it is user-owned, report the defect and recommend
 `hermes curator adopt <name>` instead of appending an "update" note underneath it.
+
+**Absorbed:** `agent-context-load-audit` — its full body and references now live at `references/agent-context-load-audit/agent-context-load-audit.md`. Do NOT re-create `agent-context-load-audit` as its own skill: it is this one.

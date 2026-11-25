@@ -162,6 +162,22 @@ every reader that keyed by group id — with nothing in the write reporting a pr
 - **A shape error is invisible to a syntax check.** Validate the *shape* (`isinstance`, key set, per-key
   value domain) before writing, and re-read one consumer's expectation rather than trusting the parse.
 
+## 8. AN EXECUTED SHARED FILE HAS TWO IDENTITIES — prove which file RUNS before you edit it
+
+A note has readers; a **script has a launcher**. Editing the copy nobody execs produces a perfect diff and zero
+behaviour change, and no reader can tell from the file. Before editing any script that more than one seat runs:
+
+1. **Enumerate the launchers** (`grep -l '<canonical path>' /opt/data/profiles/*/scripts/*.sh`) and print each one's
+   verdict — not the count you expected.
+2. **Hash the canonical file in place**, and check that no seat holds a byte-divergent copy.
+3. **Put the contract in the file's own header** (canonical path, who execs it, "a copy is a FORK"), so the next
+   editor reads it where they open the file — and add a `--canonical-check` mode to the script so the claim is
+   testable, not prose.
+4. **Run the check before AND after the edit.** Before: a fork invalidates the work. After: it catches a launcher
+   that moved mid-pass.
+
+Recipe, exit codes and pitfalls: `references/canonical-executable-guard.md`.
+
 ## Pitfalls
 
 - **A receipt that says "the same version I verified".** The most natural sentence to write, and the one

@@ -46,6 +46,74 @@ the announcement cannot tell you which. **Do not recommend it until all three ho
 **Read the fee-free tells the right way:** they ask for a *portfolio*, not payment, credentials, or a wallet.
 Absence of a payment ask is evidence; presence of one is a stop.
 
+### 1b. An inbound offer you never asked for is a FRAUD question, not a fit question
+
+A recruiting email is not an opportunity until you establish that the job exists. The fraud shape is
+stable and cheap to test — **five measurements, any one of which ends it:**
+
+1. **Did the candidate actually apply?** Query the application registry, not memory. An interview offer for
+   an application that does not exist is the whole answer. (An unsolicited "we saw your profile" offer on a
+   lane the user has never worked is the same finding with a friendlier sentence.)
+2. **How old is the sending domain?** `curl -s "https://rdap.verisign.com/com/v1/domain/<domain>"` → the
+   `registration` event. A firm hiring across timezones does not run on a months-old domain with a one-year
+   registration, and **an obscure registrar in a different jurisdiction from the claimed HQ is corroboration**.
+3. **Does the business it claims to be have a careers page?** Fetch the site and count `career|job|jobs|team`.
+   Zero hits on a site that sells courses, coaching or "community" is decisive: they sell advice, they do not
+   run a desk.
+4. **Does the named person exist?** Grep the site, and the web, for the sender's name and title. A Head of HR
+   who appears nowhere is a persona.
+5. **What is the channel?** *"The interview will be conducted via text"* plus a **Telegram/WhatsApp handle
+   instead of a company address** is the confession, not a convenience: it moves the conversation onto a
+   platform that keeps no records and cannot be subpoenaed.
+
+Secondary tells that cost nothing to notice: a generic salutation with no name, BCC-to-self (a mail-merge
+blast), and a role that does not match the business model.
+
+**State the script, not just the verdict.** The victim's protection is recognising step two before they reach
+it: warm chat → a "trial" or "test trade" on a platform the sender controls → **a small first withdrawal that
+works** (the credibility purchase) → a fee, a tax, a minimum balance, or "fund the account to unlock profits" →
+the deposit is gone with no counterparty and no regulator.
+
+**Two rules for the response itself:**
+- **Never tell the user to reply "not interested".** A reply confirms a live address and a reading human. The
+  instruction is: don't engage, mark spam, block the domain.
+- **Do not log it in the application funnel.** A fake application poisons callback statistics that other
+  decisions are priced against. File it as its own vetting record instead.
+
+### 1c. A lead your OWN pipeline emitted is still a claim — verify it at the employer's board
+
+A row coming out of your scanner is **not** evidence the job exists. Aggregators syndicate, repost and keep
+closed reqs up; a job page that answers `200` may be a tombstone. Verify before recommending — cheapest check
+first.
+
+1. **Does the employer have an ATS board? Query it directly and match the title.** An aggregator row is a
+   copy; the employer's board is the source. This one call settles most cases:
+
+```bash
+curl -s "https://boards-api.greenhouse.io/v1/boards/<token>/jobs" \
+  | python3 -c "import json,sys,re; [print(j['title'],'|',j['location']['name'],'|',j['updated_at'],'|',j['absolute_url']) for j in json.load(sys.stdin)['jobs'] if re.search(r'<title>',j['title'],re.I)]"
+curl -s "https://api.lever.co/v0/postings/<token>?mode=json"
+curl -s "https://api.ashbyhq.com/posting-api/job-board/<token>"
+```
+
+2. **HTTP 200 is not liveness.** A Greenhouse job URL answers `200` for a closed req. Read the API record —
+   `first_published`, `updated_at`, and body length. No API record for the id is the tombstone signal, not a
+   fetch failure.
+3. **A company with no ATS whose only action is a company-wide form is a funnel, not a requisition.** If the
+   careers page leads to one generic Typeform/Google Form and no role-specific application, no posted job
+   exists — it is a talent-pool catch-all, and the "opening" may have no headcount behind it.
+4. **The same JD under multiple "employers" at an hourly rate is a data-labelling funnel.** Identical
+   responsibilities, near-identical wording, `$N/hr` contract, "portfolio required" → AI-training or
+   annotation work wearing an engineering title. Before recommending, search a distinctive sentence from the
+   description and see whether it reappears under another company name.
+5. **An aggregator's pay figure is the aggregator's claim.** When the only compensation evidence lives on the
+   feed and the employer page states none, mark it unverified in the same line and never quote it as a band.
+
+**Report which items verified and which did not, with the check that settled each.** *"Six of seven live, one
+  does not verify"* is the useful sentence. *"All verified"* derived from status codes alone is the exact
+  failure this rule exists to prevent — and expect the most attractive-looking lead to be the one that fails,
+  because an aggregator title is optimised to be clicked.
+
 ### 2. The ARTIFACT RULE — an item is complete only when it produces a public artifact with a receipt
 
 A repo, a live URL, a measured number. **Never a completed module, certificate, or course.** Jordan's record

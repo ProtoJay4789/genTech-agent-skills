@@ -21,6 +21,33 @@ metadata:
   DISTRIBUTION, not the count** — see *Measure the shelf before you merge* below.
 - **Not** for merging a small correct skill into a big umbrella. That is how the shelf got here.
 
+## The default is MERGE, not create — a standing preference, not a cleanup task
+
+**Jordan's rule for this library:** *"by default look into merging relevant skills instead of creating so many
+new ones — it'd be more helpful for you too, and it'd be less confusion for agents to load up skills."*
+
+So the question before `skill_manage create` is never *"is this worth writing down?"* — it is **"which existing
+skill should absorb this?"** Write a new skill ONLY when the answer is *none*, and that means the new thing is a
+different CLASS of task with a different trigger, not a different incident, tool, or subsystem.
+
+**The cheap test, in order:**
+
+1. `skills_list` the category, then `skill_view` the two or three closest candidates. **Searching is cheaper than
+a duplicate and it is the step that actually gets skipped.**
+2. Ask *would ONE procedure serve both requests?* Yes → patch the survivor (a subsection, a pitfall, or a
+   `references/<topic>.md` for depth). No → two skills, and say why in the description so the next reader sees
+   the boundary.
+3. **A skill that grew a sub-skill is the signal to fold it back in.** When a session adds a second near-name
+   beside an existing one ("…-apply" next to "…-landing"), the pair is one skill wearing two names: merge into
+   the broader title, keep the losing trigger as a heading inside it.
+4. **Size is never the reason to split.** A skill at the write cap gets a `references/` extraction, not a
+   sibling skill — a `SKILL.md` over the cap freezes on every seat and a sibling re-indexes the same triggers.
+
+**And when you do merge, merge the SHAPE, not the prose.** Two skills covering one job usually differ in *when*
+they apply, not in what they say: give the survivor one section per shape ("Shape A — …, Shape B — …") with a
+one-line note saying which condition selects which. That preserves both triggers in one body, which is exactly
+what a reader needs and what two separate files failed to give them.
+
 ## Measure the shelf before you merge — the count is usually not the problem
 
 **Run all three numbers before proposing any consolidation, because two of them are routinely mistaken
@@ -48,10 +75,37 @@ procedure. **Topic overlap predicts nothing; ask "would ONE procedure serve both
 stay two skills and the growth is real work, not duplication. If yes, absorb per the Procedure below and
 put the depth in `references/`, never in a longer `SKILL.md`.
 
+### Generate candidates mechanically, judge them by hand
+
+A token-overlap pass over **descriptions** (Jaccard on words of ≥4 letters, threshold ≈0.42) is a cheap,
+repo-free candidate generator, and its ranking is informative in a way the raw score is not:
+
+```python
+words = lambda d: set(w for w in re.findall(r'[a-z]{4,}', d.lower()))
+j = len(a & b) / len(a | b)          # run over folded descriptions, never raw frontmatter
+```
+
+- **The single highest pair is usually the real duplicate** — two files that are one skill under two names.
+  That is the one to merge first, because it is also the one readers hit twice.
+- **A CLUSTER at the same score is usually a family of siblings**, and a family is not a duplicate. Three
+  CLI-delegation skills score alike because they do the same *shape* of job for three different tools;
+  merging them would delete two valid triggers. Check a cluster as a family and merge none of it.
+- **"Not named anywhere outside the library" is NOT evidence a skill is unused.** A recently written or
+  recently promoted skill is unreferenced by definition, and pruning on that signal deletes the newest
+  knowledge first. Reference count is a signal about age, not about value.
+- **Report the index cost with the candidate list** (`sum(len(name)+len(description))`) so the reader can see
+  what the merge actually buys: the per-turn bill is the index, while the per-shot bill is the size tail.
+
 **Survey the owners before cutting.** On a multi-seat fleet each department's lane is its own measured
 slice. Ask each owner for (a) the merges they would make, (b) bytes saved per merge, (c) what they refuse
 to merge and why. A consolidation ordered from the centre lands as deletion; one proposed by the owner
 lands as maintenance.
+
+**Measure it with instruments, not adjectives.** The four measurements that decide a merge list — the
+instrument-overlap test for job identity, the history share, the stale-procedure share, and which skill is
+the clean template — are in `references/consolidation-audit.md`. Run them before proposing a cut: measured
+on one lane, history was 2-7% of bytes while **stale procedure was 38-44%**, so a plan aimed at history
+would have missed most of the weight.
 
 ## Why duplicates are worse than one wrong version
 

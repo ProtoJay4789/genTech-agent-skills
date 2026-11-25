@@ -3,7 +3,7 @@
 wire-profile-bot.py — point a profile at its own Telegram bot, safely.
 
 Usage:  wire-profile-bot.py <profile> <token_file> <home_channel> <allowed_users_csv>
-Example: wire-profile-bot.py arthur /opt/data/.bot-tokens/arthur.token -1003872552815 7105876857,684274559
+Example: wire-profile-bot.py arthur /opt/data/.bot-tokens/arthur.token <telegram-group-id> 7105876857,684274559
 
 WHY THIS EXISTS — two failures it makes impossible:
   1. A Telegram bot token INLINE in a shell command trips the parser blocklist. The token is read from a

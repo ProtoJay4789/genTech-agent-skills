@@ -6,9 +6,7 @@ author: gentech
 tags: [hermes, model-routing, tiered-routing, cost-optimization, deepseek, kimi]
 ---
 
-# District state measured 2026-11-13
-
-## District rules (measured), in the order they run
+# Model Routing — district rules
 
 1. **A rail is live only when a real completion answers 200.** A model list answers 200 with no key at all — a models list is not a test. The first HTTP call that matters is a chat completion.
 2. **A rail reports four states, and each is a fact:** NOT CONFIGURED (no key), PLACEHOLDER (dummy key), REJECTED (key present, completion refuses), USABLE (real completion succeeded). No interpolation, no "probably".
@@ -19,20 +17,7 @@ tags: [hermes, model-routing, tiered-routing, cost-optimization, deepseek, kimi]
 
 ---
 
-# Model Routing V4 — measured 2026-10-16
-
-## District rules (measured), in the order they run
-
-1. **A rail is live only when a real completion answers 200.** A model list answers 200 with no key at all — a models list is not a test. The first HTTP call that matters is a chat completion.
-2. **A rail reports four states, and each is a fact:** NOT CONFIGURED (no key), PLACEHOLDER (dummy key), REJECTED (key present, completion refuses), USABLE (real completion succeeded). No interpolation, no "probably".
-3. **A placeholder line that looks configured is worse than none.** Comment the .env line until the key is confirmed active on the dashboard.
-4. **A rail needs a buyer.** A subscription is not a rail until a completion says 200. Free variants of metered models cannot route (400 on this key) — that is a hard ceiling, not a free level.
-5. **A seat's default model is the seat's decision; routing lives in jobs.json, config.yaml runs.**
-6. **Gate on the provider's own number, never a local counter.**
-
----
-
-# Model Routing V4 — measured 2026-10-16 — measured 2026-10-16
+# Model Routing — measured state
 
 ## ⚠️ "FLASH" IS A SPEED LABEL, NOT A THINKING LABEL (measured 2026-11-10)
 
@@ -107,10 +92,73 @@ A reasoner that needs tools will not get them there. **Price the failover before
 read, especially after you have already fixed several faults of the same class in one session — that is the
 signal that your own eyes are the limiting factor."* **Jr writes (DeepSeek V4 Flash). Sr audits (Kimi K3.1 Pro).**
 
-## ✅ LIVE STATE — measured 2026-11-17 (authoritative — trust this over any block below)
+## ✅ LIVE STATE — a SNAPSHOT, not an authority (last measured 2026-11-20)
 
-- **Primary rail (all 4 seats):** `opencode-go` · `deepseek-v4.1-flash` · `https://opencode.ai/zen/go/v1`
-- **Fallback rail (all 4 seats):** `ollama-cloud` · `deepseek-v4.1-flash`, then `nous` · `upstage/solar-mini4:free`
+**⚠️ Read the config, never this block.** The order has flipped repeatedly — opencode-go primary, then
+ollama-cloud, then opencode-go again, and back. **A rail-order sentence in a skill file is history the
+moment it is written.** The authoritative read, per seat:
+
+```bash
+for p in gentech gentech-treasury arthur protojay; do
+  echo "== $p"; sed -n '/^model:/,/^fallback/p' /opt/data/profiles/$p/config.yaml | head -5
+done
+```
+
+- **SNAPSHOT 2026-11-20:** primary `ollama-cloud` · `deepseek-v4.1-flash` on **all four seats**; fallback
+  holds ONE entry — `nous` · `upstage/solar-mini4:free`; `opencode-go` removed from the chain because it was
+  rate-limited with a stated reset ~9 days out. `opencode-go` returns as a candidate only on the evidence below.
+- **Prior state (2026-11-17, superseded):** opencode-go primary, ollama-cloud then nous as fallback.
+
+### 🆕 The fallback that SUCCEEDS becomes primary, until a STATED condition flips it back
+
+**Standing instruction:** *"when we switch from primary to fallback, the fallback becomes the primary until
+certain conditions are met, then we switch back."* A fallback is not a stopgap while we wait for the old rail
+to heal — **once it carries the work, config must say so**, and the dead rail moves to the back of the chain
+or out of it entirely.
+
+Why it beats retrying the old primary every turn:
+- every turn stops paying a failed request before any work starts
+- the config stops lying about which rail is live — the failure mode this fleet keeps finding elsewhere
+- switch-back becomes a decision with a trigger instead of a reflex when a number looks better
+
+**Switch BACK only when ALL of these hold** (each one is a condition a monitor can check):
+
+1. **A real chat turn succeeds** — not `/models`. Measured: the rail returned `http 200` on its model list
+   for hours while every turn was refused. **Reachability is not capacity.**
+2. **A run of turns produces NO fallback event** — one clean turn is a blip, not recovery.
+3. **The stated reset is counting DOWN, not re-arming.** Measured: the "retry eligible in ~N s" figure GREW
+   between events (`813,048s` → `857,571s`). A number that moves forward on every hit means the window resets
+   on the provider's schedule, so waiting does not converge — plan around Nov-30-shaped dates, not arithmetic.
+4. **The switch-back is recorded with the measurement that justified it**, or the next reader cannot tell a
+   deliberate move from drift.
+
+**And the inverse:** a fallback must be a rail you would run on **for days** — never a model picked for
+convenience. A fallback that cannot carry the work is the second outage, scheduled for the moment the first
+one arrives.
+
+### ⚠️ The AUXILIARY lane is a rail too, and it does not follow `model.provider`
+
+**Moving the primary model moves nothing for background work.** Each seat carries `auxiliary.<capability>`
+blocks (`vision`, `compression`, `web_extract`, `skills_hub`, `approval`, `mcp`, `triage_specifier`,
+`curator`, `session_search`), **each with its own `provider:` and `model:`** — nine on a full seat. A fleet
+switch that leaves them behind keeps every compression, extraction and approval call hitting the dead rail
+and falling back, which is where the recurring failover warning actually comes from.
+
+- **Audit them by name, not by grep count:** parse the `auxiliary:` block and list every capability whose
+  `provider` is the rail you are leaving.
+- **Write them through the command, per seat:**
+  `hermes --profile <seat> config set auxiliary.<cap>.<provider|model> <value> --force`
+- **Pick a model that exists on the target rail** (`glm-5.3-flash` exists on both ollama-cloud and
+  opencode-go, so that swap is like-for-like). Verify against `/v1/models` before writing.
+- **`config set model.provider` CLEARS `model.base_url` when it belonged to the old provider.** That is the
+  correct behaviour and a useful tell — do not "restore" the cleared value.
+- **Verify the whole seat, not the write:** after the sweep, `grep -c '<old-provider>' <config>` must be 0 for
+  every seat, and the running process must be restarted before any of it takes effect (config is read at boot).
+
+**Monitor:** `profiles/gentech/scripts/provider-rail-watch.py` (cron, every 6h, silence-gated) reads the
+newest fallback event and its stated reset from the seat logs, reports whether the reset is re-arming, and
+probes each rail's model list **separately from the chat lane** — it never infers recovery from a 200 on
+`/models`. It switches nothing: a rail change stays a deliberate config + restart.
 - **⚠️ THE ORDER HAS NOW FLIPPED BOTH WAYS, so treat any rail-order sentence in this file as history and read the
   config instead.** ollama-cloud was primary, then opencode-go was retired, then opencode-go was reinstated as
   primary with ollama as fallback. `rail.py` reports the live order per seat; the prose here cannot.
@@ -158,6 +206,25 @@ signal that your own eyes are the limiting factor."* **Jr writes (DeepSeek V4 Fl
    branch on the meter kind, and **the same fix must be applied to EVERY output path**: a report that says
    `KeyError: 'usd'` in a traceback while its summary block printed fine is a bug fixed in one of two places,
    which is not fixed at all, only hidden from whoever reads the other path.
+
+### ⚠️ "config.yaml" is AMBIGUOUS — a seat runs its PROFILE config, not the root one
+
+`/opt/data/config.yaml` and `/opt/data/profiles/<seat>/config.yaml` are different files and can name **different
+primaries**. Measured: the root config declared one provider as `model.provider` while the seat's own config
+declared another, and the running session reported the seat's. A checker reading the root config reports on a rail
+the seat is not using — and nothing about its output looks wrong.
+
+- **Resolve the binding per seat: `profiles/<seat>/config.yaml` → `model.provider`**, falling back to the root file
+  only for a profile that has no `model:` block. State which file you read in the report.
+- **Confirm against the running process before quoting the binding** — the model/provider line on a live turn, or the
+  seat's own log line. Two config files agreeing is still not evidence a seat loaded either.
+- **A restart is where a disagreement turns into a bill.** If the root file names a paid rail while the seat names a
+  free one, a rebuild can put the seat on the paid rail with no code change and no diff to review. Report that state
+  as a finding, not as harmless duplication.
+- **A fallback that FIRES is not a spend defect.** A paid rung answering because the free rail exhausted is the
+  design working — grade it on *whether the trigger was met* (allowance ≥95%, or two consecutive real failures),
+  not on *whether a metered provider exists in the chain*. A probe that scores "metered rung present" as red lights
+  a permanent alarm on a correctly-functioning fleet.
 
 **Tool:** `profiles/gentech/scripts/rail-failover.py` (`--check` · `--to <rail>` · `--return`).
 **Full rule text, probes and measured traps:** `references/rail-failover-rules.md`.

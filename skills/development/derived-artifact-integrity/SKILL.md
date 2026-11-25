@@ -59,6 +59,21 @@ item added to the source is served with nothing, and no tool on disk can produce
   a **fabricated zero**, which is strictly worse than an error. Name the field once and read that name, or have
   the consumer refuse when the key is absent. **Prove it by feeding the consumer one known non-zero record and
   diffing the total** — a reader that has only ever been given zero cannot tell you it works.
+- **ONE VALUE UNDER TWO KEYS IS TWO VALUES THE MOMENT TWO READERS DISAGREE.** A field stored twice
+  (`priceUsd` beside `price_usd`, `amount` beside `value`, a camelCase beside a snake_case) is not
+  redundancy — it is two independent numbers that happen to start equal. Measured: a catalogue reader read one
+  key and a CHARGING path read the other, so the published price was $0.01 while the amount taken was $0.001.
+  Both readers were internally correct, both printed a plausible number, and nothing errored — the defect is
+  only visible by comparing the two outputs side by side.
+  * **When a field exists under more than one name, a partial update is WORSE than no update** — it converts
+    two agreeing numbers into two disagreeing ones and moves the failure from "stale everywhere" to "the shop
+    window lies about the till". Update every alias in one write, or refuse to write at all.
+  * **Make the reader pick a precedence and say so:** read the advertised key first, fall back to the alias,
+    and print a warning when they differ. Silent precedence is how the next edit drifts again.
+  * **Prove it with a PARITY CHECK, not two separate reads** — fetch what the system ADVERTISES and what it
+    actually CHARGES/SERVES, and assert them equal in the same test. Each side passing its own check is exactly
+    the state that hid the defect.
+  * **Then delete the second key.** A schema that tolerates two names for one value will grow a third.
 - **Recompute counters from a dated ledger; never increment them in place.** A tally that does
   `previous + n` on every invocation double-counts the second run of the same day and inflates forever
   after. Append `{date: {key: n}}` to a ledger and derive totals from it, so re-running the generator is
@@ -95,6 +110,14 @@ package/skill-management tool, which targets the installed copy.
   fixed a copy.
 - **If the only write path you have reaches a copy, say so** — the change is copy-only and will not
   survive propagation. Reporting it as landed is the same failure as the silent revert.
+- **Prove a generated DECLARATION on the surface that PUBLISHES it, not through the helper that resolves it.**
+  A publisher that iterates source records (`services` keys like `gas_oracle`) and a lookup helper that resolves
+  display names, keys and URL segments (`gas`) through an alias table are **two different key paths**: a fix keyed
+  by the segment passes a unit call to the helper and never matches the publisher, so the served document is
+  unchanged while the test is green. **Read the artifact over the transport a consumer uses** — `curl` the served
+  `/openapi.json` after the restart, inspect that operation — and treat a unit-level "verified" as UNVERIFIED
+  until then. A fix reported as landed that missed the published document is worse than no fix, because the
+  restart already happened and nobody looks again.
 
 ## 4. "Recomputed" in the header is a CLAIM — find its producer or strip it
 
@@ -153,6 +176,27 @@ and the row must **fail when its data is absent** rather than pass by not runnin
 count its rows and ask of each one *"what writes this number?"* — a gate where three of five rows have no writer
 is a document describing a check, not a check.
 
+## 5. A PUBLISHED artefact can have N copies and no canonical one
+
+Propagation multiplies copies; nothing about copying picks a winner. **Three remotes of the same library, at three
+different ages, plus a drift checker pointed at one of them** is the shape: the checker is not wrong, it is
+reporting on one of three truths, and every reader assumes it is the only one.
+
+- **Declare ONE canonical publication target, in the artefact that lists them.** Every other copy is marked as a
+  pointer (archive it, or put a one-line README that names the canonical repo) — a copy that stays silently live
+  is a second source of truth whether or not anyone intended it.
+- **A drift report is a measurement of how long publishing was skipped, not a backlog.** When the checker says
+  "N missing, M stale", the honest framing is *publishing is not part of the change*. Capture the number as the
+  outage measurement, then fix the PROCESS — a publish step in the same pass that edits the source — or the same
+  report returns every cycle and is eventually muted.
+- **Compare live-vs-published by IDENTITY, not by count.** Equal totals hide a swapped item; report names that are
+  missing, names that are extra, and names whose content differs, separately.
+- **A withhold list is a DECISION, and it must be subtracted before drift is computed — with its reason.** Items
+  excluded because they need your infrastructure, your wallets or your people are not drift; a checker that counts
+  them produces a number nobody can act on. But an item absent *and not on the list* is the genuine finding.
+- **Publishing to a shared/public surface is the owner's call, not the generator's.** A tool may prepare the
+  copy and prove it byte-identical; the human decides which remote the world sees.
+
 ## Pitfalls
 
 - **A reader that assumes the writer's OLD SHAPE fails before it can refresh its own baseline.** Measured: a
@@ -192,8 +236,15 @@ is a document describing a check, not a check.
 - **A generated file with no generator looks identical to a healthy one.** Nothing in the artifact
   records how it was made, so audit the PROCESS (is there a committed generator? does it still run
   clean?) rather than the file's contents.
+- **An audit that compares two things needs its own translation table checked first.** When a comparator
+  reports a surface as wrong, an unmapped name on the AUDITOR's side produces exactly the same finding as a
+  real defect — and the "fix" it invites edits a surface that was already correct. Treat "name not in <MAP>"
+  in a report as a defect of the report. See `references/discovery-surface-audit.md`.
 
 ## Related
 
+- `references/discovery-surface-audit.md` — auditing many published doors (manifest, bazaar, OpenAPI, `llms.txt`,
+  MCP) against one inventory: per-surface failure table, template-brace probes, reading a crawler's log, and
+  **how to rule out the auditor before you "fix" a surface**.
 - `develop-and-verify` — the silent-wrongness checklist and the Jr/Sr audit that finds this class.
 - `fleet-compatible-skills` — shared core vs profile copy, and the sync that reverts a copy edit.

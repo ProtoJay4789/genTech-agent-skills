@@ -86,6 +86,44 @@ Every hit is a hand-written number. Compare it to the generated field, and to wh
 **7 · Re-fetch the public URL after deploying a fix.** A change that needs a restart is not deployed
 until the surface shows it. Grep for the stale claim rather than checking for `200`.
 
+## Before you fix a surface, rule out the auditor
+
+**A comparison audit has two sides, and the surface is the one you can see.** When a surface is reported as
+wrong, the cheaper hypothesis is that the auditor's own translation table is incomplete — and acting on the
+first reading edits a surface that was already correct.
+
+- **An unmapped name is an AUDITOR defect, and the audit must say so in those words.** Measured: an agent-facing
+  index correctly advertised the full servable set and was reported as *"advertises 9 vs 10 servable; MISSING:
+  ['flow']; names not in DISPLAY_TO_KEY: ['Flow']"*. The finding was true; the attribution was backwards. A
+  human-or-display name that the auditor cannot resolve is not evidence about the surface — it is a hole in the
+  map, and the next run will manufacture the same accusation forever.
+- **Keep the name→key map complete in BOTH directions, and treat a miss as a failure of the audit.** The
+  generator emits display names (`Flow`, `DeFi LP Analytics`); the comparator needs keys (`flow`,
+  `defi_lp_analytics`). Any servable item absent from that map makes a correct surface look wrong, and makes an
+  item silently uncountable — it lands in the "unmapped names" bucket instead of the inventory.
+- **Do not infer "the surface must be missing it" from "the audit says it is missing".** Read the surface's own
+  bytes and search for the item before editing anything.
+- **A generated surface that disagrees is usually STALE, not wrong.** Read the artifact's own `generatedAt` /
+  `generated` stamp before believing the disagreement: a file generated before the item existed will differ from
+  a live inventory that now includes it, and the audit is reporting age as a contradiction. Then ask the §1
+  question — **what schedules its regeneration?** A generator nobody runs is a one-time snapshot wearing a
+  generator's clothes.
+- **Prove the fix by re-breaking it in memory.** After completing the map, re-run the audit with the entry
+  removed from an **in-memory copy** to confirm it still goes red with the same finding. A repair that also
+  disables the check looks identical to a repair. (Never mutate the live artifact to test its guard — that is
+  the separate pitfall in the parent skill.)
+
+```python
+import importlib.util
+spec = importlib.util.spec_from_file_location("sa", "surface-agreement.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.DISPLAY_TO_KEY.pop("flow")          # in-memory only
+assert m._run() == 2                  # the audit still catches a real disagreement
+```
+
+**Exit contract:** silence on agreement, non-zero on any finding. A monitor that prints on success trains the
+reader to skip it, and an `exit 0` on disagreement is a check that can never fail.
+
 ## Reading a crawler's log to find which surface it uses
 
 Before fixing anything, confirm which document the caller actually reads. Group the caller's requests

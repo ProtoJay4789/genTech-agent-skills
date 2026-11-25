@@ -46,6 +46,40 @@ brew install himalaya
 cargo install himalaya --locked
 ```
 
+## Step 0 — prove the transport BEFORE you report on an inbox
+
+**An inbox you could not read is not an empty inbox, and it is not a quiet one.** Make one authenticated
+call first, every time, and branch on the result:
+
+```bash
+himalaya account list            # does an account exist at all?
+himalaya envelope list --page-size 5   # does auth actually succeed?
+```
+
+| what you got | what it means | what to report |
+|---|---|---|
+| a list of envelopes | transport up | read and summarise normally |
+| `command not found` | no CLI on this host | **transport down** + the install line |
+| auth/login failure (401/535/`authentication failed`) | credentials rejected | **transport down** + which credential is wrong |
+| empty list from a mailbox known to receive mail | suspicious, not proof | say the count and the folder you asked for |
+
+**Never answer "nothing important" from a failed client.** A dead mail path that reports silence is a
+monitor failing open: the user reads an empty summary as "nothing arrived" and stops checking. Say
+"I could not read it, here is the failing call and the one thing that fixes it" — that is a complete
+answer.
+
+**Gmail specifically:** an ordinary account password does not authenticate over IMAP once 2-Step
+Verification is on — the credential is a **16-character App Password** (Google Account → Security →
+App passwords). Generate that, store it mode-600, and point `backend.auth.cmd` at a command that prints
+it. A correct-looking config with the account password fails at login, which looks identical to an empty
+mailbox if you do not read the error.
+
+**If a third-party mail API is the transport instead of IMAP**, the same rule holds with a cheaper probe:
+one authenticated GET against a read-only endpoint. A key that returns `401 / APIKey_InvalidAPIKey` is a
+transport failure — and because the wrapper swallowed it, the mailbox may have gone unread for days
+without a single alarm. Whichever transport you end up with, wire a daily liveness check so the next
+silence is loud.
+
 ## Configuration Setup
 
 Run the interactive wizard to set up an account:

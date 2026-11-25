@@ -56,11 +56,33 @@ hermes tools [list|enable NAME|disable NAME]   Per-platform toolsets (curses UI 
 
 hermes skills list|browse|search QUERY|inspect ID
 hermes skills install ID    Hub identifier OR a direct https://…/SKILL.md URL
+                            (… install URL --yes --force  for non-interactive/bulk)
 hermes skills config        Enable/disable skills per platform
 hermes skills check|update|uninstall|publish PATH
 hermes skills tap add REPO  Add a GitHub repo as a skill source
 hermes bundles              Skill bundles (one /<name> alias loads several skills)
 ```
+
+**There is no `hermes install` command.** `hermes install --from <repo>` (a common shape in READMEs, including
+ones we wrote) fails with `'install' is not a 'hermes' command. Did you mean: uninstall?` — the install surface is
+`hermes skills install`.
+
+**A URL install has two silent preconditions, and both failures read as "the skill is broken":**
+
+- **The branch must be the repo's actual default** (`master` on many older repos, not `main`). A
+  `raw.githubusercontent.com/<owner>/<repo>/main/...` URL on a `master` repo returns **404**, and
+  `hermes skills inspect` reports `Could not find … in any source` — the message names the skill, never the
+  branch. Read `default_branch` from `GET /repos/{owner}/{repo}` first.
+- **The path must be the full `skills/<category>/<skill>/SKILL.md`.** Two levels (`skills/<category>/SKILL.md`)
+  is not a thing and 404s the same way.
+
+**Pre-flight every URL you are about to hand to someone else** — `hermes skills inspect <url>` returns the skill
+card (`Name`, `Description`, `Source: url`, size) or the not-found message. Shipping an onboarding doc whose first
+command errors is a claim, not a delivery; inspect proves the URL before a stranger runs it.
+
+**Bulk install of a whole tree** is a clone and a copy, not a command: `git clone …` then
+`cp -r <repo>/skills/* "$HERMES_HOME/skills"/`. **Copy, never symlink** — the loader and cron resolve real paths,
+and a symlinked tree breaks on the next container recreate.
 
 ### MCP Servers
 
@@ -92,8 +114,15 @@ hermes sessions list|browse|rename ID TITLE|delete ID|export OUT|prune|stats
 ```
 hermes cron list|create SCHED|edit ID|pause|resume|run ID|remove|status
     Schedules: '30m', 'every 2h', '0 9 * * *', ISO timestamp
+    --script NAME        BARE FILENAME relative to profiles/<seat>/scripts/ — an absolute path is refused
+    --no-agent           deliver the script's stdout verbatim (the silence-on-clean shape)
+    --timezone TZ        'America/New_York' for a wall-clock schedule; cron itself runs UTC
 hermes webhook subscribe NAME|list|remove NAME|test NAME
 ```
+
+`hermes cron run ID` executes immediately and reports `Ran now: succeeded` — the way to prove a new job works
+without waiting a week. **A `--no-agent` job that prints nothing delivers nothing**, which is the correct shape for
+a monitor: silence means "checked, clean".
 Webhook payloads/routes: `references/webhooks.md`.
 
 ### Profiles

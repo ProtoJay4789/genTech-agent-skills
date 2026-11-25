@@ -8,7 +8,7 @@ change what it measures.
 Never prints the bot token (any accidental echo is masked).
 
 Usage:
-  python3 room-membership-probe.py --chat -1001234567890 \
+  python3 room-membership-probe.py --chat <telegram-group-id> \
       --person 7105876857=jordan --person 8722596779=josephine
 
   # token comes from --env (default: $HERMES_HOME/.env, else --profile's .env)

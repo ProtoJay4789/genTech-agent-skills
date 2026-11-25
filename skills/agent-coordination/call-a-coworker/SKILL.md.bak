@@ -1,0 +1,117 @@
+---
+name: call-a-coworker
+description: "Use when work needs a fact from another seat's jurisdiction. Ask, don't guess."
+category: core
+priority: critical
+version: 1.0.0
+author: GenTech Labs
+tags: [routing, jurisdiction, peer-dm, handoff, coordination, fleet]
+---
+
+# Call a coworker — jurisdiction before inference
+
+**Jordan, 2026-11-21:** *"the same way we have model routing for different tasks, we should also have
+'call a coworker' … whenever you're referencing something that's out of your jurisdiction, you immediately go
+and ask the other agent about it. It's almost like we're able to get on-demand answers about things we're
+working on."*
+
+`routing` answers **"which group does this topic belong to?"**
+**This skill answers "am I allowed to state this as fact, or must I ask the seat that owns it?"**
+
+They are different questions. A topic can be *yours to mention* and still be **theirs to decide.**
+
+---
+
+## The rule
+
+> **Jurisdiction is about OWNERSHIP OF THE FACT, not about the topic's name.**
+
+If the answer lives in someone else's lane, **asking costs one DM and gives you the real number.** Guessing
+costs a wrong number in a report Jordan reads, and it is not recoverable by apologising — **he acts on
+numbers.**
+
+**Ask. It's cheaper. Every time.**
+
+---
+
+## The map — who owns what
+
+| Fact / decision | Owner | Why not you |
+|---|---|---|
+| **Anything touching wallets, keys, capital, on-chain identity, or a financial decision** | **Treasury** | **Jordan's standing order: "anything that has to do with the wallets or anything financial, you always wanna speak to treasury."** This is the hardest line in the fleet. |
+| **Explaining what we build, the lessons, the curriculum, why a product works the way it does** | **Arthur** (EDU) | Arthur is the heir to the Labs lane: `DMOB (Labs) → gizmo → folded → EDU`. **He breaks down and explains what we actually built.** |
+| **The content rail, post status, what was published and when** | **Proto J** | ⚠️ **Jordan's own avatar, not an agent** — ask Jordan, or read `06-Content/`. Do not attribute work to "Proto J the bot." |
+| **Home-lab capability, GPU work, Blender/ComfyUI, local builds** | **Forge** | Off-mesh by design — **vault handoff only**, no DM path. |
+| **Fleet coordination, routing, verification, the record** | **You (HQ)** | Yours. Do not delegate this. |
+
+**A queue item's owner is part of the fact.** If #92 belongs to Treasury, **asking Treasury about #92 is
+not a courtesy — it is the only correct way to work the row.**
+
+---
+
+## The procedure
+
+### 1 · Decide whether you are blocked
+- **You may state it** if it is general knowledge or **already measured by you, with the measurement named.**
+- **You must ask** if the answer depends on **a key you do not hold, a ledger you do not own, a decision
+  someone else makes, or a fact that changes without your involvement.**
+
+### 2 · Ask the owner — both channels, in this order
+```bash
+# DM wakes them (measured working 2026-10-18; the peer is `fleet`, the seat is the suffix)
+hermes peer dm fleet/gentech-treasury "…"
+hermes peer dm fleet/arthur "…"
+```
+**Then write the vault handoff — it is the delivery of record.** A DM that lands nowhere is silence.
+
+**Forge has no peer: vault only, always.**
+
+### 3 · Make the ask answerable
+**A vague question gets a vague answer, and that is the asker's defect.** Every ask carries:
+
+- **the exact question** (one, not five)
+- **what you will do with the answer**
+- **what "done" looks like**
+- **the deadline, and what happens if it is missed**
+- **what you already measured**, so they correct rather than repeat
+
+```
+ASK  ·  who controls 0x24c3382f668bfa59f0ce69dae03d2d2bf22bbd0f  (X Layer tokens 2847/2848/2849/4905)?
+WHY  ·  deciding whether those 8004scan entries can be retired or only reported
+DONE ·  "we hold the key" / "we do not" / "unknown, and here is how to find out"
+BY   ·  before the 8004scan consolidation lands
+MEAS  ·  7 entries, 3 owner addresses, 4 chains — I have the list, I do not have the keys
+```
+
+### 4 · Report the answer as theirs
+**Quote the seat, name the date, and never launder a peer's answer into your own voice.**
+*"Treasury measured X on 2026-11-21"* — **so that when it is wrong, the record says who was wrong**, and
+when it is right, **the seat that did the work gets the credit.**
+
+### 5 · If they do not answer
+**2 days to answer, escalate on day 3** (the fleet Colleague Rule). **In the meantime: mark it PENDING with
+the gate named.** **Never fill the gap with a plausible number.** *Unverified* is a complete answer.
+
+---
+
+## What this is NOT
+
+- **Not a replacement for measuring.** If you *can* check it yourself in one command, **check it.** Ask a
+  coworker for what you cannot reach, not for what you would rather not do.
+- **Not permission to route everything.** A seat that asks about its own lane is **abdicating**, and that is
+  its own defect.
+- **Not a substitute for the vault.** The DM is a doorbell; **the handoff note is the record.**
+
+---
+
+## The failure this prevents
+
+**Measured, repeatedly, in this fleet:**
+
+- a registry generator reading a **dead snapshot** for weeks, because nobody asked the owner which file was live
+- three seats running an **11-day-old engine**, because each assumed its copy was current
+- **seven 8004scan entries** treated as "duplicates to rename", when the real question — *whose keys are these?* —
+  belonged to Treasury all along
+
+**In every case the work was reasonable and the ownership was wrong.** The cost was not the question; it was
+**answering it without asking.**

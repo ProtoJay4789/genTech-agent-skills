@@ -564,7 +564,7 @@ The efficiency metric measures WHERE price sits in the range. But fee income is 
 **Why this matters:** The rainbow zone shows efficiency bands, but LP farmers should also consider volatility when picking ranges. A "Bleeding Edge" zone with high volatility can out-earn a "Harvest Mode" zone that's flat.
 
 **Jordan's thesis:** "They're head hunting longs/shorts with these moves, but we're farming the chaos they create."
-The cron report must always label the source. See `references/live-fee-estimation.md` for why the deprecated Heroku `joe-api-v2` endpoint is dead, how the DexScreener proxy is computed, and why the tracker hardcoded `$0.201` caused the July 2026 mismatch against Trader Joe's `$0.35` UI value.
+The cron report must always label the source. See `references/live-fee-estimation.md` for why the deprecated Heroku `joe-api-v2` endpoint is dead, how the DexScreener proxy is computed, and why the tracker hardcoded `$0.201` caused the July 2026 mismatch against Trader Joe's `$0.35` UI value. *(reference not shipped with this release — the body was consolidated and the file was not carried across; treat the guidance above as complete)*
 
 **Key insight from live trading:** "Efficiency is a snapshot. Fees are a function of movement." — Jordan
 
@@ -1348,3 +1348,9 @@ reading sits. A pivot is the prime directive ACTING (change the shape), not a re
 - **Shared quiet hours module** — Multiple cron scripts need quiet hours checks. Instead of duplicating the logic, use the shared module at `scripts/quiet_hours.py`. Import with `from quiet_hours import is_quiet_hours`. The module defines `QUIET_START=22, QUIET_END=8` (ET). All GenTech cron scripts should use this, not their own quiet hours constants. The DeFi consolidated script has its own copy for backward compat, but new scripts should import from the shared module.
 - **Fee projection during out-of-range** — The volume-based fee formula projects earnings even when the position isn't in range to capture fees. This misleads the report into showing a positive daily rate during an out-of-range period. The fix: add `if not in_range: live_daily = 0.0` before any fee calculation in `lp-monitor-v2.py`. See `references/out-of-range-recovery.md` for the complete protocol (fee fix + state reset + dashboard sync).
 - **positionLifecycle lost on manual dashboard sync** — The `defi-data.json.positionLifecycle` key is not written by any cron script; it's set initially by the on-chain reader and can be dropped during manual dashboard edits. When restoring, populate from the last rebalance date. Schema and example in `references/out-of-range-recovery.md`.
+
+## Missing references
+
+The following paths are cited above but are not shipped with this release. They were written on our own seat and belong to work that was never published. The guidance in this skill stands without them.
+
+- `references/live-fee-estimation.md`

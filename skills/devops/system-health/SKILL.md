@@ -1160,7 +1160,7 @@ Expected: `"ok": true` with bot `id`, `username`, `first_name`. If false, token 
 **Step 3: Verify each configured channel is accessible**
 ```
 TOKEN=$(grep TELEGRAM_BOT_TOKEN ~/.hermes/profiles/<agent>/.env | cut -d= -f2-)
-for chat in "-1003863540828" "-1003872552815" "-1002916759037" "-1003893562036"; do
+for chat in "<telegram-group-id>" "<telegram-group-id>" "<telegram-group-id>" "<telegram-group-id>"; do
   result=$(curl -s "https://api.telegram.org/bot${TOKEN}/getChat?chat_id=$chat" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'OK: {d[\"result\"].get(\"title\",\"?\")} ({d[\"result\"][\"type\"]})' if d.get('ok') else f'ERR: {d.get(\"description\",\"unknown\")}')")
   echo "$chat → $result"
 done
@@ -1397,7 +1397,7 @@ ssh -o ConnectTimeout=10 root@VPS_IP "echo connected"
 
 **Pitfall:** Don't create an SSH config with `IdentityFile` pointing to the Hermes HOME path — it works but creates a fragile dependency on the profile path. Copying to `/root/.ssh/` is the stable fix.
 
-**Verified:** Jun 4, 2026 — SSH into VPS (100.73.143.15) for Multica cleanup. Key generated in Hermes HOME, copied to `/root/.ssh/`, SSH worked immediately.
+**Verified:** Jun 4, 2026 — SSH into VPS (<mesh-ip>) for Multica cleanup. Key generated in Hermes HOME, copied to `/root/.ssh/`, SSH worked immediately.
 
 ---
 

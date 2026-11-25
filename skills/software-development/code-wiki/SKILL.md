@@ -35,6 +35,9 @@ Do NOT use this for:
 - No env vars required.
 - `git` on PATH for repo SHA tracking and remote clones.
 - Optional: `pygount` for language-breakdown stats (see the `codebase-inspection` skill).
+- **Optional: `open-diagram`** (MIT; a venv with `fontTools`) — renders the Mermaid this skill emits into an
+  SVG with a **layout check**. Absent it, nothing changes and nothing fails: the Mermaid stays text. The full
+  procedure is in the `creative/diagrams-and-charts` skill.
 
 ## How to Run
 
@@ -443,3 +446,28 @@ After writing, verify:
    ```
 3. **Module count matches what you intended** — `ls "$OUTPUT_DIR/modules" | wc -l` should equal the number of modules you committed to in Step 3.
 4. **No fabricated paths** — sanity-check 2–3 source links resolve to real files.
+
+### Optional — render the Mermaid and check it
+
+**If `open-diagram` is installed**, the Mermaid this skill writes can be turned into a real SVG with a pass/fail
+check, instead of shipping text nobody has looked at:
+
+```bash
+# both commands take the .mmd on stdin or a path — check FIRST, it is the one that can fail
+open-diagram check diagrams/architecture.mmd     # expect: 0 layout problem(s)
+open-diagram draw  diagrams/architecture.mmd -o diagrams/architecture.svg
+```
+
+**What a passing check proves, and what it does not** — this is the difference between "rendered" and "verified":
+
+- ✅ It proves **labels do not collide and nothing falls off the canvas**. The checker *names* the collision it
+  finds (`'Storage' and 'Recommendations' overlap; move one`), so a failure is actionable, not a puzzle.
+- ❌ It does **not** prove the diagram says what the Mermaid said. **`TD` comes back left-to-right** — the
+  renderer re-lays-out, it does not preserve declared direction. A flowchart you wrote top-down will be drawn
+  side-to-side and still pass with `0 layout problem(s)`. **Check the direction against the source before you
+  call the SVG correct.**
+- ❌ It does not check the *content*: a diagram of the wrong architecture passes as cleanly as a correct one.
+
+**If `open-diagram` is absent — skip this step and say so.** Do not install it to satisfy a skill, and never make
+the wiki fail because a renderer is missing: **the Mermaid text is the deliverable, the SVG is an optional
+receipt.**

@@ -78,6 +78,142 @@ what you write. Three consequences drive everything below:
 3. **The ACK is a MEASUREMENT, not an echo.** Every line must come from a probe you ran *after* the
    request arrived: a digest, a count, a state string. Never restate the requester's claims as facts.
 
+## Liveness and wake probes — the smallest ACK, same burden
+
+A probe ("reply with your seat name and session id", "ping — verify the DM channel", "take a turn") asks
+for almost nothing, which makes it easy to answer from memory. It is still a claim about your own seat —
+name the instrument in one line and stop.
+
+- **Seat and session id come from the live process, not from recall.** `HERMES_SESSION_ID` /
+  `HERMES_SESSION_PROFILE` are set in the turn's environment; cross-check the id against the session
+  **that owns the newest message**, and say you checked it.
+  **Ordering `sessions` by `rowid` or by `started_at` gives the WRONG row**: probe stubs are created at the
+  moment a probe arrives, so a two-message session sorts above the long-running conversation and you answer
+  with an id that never ran a turn. Resolve from the message table instead —
+  `select session_id, count(*), max(ts) from messages group by session_id order by max(ts) desc limit 3` —
+  and take the one with the newest message *and* the message count that matches this conversation.
+  A probe answer that cites a stub session is a fabricated instrument reading, in the same class as a
+  rounded number: it is checkable in one query by the sender.
+- **A probe id shaped `HHMMSS` is a clock stamp — read `date -u` before you echo it.** Restating a stamp
+  you did not read is how a reply ends up asserting a time it was never measured at; if the probe id and
+  the clock disagree, say so instead of quoting the probe's number as if you had verified it.
+- **Verify the transport the probe names, never its label.** A message announced as a "DM" can arrive as
+  `platform=local chat_type=dm`; the gateway log's `inbound message: … msg='<text>'` line is the receipt
+  tying that message to this turn. If the probe says Telegram and the log says local, report the real
+  transport — "channel verified" for a channel you never exercised is a fabricated number in different
+  clothes.
+- **"Nothing in flight" is a complete answer when it is true**, and it is discharged by measuring, not by
+  asserting. One measured finding worth flagging (an undrained `pending/` queue, a stopped cron) gets one
+  line as a flag — not a report, and not a repair, unless the probe asks for it.
+- **Probes that recur are answered identically.** Do not re-derive the census each time or inflate the
+  reply; keep the same short shape, and only the measured stamp changes.
+
+## Verify the EVENT, not only your readiness
+
+**An ACK answers "am I safe to bounce". It does not prove the bounce happened — and a coordinator planning around
+a restart that never occurred is worse off than one told nothing.** Measure the process table, not the note:
+
+```bash
+ps -eo pid,ppid,lstart,etime,cmd | grep -E 'gateway run|main-wrapper' | grep -v grep
+/run/hermes-service/…        # one s6 service dir per profile gateway
+```
+
+- **A supervisor's uptime is not the service's uptime.** `s6-supervise gateway-<seat>` starts at container boot and
+  stays up for days; the gateway child (`gateway run --replace`) restarts on its own. Report the **child's**
+  `lstart`/`etime` — the supervisor's number makes every seat look unrestarted.
+- **If the child's uptime spans the checkpoint's `Issued:` line, no restart has occurred.** Several checkpoints in
+  one day against one continuous uptime means the dispatch is re-issuing without executing. Say it with the
+  numbers (pid, `lstart`, `etime`, how many issues it spans) — *"three issues, zero restarts, pid N up 22h56m"* is
+  the finding; *"the restart isn't happening"* asks the reader to trust a conclusion instead of a measurement.
+- **Ask the one line that resolves it:** process replacement, or in-place config reload? A reload needs no bounce,
+  in which case the checkpoints are waiting on nothing and the ACK has been answering a non-event.
+- **Keep ACKing while they keep arriving** — a repeat checkpoint still gets a real census — but never word it so it
+  implies the event succeeded, and never "confirm" a restart you can see did not happen.
+- **A process that survived the window is itself the re-dispatch check.** When the same ask arrives a second or
+  third time, the cheapest proof that nothing changed is the pid: same pid, same start time, nothing to redo.
+
+## A checkpoint re-issued to the SAME path is a NEW event
+
+Dispatchers overwrite their own file rather than versioning it, so `…-restart-checkpoint.md` can carry three
+`Issued:` timestamps in one day, each a separate event.
+
+- **Scope on the `Issued:` line, never the filename or the mtime you remember.** Append `# ACK #N — <stamp> · the
+  <issued> issue` to your reply file, state in one sentence which earlier event it is *not*, and keep the earlier
+  blocks below it.
+- **Retire the earlier authorization phrase in place.** A file that ends up holding two `SAFE TO RESTART` lines
+  authorises two events at once, and a grep-driven reader will act on the stale one. Annotate the older phrase
+  `(Event closed <stamp>. History — authorises nothing further; the live authorisation is at the bottom.)` rather
+  than deleting it: the record of what you said stays, and the ambiguity does not.
+- **One file, one live authorization.** Any time a checkpoint lane accumulates ACKs, the test before you finish is
+  "how many live authorizations does this file contain?" — the answer must be exactly one.
+
+## Closing a handoff — the block, and the state word
+
+A handoff is delivered or it is not, and the only thing that decides it is **whether the file carries a
+closer a checker can read**. Three blocks exist and they are not interchangeable:
+
+| block | means | closes the note? |
+|---|---|---|
+| `## Receipt` | *I opened it; here is what I did / the date I will answer by* | **closes an ORDER** (a note stating a required action) — **never a BRIEFING** |
+| `## Agreement` | *here is what I did about it, with the evidence* | **yes** |
+| `## Supersede` | *its moment passed; here is what replaced it* | **yes** |
+
+- **A receipt answers a directive, not a question.** A restart checkpoint is an ORDER — *finish, log, verify,
+  then ACK* — and it has nothing to agree **to**: its closure lane is the Receipt the receiving seat writes
+  back. A briefing asks for agreement, and a bare Receipt on one closes nothing.
+- **Decide that from the note's own words, and make the checker do the same.** Test for a required action
+  (`must|do not|never|finish|write|run|reply|ack|send|stop|hold|wait`, at the head of a line, numbered list
+  allowed) before letting a Receipt close anything. Measured consequence of skipping the test: five of our own
+  checkpoints re-reported as *"notes with NO agreement block"* — a +5 jump the reader reads as five new
+  unanswered items, which trains them to skip the report.
+- **A checkpoint that carries no Receipt lane at all is the writer's defect, not the reader's.** Every
+  checkpoint in a set must name the same closure lane; one that ends at "Reply lane" and stops will escalate
+  forever while the other three close.
+- **A receipt is still not a signature on a briefing.** Answering an SLA escalation with `## Receipt` when the
+  note asked for `## Agreement`/`## Supersede` produces the same escalation next cycle — the reply was correct
+  and the state never moved.
+- **Verify closure with the CHECKER, never with the file.** Reading your own note and seeing `## Supersede` is a
+  claim about the file; the scanner has a resolution rule of its own, and only its output settles yours.
+  `python3 /opt/data/scripts/handoff-sla.py --no-nudge` (report-only, sends nothing), then grep its output for the
+  note's path — **absence from the list is the proof it closed**, and a falling count is the second reading.
+  Do this before replying to a second nag: if the note is already gone from every bucket, the repeat is a queued
+  message, not an open note.
+- **Your reply lane may not share the inbound slug — and then no slug-pairing check can ever see the answer.**
+  A checkpoint whose reply path is `<date>-restart-ready.md` while the inbound note is
+  `<date>-restart-checkpoint.md` will nag forever, no matter how complete the ACK, because the checker looks for
+  its own filename in the return lane. Two fixes, pick one and say which: **name the reply file after the inbound
+  slug**, or **append the closer to the inbound note itself** (`## Receipt` + `## Supersede`) — the second works
+  immediately and is the one to use while the naming question is undecided.
+- **A note addressed to a seat that cannot read it is parked, not late.** No profile on this host and no
+  registered peer means vault sync is the only carrier and a human must open the machine: report it as
+  `NO_READER` **with its gate and release condition**, and exclude it from the debt count. Declare the set
+  explicitly (`NO_READER_SEATS`) and **prove the park cannot outlive its reason** — empty the set and watch
+  the rows return to ESCALATE. An instrument that reports *"no reply"* for a destination with no mailbox is
+  the same defect as asking the wrong closure question: it accuses a seat of silence it was never able to break.
+- **The state word inside an Agreement is a claim, and there are only three honest grades:**
+  `acknowledged` = read, verified from my own seat, and here is the next step; `accepted` = the work is
+  done; `delivered` = it exists at a URL. **Pick the weakest grade that is true** — an over-graded cell is a
+  fabricated receipt wearing a table.
+- **A note whose ask is blocked by a human gate closes as `acknowledged`, with the block measured in the
+  evidence cell** — the credential/asset count that proves it is absent, plus the path of the note where the
+  unblock routes are filed. It does **not** close as `accepted`, and it does **not** close as `Supersede`:
+  blocked is not superseded, and `Supersede` is reserved for a note something actually replaced
+  (`no replacement / withdrawn` is for a genuinely overtaken one).
+- **Granularity follows the ask, not the author's enthusiasm.** A note that states no request still owes an
+  honest state if it sits in a `-to-` lane; write `acknowledged` with what did land, and say plainly that
+  the note asked nothing further.
+- **Repeated escalation is a state-machine defect, not a chat problem — and it can come from the QUEUE, not
+  the checker.** Before answering a third time, run the checker yourself and see which bucket the note sits in.
+  If it reads *acked but not closed*, the fix is a closer block or a patch proposal to the checker's owner —
+  **a fifth identical reply changes no bytes.** If the checker already says the note is gone (`3 notes owe a
+  reply` → `2`, absent from both buckets) and the message still arrives, the repetition is a **durable DM
+  spool**: `python3 /opt/data/scripts/peer-dm.py --status` will show one entry with `attempts=N` and a
+  `queued_at` EARLIER than your closing block — the nudge was queued while the note was open and every retry
+  re-spools because this seat is mid-turn. Remove that single obsolete entry (copy it to scratch first),
+  verify `--status` prints `spool empty`, and propose the upstream fix — a flush should re-run the SLA check
+  and drop entries whose note now carries a closer. Verify whichever fix by re-running the checker and
+  quoting the count falling.
+
 ## Procedure
 
 1. **List the request's claims before touching your own state.** "Your config was migrated", "your cron
@@ -180,6 +316,13 @@ flock -u 9; grep -n '^ACK — ' "$F" | tail -2
 Your line number stays valid as later seats append below you; a file **size** you quote in your own record
 is a point-in-time value and will move under you — that is expected, not a lost write.
 
+**A multi-writer file can change between your read and your write, and the editor will tell you so.**
+`patch`/edit tools answer with a `was modified by sibling … but this agent never read it` warning: treat it as
+a prompt to verify, not as noise. After appending, `grep -n '^## ' <file>` (or the collector's row prefix)
+and confirm the other writers' blocks are still present *above and below* yours, then re-read your own
+lines. Sibling rows can land inside the same table you appended to — the file is still correct if every row
+survives, and it is silently corrupted if yours replaced theirs, which the success message will not say.
+
 ## Pitfalls
 
 - ❌ **Inventing a save because an empty in-flight line looks lazy.** This is the one failure that makes
@@ -261,6 +404,20 @@ is a point-in-time value and will move under you — that is expected, not a los
   Capture it as `cmd > /tmp/out 2>&1; rc=$?` (or read `PIPESTATUS`), and quote the *command's* number. An
   instrument that reports 0 on the failure path is worse than no check, because it reads as proof.
 - ❌ **Letting the ACK run long in chat when the ask was one line.**
+- ❌ **Treating `## Receipt` as a closer for a QUESTION, or as never a closer at all.** Both errors are live:
+  it closes an ORDER and not a BRIEFING, and a checker that hardcodes either polarity re-reports one half of
+  the inbox forever. Test the note's own words (does it state a required action?) and say which side the
+  decision fell on, so a reader can audit the call.
+- ❌ **Writing `accepted` or `delivered` for work a human gate is holding.** A credential we do not hold,
+  a publish nobody has done — those are `acknowledged` with the block measured in the evidence cell. Grading
+  a blocked note upward is the exact failure the three grades exist to prevent, and it is invisible to
+  everyone downstream.
+- ❌ **Answering a mechanical escalation with prose in chat.** The escalation is generated from file state;
+  until the file carries a closer, the reply is not read by anything. Measure with the checker, change the
+  file, re-run the checker.
+- ❌ **Editing the shared checker mid-thread to make your own note disappear.** Propose the patch, with a
+  test against a real file, to the owner — a fleet-wide reporting change is not a seat's to make while it is
+the subject of the report.
 - ❌ **One ACK, one event.** A confirmation given for an earlier bounce — even of the same services — does
   not authorise the next one. State the scope every time.
 - ❌ **A re-run that contradicts your own earlier number belongs in the note.** Report the delta rather
@@ -268,6 +425,9 @@ is a point-in-time value and will move under you — that is expected, not a los
 
 ## Related
 
+- `references/handoff-closure-states.md` — the closure state machine: exact block shapes, what the fleet
+  checker actually reads, the escalation ladder for a blocked note, and the tested by-date patch for a
+  receipt whose promise has not yet come due.
 - `references/measurement-recipe.md` — the full command batch: held-work census, bind-mount state, WAL,
   session-DB integrity without `sqlite3`, cron census, propagation, cross-seat drift, note verification,
   the branch-matrix recipe for re-verifying a guard you shipped (§11), the rule that a drill return's
@@ -278,3 +438,30 @@ is a point-in-time value and will move under you — that is expected, not a los
 - `safe-update-restart` — the **asking** side: who to ask, in what order, the ACK gate, and the
   FINISH-not-save requirement the dispatch must carry.
 - `handoff-mesh` — return-lane naming and the alias trap.
+
+## Learned on gentech-treasury (merged 2026-11-24)
+
+> Promoted verbatim from the seat that learned it. Kept separate on purpose: this is a second writer's evidence, not a rewrite of the section above.
+
+`HERMES_SESSION_PROFILE` are set in the turn's environment; cross-check the id against the newest
+  `sessions` row so you can say it is the session *actually running*. Same-SQL recipe as the one-line
+  checkpoint form below.
+- **A `## Receipt` needs a DATE INSIDE IT, in one of two shapes, or the checker reads it as opened-and-promised-to-nobody.**
+  Measured against the fleet checker's own `_parse_receipt()`: it looks for `(by|due|eta)` followed within 12
+  non-digit characters by `YYYY-MM-DD`, and failing that for a **table row with ≥3 pipes carrying two dates**
+  (`at`, then `by` — the **last** date is the promise; a single date in a row only counts if the header line
+  itself contains the word `by`). A prose receipt — however complete, however true — returns
+  `{'has': True, 'by': None}` and the note stays in the unanswered bucket, which then escalates as if you had
+  never replied. **The shape that parses:**
+  `| seat | at | doing | by |` then `| gentech-treasury | 2026-11-20 | answered — <pointer + B + digest> | 2026-11-22 |`,
+  and put the `by` date in the future or today, never in the past: a promise date already gone can read as overdue
+  to a date-window parser. **Verify by replicating the parser** (compile the same two regexes locally, assert
+  `by` is non-null and `^## Agreement$` matches) — never by re-reading your own prose and deciding it looks fine.
+- **A closer in your OUTBOX lane does not close the handoff; the block must be in the file the checker reads.**
+  The delivery rule elsewhere in this skill ("the note at `<seat>-to-<origin>/` IS the ACK") is about *telling the
+  sender*. An SLA checker greps the **inbound** note under `gentech-to-<me>/` (or `INBOX/<seat>/`), so a reply filed
+  only in the outbox is invisible to it. Measured: four identical "SLA overdue — still has no answer" escalations
+  against a seat whose reply had been on disk for two days, and a fifth after the first in-place prose receipt
+  because it carried no `by` date. **Write the block in place in the note, keep the outbox note as the detail and
+  the digest, and answer the escalation by changing bytes — not by explaining in chat.**
+

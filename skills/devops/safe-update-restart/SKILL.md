@@ -11,6 +11,13 @@ tags: [update, restart, deployment, operations, hermes, gateway, verification, b
 ## When to Use
 - **Jordan says "update Hermes" / "run the update" / "are we updated"** — DEFAULT to the fleet updater (Step 3) since all profiles share one install.
 - **Jordan says "restart the gateway"** — DEFAULT to a fleet-wide gateway restart, UNLESS the problem is isolated to one profile (see Step 3b).
+- **ANY planned restart, no exceptions (Jordan, 2026-11-19):** *"if we ever make plans to restart, we should
+  automatically let everyone else know to save their progress where they're at and to prepare for a restart.
+  We should do that by default."* This is **automatic, not a courtesy to offer** — it runs before a
+  `/restart`, a config reload, a fleet update, or any bounce, and it is not conditional on the blast radius
+  looking small. The executor is `profiles/gentech/scripts/pre-restart-checkpoint.py` (writes one durable
+  handoff per seat + `hermes peer dm fleet/<seat>` to wake it, `--dry-run` to preview). **The rule exists
+  because a rule that lives only in a conversation does not fire at 23:00 on a Tuesday.**
 - Updating Hermes Agent (`hermes update`) on a box that runs live services.
 - Restarting the gateway, x402 gateway, or any service someone may be connected to.
 - Any restart where "someone could be connecting any minute."
@@ -279,6 +286,26 @@ duplicate spawn), falling back to `hermes gateway restart`. Run it in the
 
 > **PITFALL — config edits after gateway start never reach running jobs (verified Aug 30):** gateways and their cron runners snapshot config at process start. Edits + cron repins made mid-session silently don't apply — jobs keep failing with the OLD provider's error even though disk config is correct. Any fleet model/config change REQUIRES `fleet_update.py --restart-only` afterward, then verify every gateway's `ExecMainStartTimestamp` is fresh. A config change without a gateway flush is a half-done change.
 
+> **PITFALL — a key in `.env` is not a key in the RUNNING process. Three layers, and only the last one transcribes.**
+> A credential lands in a profile's `.env`, a fresh `python -c` sees it (dotenv is read per invocation), the config
+> names the new provider — and the long-lived gateway still refuses, because the capability flag is computed
+> **at module import** (`_has_groq_key = _has_key("GROQ_API_KEY", …)`). Measured exactly that way: file, config and a
+> one-off probe all correct, runtime flag `False` until the host was restarted.
+> - **Decide "does this need a restart?" by where the value is READ**, not by whether the file is right: grepped
+>   at module level = restart; read inside the call = no restart.
+> - **Prove it by asking the runtime, not the config** — evaluate the same probe the code evaluates, in a process
+>   carrying that seat's `HERMES_HOME`; a positive there plus a fresh process start time is the only pair that means
+>   "live".
+> - **After the bounce, exercise the real path once** (transcribe an actual file through the runtime's own entry
+>   point). A green config table is a claim; one successful call is evidence.
+>
+> **PITFALL — one container restart bounces every profile, so do not report the scope you asked for; report what came back.**
+> The operator restarts one seat's container and says "only two were restarted"; the container start time and every
+> profile's first log line after it show **all four** came up together. Measure `ps -o lstart=` on the container's
+> supervisor process plus one log line per seat, then say which seats actually restarted. Getting this wrong in the
+> harmless direction still costs the next session a redundant bounce — and in the other direction it reports a stale
+> process as refreshed.
+
 > **PITFALL — a paused watchdog is still a loaded gun:** pausing a cron job removes it from the
 > active schedule but leaves the script on disk, encoded with the old doctrine. A later profile
 > refresh, cron restore, or mistaken re-enable flips it back to active and it will execute the
@@ -493,7 +520,15 @@ sweep rule reaches.
 - ❌ **`git rev-list --count <old>..origin/main`** counts all upstream commits; the actual update jump may differ (see `hermes --version` — verified 2026-11-17: `hermes version` is NOT a command).
 - ❌ **A separately-managed profile keeps old code/PID** — the update only drains/restarts *managed* gateways; a profile started independently (e.g. yoyo on this box) stays on old code until manually restarted. Flag it explicitly.
 - ❌ **Reading systemd in the wrong scope.** The gateway is a `--user` unit; a bare `systemctl is-active hermes-gateway.service` from root (system scope) returns `inactive` while it is healthy. Always export `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` and use `systemctl --user`.
-- ❌ **Scheduling a recovery action from inside a gateway to start a dead gateway is blocked by design** (gizmo, Sep 30). The platform-level restart guard refuses gateway-lifecycle commands issued from a supervised gateway regardless of the target unit — and any script the gateway spawns is still inside the gateway's process tree. Even `systemd-run` is intercepted when the launcher validates the process tree (cron dispatcher, agent job runner). The sanctioned out-of-tree path is a `no_agent` cron job that runs in a systemd user **scope**, or a human shell that is not inside any Hermes gateway process tree. **The guard is process-scoped, not unit-blind** — a `hermes cron --no-agent --script` job executes as an external worker, so it can take the lifecycle action; that is the break-glass route, and it must be a deliberate decision, not an accident.
+- ❌ **Reading a seat's liveness off an s6 slot file.** On an s6 host the per-profile slots live at
+  `/run/hermes-service/gateway-<seat>/` and a `down` file inside one conventionally means "held down, do not
+  start." **Measured: a slot carrying `down` sat beside a seat whose own gateway log was writing that same
+  minute** — so the slot file describes the supervisor's intent, not the process's state, and it can be stale,
+  orphaned, or serving through a different process. **Take liveness from the seat's own log / state file**
+  (last inbound turn, `ExecMainStartTimestamp`, gateway state), and use the slot directory only to enumerate
+  what the supervisor *thinks* it owns. Reporting "that seat is down" from a marker file is the same class of
+  error as reporting "vault is down" from a stale sync log.
+- ❌ **Scheduling a recovery action from inside a gateway to start a dead gateway is blocked by design** (gizmo, Sep 30). The platform-level restart guard refuses gateway-lifecycle commands issued from a supervised gateway regardless of the target unit — and any script the gateway spawns is still inside the gateway's process tree. Even `systemd-run` is intercepted when the launcher validates the process tree (cron dispatcher, agent job runner). The sanctioned out-of-tree path is a `no_agent` cron job that runs in a systemd user **scope**, or a human shell that is not inside any Hermes gateway process tree. **The guard is process-scoped, not unit-blind** — a `hermes cron --no-agent --script` job executes as an external worker, so it can take the lifecycle action; that is the break-glass route, and it must be a deliberate decision, not an accident. **Corollary for handing work to the human:** when you cannot bounce it yourself, give ONE copy-paste command naming the container by its id (`sudo docker restart <container-id>`), not a menu — and say what will change after it runs, so the restart has an acceptance test.
 
 ## Verification
 - All gateways show new PIDs (restarted on new code), OR the single multiplexer process has a new `MainPID` / `ExecMainStartTimestamp` and every platform is `connected`.

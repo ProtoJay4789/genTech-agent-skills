@@ -55,6 +55,35 @@ cat /opt/data/gateway.pid      # {"pid":…, "kind":"hermes-gateway", …} — c
 python3 -c "import json;d=json.load(open('/opt/data/gateway_state.json'));print(d.get('gateway_state'), (d.get('platforms') or {}).keys())"
 ```
 
+## When the s6 supervisor is not running the slot
+
+`$S6/s6-svstat /run/service/gateway-default` returning **`s6-supervise not running`** means the s6 path is
+unavailable — stop issuing `s6-svc`, it is a silent no-op there. The gateway is then an ordinary process
+under the container init, and **the operator path is the chat command**:
+
+```
+/restart
+```
+
+It is a first-class gateway command (*"Gracefully restart the gateway after draining active runs"*) and it
+is on the Telegram menu allowlist, so the operator can bounce the multiplexer from a phone with no host
+shell. Measured behaviour: it drains, bounces **all profiles** (this is the multiplexer), replaces the
+process, and an in-flight user message **survives** — the log shows it queued during startup restore and
+processed seconds later.
+
+**Verify from the far side, never from the command's return:**
+
+```bash
+cat /opt/data/gateway.pid                                   # NEW pid + NEW start_time
+ps -eo pid,etime,cmd | grep 'gateway run' | grep -v grep    # fresh uptime (minutes, not days)
+tail -20 <profile>/logs/gateway.log                          # "Connected to Telegram (polling mode)"
+```
+
+**And a config change is unproven until the behaviour changes.** `hermes config set` writing the file does
+not reach a running gateway: options such as `kanban.dispatch_in_gateway` are read at **start only**, so the
+bounce is what makes the edit real. Pair every "config is now X" claim with a control that would fail if it
+were not — a card that goes unclaimed, an endpoint that changes code — not a re-read of the file.
+
 ## ⚠️ THE FOOTGUN — never `-u` an inert slot
 
 **All seven run scripts carry `--replace`.** The six inert slots exec `hermes -p <seat> gateway run

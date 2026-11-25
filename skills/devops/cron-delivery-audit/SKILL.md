@@ -31,10 +31,10 @@ Hermes cron jobs deliver through the Telegram gateway — **all groups the user 
 |--------|-------------|
 | `origin` | Default — delivers to the chat where the job was created. Safe choice for single-user. |
 | `local` | Internal maintenance only (vault sync, health checks). No Telegram delivery. |
-| `telegram:-1003863540828` | HQ — coordination, decisions, status reports |
-| `telegram:-1004298089413` | Social Media — games, deals, social content, Vanito |
-| `telegram:-1002916759037` | **Treasury** — finance, DeFi, portfolio, yield, market signals (renamed from "Strategies" Sep 7, 2026; chat ID unchanged) |
-| `telegram:-1003872552815` | Labs — code, SDKs, technical output |
+| `telegram:<telegram-group-id>` | HQ — coordination, decisions, status reports |
+| `telegram:<telegram-group-id>` | Social Media — games, deals, social content, Vanito |
+| `telegram:<telegram-group-id>` | **Treasury** — finance, DeFi, portfolio, yield, market signals (renamed from "Strategies" Sep 7, 2026; chat ID unchanged) |
+| `telegram:<telegram-group-id>` | Labs — code, SDKs, technical output |
 
 **All groups are reachable.** If output isn't appearing, check `last_status` first — the job may have errored before delivery.
 
@@ -123,7 +123,7 @@ Jobs should be self-explanatory in the group feed. Prefix with user name:
 
 **Update delivery target:**
 ```bash
-cronjob action=update job_id=<id> deliver=telegram:-1004298089413
+cronjob action=update job_id=<id> deliver=telegram:<telegram-group-id>
 ```
 
 **Stagger by changing schedule:**
@@ -142,9 +142,38 @@ cronjob action=update job_id=<id> name="[Jordan] GenTech Shop — Weekly Sales S
 | Job Type | Recommended | Why |
 |----------|-------------|-----|
 | Single-user content (deals, intel) | Per-topic group or `origin` | Lands where user will see it |
-| Team-wide updates (Daily Digest) | HQ (`-1003863540828`) | Everyone sees it |
-| Internal maintenance | `local` | No delivery needed |
-| Vanito-specific content | Social Media (`-1004298089413`) | Kept separate from Jordan's ops |
+| Team-wide updates (Daily Digest) | HQ (`<telegram-group-id>`) | Everyone sees it |
+| Internal maintenance — **producer** (backup, drill, sync, metrics, staleness) | `local` | The artifact IS the product; there is nothing to say |
+| Internal maintenance — **reporter** (anything that can only speak on FAILURE) | **a real room, never `local`** | `local` means saved, not known — see the section below |
+| Vanito-specific content | Social Media (`<telegram-group-id>`) | Kept separate from Jordan's ops |
+
+## `deliver: local` is SAVED, not KNOWN — a failure-only job must never have it
+
+**A job whose whole design is silence-until-broken delivers its one important message into a text file.** The run
+reads `completed`, the artifact exists, and nobody has been told anything. Measured on one seat: **22 enabled jobs
+delivered to `local`, and the five that mattered were exactly the five that can only speak when something is wrong** —
+a sync verifier that reports only failures, a queue flusher that reports `STUCK` messages, a settlement reconcile, a
+cron-conformance check, a trends check.
+
+- **Split the fleet by whether the job ever has good news.** A producer's artifact is the product (backup, restore
+drill, maintenance, staleness, metrics) — `local` is correct there. A **reporter** that emits only on failure, drift
+  or a stuck item must reach a room, or its silence is indistinguishable from a clean week.
+- **Sweep it with a query, then classify — do not eyeball the list:**
+  ```bash
+  python3 - <<'PY'
+  import json, glob
+  for p in sorted(glob.glob('/opt/data/profiles/*/cron/jobs.json')):
+      d = json.load(open(p)); jobs = d if isinstance(d, list) else (d.get('jobs') or list(d.values()))
+      for j in jobs:
+          if isinstance(j, dict) and j.get('enabled', True) and 'local' in str(j.get('deliver', '')).lower():
+              print(p.split('/')[3], j.get('id'), j.get('name'))
+  PY
+  ```
+- **Zero artifacts means it never ran, which is a different defect from a quiet target.** A job created while its
+  room id was unverified can sit on `local` forever without ever executing a single delivery; check
+  `cron/output/<id>/` for existence before concluding the rail is merely silent.
+- **Changing a delivery target is a decision, not a cleanup.** List the rows with an owner for each, let the user
+  choose which rooms get the noise, then change them and re-run ONE job to confirm `delivery_outcome=delivered`.
 
 ## Group Rename Propagation (Strategies → Treasury, Sep 7 2026)
 
@@ -224,6 +253,27 @@ would pause the owner's own reports.
 **every** job that ever delivered there, including `origin` jobs whose resolved origin is
 that group. Even `local`/no-agent jobs may chain output to the group via `context_from`.
 
+## A disabled job is a SILENT DECISION — give every one a verdict, and most verdicts are DELETE
+
+**A health probe that counts disabled jobs is right to flag them, and wrong to leave the fix at "re-enable or
+not".** Measured: four disabled jobs on one seat, of which **three were finished** — not broken:
+
+| shape | evidence it is finished | action |
+|---|---|---|
+| **OBSOLETE** — it watched for a condition that has since resolved | the watched lane is alive *measured today* (quota restored, service back) | **delete** |
+| **COMPLETED one-shot** | `repeat: {times: 1, completed: 1}` | **delete** — finished is not paused |
+| **DUPLICATE of a step inside another job** | the same script runs in the bigger job's bundle (`grep` the bundle for the filename) | **delete** the standalone job |
+| **DELIBERATE, still needed** | a live purpose, but too loud (e.g. 3×/day wake probes) | **keep, and reduce the frequency** rather than leaving it off |
+
+- **Run each disabled job once before judging it.** A silence-gated watch exits 0 and prints nothing when
+  healthy, so "it produced no output" is not evidence either way — read its own header for what silence means,
+  then decide from the world it watches.
+- **"Disabled forever" is how a fleet accumulates the noise that hides a real finding.** A red probe whose only
+  remedy is a threshold change was never a finding; a job that completed its purpose belongs deleted, with the
+  reason in the record.
+- **Record the verdict, not just the action**, and name what remains open if anything does — *"kept at 1×/day
+  because the wake path still matters"* is a decision a later reader can revisit.
+
 ## Dead-Job Purge After a Profile Split (Aug 11, 2026)
 
 When work is handed to a sibling profile (gentech → treasury/gizmo) or a job is superseded, the old profile keeps orphaned paused/disabled jobs. They don't run, but they bloat every `cronjob list`, clutter health checks, and get counted in "how many jobs" audits.
@@ -240,10 +290,105 @@ When work is handed to a sibling profile (gentech → treasury/gizmo) or a job i
 
 **Also check for provider-switch collisions** during a fleet review: multiple mechanisms mutating the fleet's provider/model (a standalone `provider-auto-switch` cron + the canonical `cron-provider-sync.py` + a rate-limit auto-escalator + leftover one-shot "Fleet Switch" scripts) can clobber each other and flip jobs mid-day. Consolidate to ONE authority — the Auto-Sync — and pause/remove the redundant ones.
 
+## A monitor must not be the only thing that would report its own failure
+
+A health/reporting job that delivers through the same channel it monitors is not a monitor — it is a diary.
+Measured shape: a self-reflection job spent three consecutive nights failing to send into a chat that no
+longer existed (`Chat not found`), logged on every run, while its own status read `completed`. **The single
+instrument that would have escalated the failure was the job whose delivery was dead.**
+
+Four always-on rules:
+
+1. **A monitoring/reporting job gets an EXPLICIT target, never `origin`.** `origin` is captured at creation
+   and can resolve to a room the bot has since left; the failure appears at send time, after `completed`.
+2. **Ask of every monitor: if this job's delivery dies, what else tells anyone?** If the answer is "nothing",
+   the monitor is unbacked — give it a second rail or state plainly that it has one.
+3. **A delivery probe must read the RUN, not the config.** `0 jobs with no delivery target` is a config
+   assertion; a target that is **SET** is not a target that **WORKS**.
+4. **A rail that is declared but unconfigured must say so and exit non-zero** — never silently fall back to
+   the channel it was meant to supplement.
+
+Rails enumeration, the per-job `delivery_outcome` probe, and the honest-config-only wording:
+`references/monitor-independent-delivery-rails.md`.
+
+## A destination that cannot RECEIVE must be PARKED, and the closure you demand must match the NOTE'S TYPE
+
+Escalation instruments measure **silence**, and silence is identical whether the recipient is slow or
+unreachable. Two shapes of that blindness cost real time:
+
+**1 · A target with no mailbox.** A seat can be live in the fleet and still have no reader here: no profile
+directory, no gateway, no registered peer — vault sync is the only carrier, so a note reaches it when a human
+boots the machine. An SLA timer counts every silent day as a fault, so it escalates at a seat that cannot
+answer and buries the one item that is actually actionable.
+
+- **Keep an explicit no-reader set, next to the transport-blocked set**, and give those rows their own band
+  (`NO_READER`) with a **gate** and a **release condition** — *"no profile and no peer here; vault sync is the
+  only carrier; releases when the seat boots and replies, or the lane is retired."* Exclude them from the
+  "owe a reply" count.
+- **Prove the park lifts itself:** empty the set, re-run, and confirm the rows return to ESCALATE. A park you
+  have never watched release will outlive the reason for it.
+- **Re-derive the set by measurement, never by memory:** `ls -d <profiles>/<seat>` plus `hermes peer list`.
+  A seat can gain a mailbox (or lose one) long after the convention was written down.
+
+**2 · Demand the closure the note can actually produce.** A closure vocabulary is per note type: a *briefing*
+asks for agreement, but an *order* ("finish, log, verify, then ACK") has nothing to agree TO — its closure is
+the receipt the receiver writes back. An instrument that only accepts `## Agreement` reports every directive
+as unanswered, and a `+N` jump in that count reads to the user as N new unanswered items.
+
+- **Accept the receipt as a closure for DIRECTIVES only.** Test the note's own words: an order contains a
+  required action (`must|finish|write|run|reply|ack|send|stop|hold|wait`); a briefing does not. A briefing with a
+  stray receipt must still be flagged, or the check stops asking its question.
+- **Close a record addressed to nobody.** A daily log entry asks nothing; it needs a `## Supersede`, not an
+  agreement block, or it counts as debt forever.
+- **A false accusation trains the reader to skip the section** — which is the same damage as a monitor nobody
+  reads, and it costs the one real item its visibility.
+
+## `deliver` must name a PLATFORM — a bare chat id resolves to nothing
+
+**The target format is `telegram:<chat_id>`, never the chat id alone.** A job carrying `deliver = "-100…"`
+schedules, runs, exits 0, and writes its output — then the scheduler cannot resolve a destination:
+
+```
+WARNING cron.scheduler: no delivery target resolved for deliver=<telegram-group-id>
+executions.db → status=completed · delivery_outcome=failed
+```
+
+**Read `delivery_outcome` from `cron/executions.db`, not `jobs.json.last_status`.** The two disagree: the
+summary field can hold a failure from days ago while later runs succeed, and it can hold `completed` while
+every delivery fails. The run table is the record:
+
+```sql
+select started_at, status, delivery_outcome, error
+from executions where job_id='<id>' order by rowid desc limit 5;
+```
+
+`status=completed · delivery_outcome=failed` is a **blind rail** — the work happened and nobody received it.
+Fix the format, then re-run and confirm the newest row reads `delivery_outcome=delivered`. Sweep the fleet for
+bare ids in one pass: any enabled job whose `deliver` is neither `origin`, `local`, nor contains `:`.
+
+## Driving another profile's cron from the CLI
+
+`HERMES_PROFILE` is read at config load but does **not** switch the cron resolver — `hermes cron list` keeps
+reporting the active profile and `cron edit <id>` answers `Job not found` for a job that plainly exists.
+Set **`HERMES_HOME=/opt/data/profiles/<seat>`** instead; the banner then names that profile and edits resolve.
+
+## Editing a schedule does not recompute `next_run_at`
+
+After `hermes cron edit <id> --schedule …`, the stored `next_run_at` can remain a date **in the past**, which
+`cron list` renders as `Overdue: … (Nd ago — the job has not fired; is the scheduler running?)` — a false
+alarm that reads like a dead scheduler. **Set the same schedule a second time** and it recomputes. Check the
+field after every schedule change instead of trusting the edit's success line.
+
 ## Pitfalls
 
 | Pitfall | Symptom | Fix |
 |---------|---------|-----|
+| `deliver` is a bare chat id | Runs complete, `delivery_outcome: failed`, "no delivery target resolved" | Always `telegram:<id>` |
+| Reading `last_status` as the delivery verdict | A live blind rail dismissed as "stale record" | Read `executions.db.delivery_outcome` |
+| Schedule edited, `next_run_at` stale | List shows the job overdue by days | Re-apply the same schedule once |
+| `HERMES_PROFILE` used to target a seat | `Job not found` for a job that exists | `HERMES_HOME=<profile dir>` |
+| Rows escalate every cycle at a seat that cannot read | A real item is buried under the parked ones | Explicit no-reader set + `NO_READER` band with gate and release; falsify by emptying the set |
+| A closure vocabulary that ignores the note's TYPE | Every directive (`must…`, `finish…`) reported as "nobody agreed", forever | Accept `## Receipt` for directives; keep `## Agreement` required for briefings |
 | Time collision | Two messages arrive simultaneously in one group | Offset one by 15+ min |
 | Unclear job name | User asks "what's this?" | Prefix with `[User]` |
 | Wrong group delivery | Vanito content in HQ | Set explicit `telegram:-10038...` target |
@@ -349,3 +494,52 @@ cronjob action=resume job_id=<id>
 - Hermes docs: `https://hermes-agent.nousresearch.com/docs/cron-jobs`
 - Topic routing: `routing` skill
 - Single-agent multi-channel: `single-agent-multi-channel` skill
+
+## Learned on gentech-treasury (merged 2026-11-24)
+
+> Promoted verbatim from the seat that learned it. Kept separate on purpose: this is a second writer's evidence, not a rewrite of the section above.
+
+| Internal maintenance | `local` | No delivery needed |
+## ⚠️ Four rungs: ran → produced → handed off → **received**
+The section above stops at "completed is not delivered". One rung remains, and it is the only one the operator
+cares about: **`delivery_outcome: delivered` is still the sender's word.** Measured — three jobs each recorded
+`completed` *and* `delivered` in one day while the user had seen none of them and the destination held no artifact
+from that day. **A job is not verified until you have opened the thing it was supposed to leave behind**; when the
+artifact is missing and the flag says delivered, report *"delivered per the record, absent at the destination"*
+and investigate the route. Four-rung table and the ledger rows: `references/delivery-proof-from-run-record.md`.
+## A job that waits on another job's output should BE the same job
+**A temporal handoff is an unenforced dependency** — two entries ten minutes apart linked by nothing but the clock.
+Tells: a `for attempt in $(seq 1 15); do … sleep 60; done` loop polling for a sibling's file; a header admitting it
+refuses to act when the input is absent; a comment saying a previous merge removed exactly this.
+**Fix by ordering inside one script, not by tightening the schedule.** Each section keeps its own loud failure line
+so one broken step is visible without aborting the rest. **This pattern re-appears after being fixed once** — new
+needs look like new schedule entries. For every job ask *what file does this read, and who writes it*: if the writer
+is a sibling job, they are one job.
+**Consolidation hygiene:** read both scripts before editing (the absorbed one may hold a bounded wait and a clean
+refusal worth keeping) → **run the merged script end to end** and confirm each section appears in order, since a
+syntax check is not a run → remove the retired ids and **re-read `cron/jobs.json`** (the `Removed job:` line is a
+message, not proof) → re-read each survivor's stored `timezone` and `next_run_at` and confirm the next run is the
+slot you intended in the user's local zone.
+
+## Learned on arthur (merged 2026-11-24)
+
+> Promoted verbatim from the seat that learned it. Kept separate on purpose: this is a second writer's evidence, not a rewrite of the section above.
+
+| Internal maintenance | `local` | No delivery needed |
+| Manual job run used as a preview | A debugging loop posts contradictory reds into the user's group | Edit + run the script directly; fire the job once, at the end |
+## Debugging a monitor: run the SCRIPT, fire the JOB once
+**A manual job run is a real delivery — it does not preview.** It posts to the job's configured
+destination, and its async completion comes back as its own message. So iterating on a monitor by
+firing the job turns a debugging loop into a stream of contradictory statuses in the user's room.
+Measured: four consecutive manual runs of one self-reflection job posted `4/5`, `4/5`, `5/5` (from a
+weaker fallback source) and `5/5` into a working group inside four minutes — and the user asked what
+was going on before the last one landed. Nothing was wrong by then; the channel said otherwise.
+- **Edit, then run the script directly.** `python3 profiles/<seat>/scripts/<job>.{py,sh}` exercises the
+  code path and delivers nothing. Only the job fires the delivery leg.
+- **Fire the job ONCE, at the end, as the proof.** That is the only run whose `delivery_outcome` you
+  cite, and it should be the first state the user sees — not the fifth.
+- **Announce that a fix may take several attempts BEFORE the first one**, so a stray red reads as work
+  in progress rather than a live fault. Silence plus a red message is the worst combination.
+- **Reconcile the out-of-order arrivals in the final message.** Name which run counts and which are
+  noise, because the channel's order is not the order you ran them in, and the user cannot tell.
+

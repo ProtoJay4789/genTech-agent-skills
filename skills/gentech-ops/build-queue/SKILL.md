@@ -680,4 +680,7 @@ PHASE 3: REPORT
 - `gentech-build-workflow` — 7-phase build pipeline (for complex projects)
 - `deploy-and-verify` — Post-build deployment verification
 - `agent-coordination` — Multi-agent task routing
+- `references/kanban-bridge.md` — **the five lists and the durable task board**. What each list really is
+  (including which files are renders, not lists), the `hermes kanban` verbs, the idempotency-key sync
+  design, and the rules for putting queue rows on a board without creating a third drifting copy.
 - `references/v4-overnight-pipeline.md` — **Nightly Build Session + Morning Digest**. Silent overnight builds. Active configuration.

@@ -383,6 +383,32 @@ enumeration, do not filter on it — report the record as unverified instead.
 - **What's the acceptance rate?** (Competitive vs straightforward)
 - **What's the typical grant size?** (Are we asking for too much or too little?)
 
+### Read the RUBRIC and the SUBMISSION CHECKLIST from the programme's own page — quote the weights
+
+**An internal scope doc is a PLAN; the programme's page is the CONTRACT.** They drift, and the drift always
+runs in the direction that loses points. Measured: an internal scope scored a buildathon against **four**
+criteria (30/25/20/15) while the platform's own page listed **five** — the missing one being *UX & Clarity at
+10%*, a tenth of the score nobody had ever discussed. The same page's submission list had **six** required
+items; the plan covered **one**.
+
+- **Fetch the programme page and transcribe its rubric as a table with the weights verbatim**, then diff it
+  against what we have been optimising. A category present there and absent internally is score being given
+  away for free.
+- **Count the required submission items one by one** — project overview, public repo + README with setup, live
+  demo link, video (note whether it is *recommended* or required), team info, per-wave changelog — and mark each
+  HAVE / GAP. The gaps that say *"writing, not building"* are the ones discovered at the deadline.
+- **Read the ACCESS rules for every API the rubric names.** An integration criterion can name two providers:
+  measured, the rubric scored "vendor A **and** vendor B", we used only A, and B's testnet required **no
+  application and no deposit** while only its mainnet gate took a week. That is half a 15% category, closable
+  in an afternoon, and completely invisible in our own document.
+- **Confirm registration before assuming an entry exists.** A plan recording that the user "said go" does not
+  prove an account, a team, or a submission was created. Check the platform account first — it is step zero,
+  and it is the same class of stale claim as a queue row naming a credential that was already on disk.
+- **Carry the deadline and the pot as measured numbers** — days and hours remaining, grant size, entries already
+  submitted — so effort is priced against a real field rather than a vibe.
+- **When a criterion is judged by a dedicated team, name that team's product.** Judges score what they know; an
+  entry that never calls their API reads as a neighbour, not a customer.
+
 ### Gate 0 — eligibility and cheque size, before you score anything
 
 **Two disqualifiers are printed on the listing and both are cheaper to check than to score.** Check them

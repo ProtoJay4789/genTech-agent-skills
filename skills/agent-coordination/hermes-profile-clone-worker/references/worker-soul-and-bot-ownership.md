@@ -36,10 +36,10 @@ Live fleet map — **RE-MEASURED 2026-10-16** (`getMe` per seat; the Aug-16 name
 
 | Profile | Bot username | Bot id | Serves |
 |---------|--------------|--------|--------|
-| gentech | `@Gentechlabsbot` | 8983403162 | Gentech HQ (-1003863540828) |
-| gentech-treasury | `@AgenticTreasurybot` | 8859788654 | Strategies/Treasury (-1002916759037) |
-| arthur | `@GentechEDU_bot` | 8695731797 | Gentech EDU (-1003872552815) |
-| protojay | `@ProtoMagicbot` | 8572791411 | Gentech Social media (-1004298089413) |
+| gentech | `@Gentechlabsbot` | 8983403162 | Gentech HQ (<telegram-group-id>) |
+| gentech-treasury | `@AgenticTreasurybot` | 8859788654 | Strategies/Treasury (<telegram-group-id>) |
+| arthur | `@GentechEDU_bot` | 8695731797 | Gentech EDU (<telegram-group-id>) |
+| protojay | `@ProtoMagicbot` | 8572791411 | Gentech Social media (<telegram-group-id>) |
 | forge | *(desktop — no bot on this host)* | — | — |
 
 Retired: `gizmo` (`@FollowTheCodebot`, served Labs before the EDU rename), `pixel` (Entertainment).

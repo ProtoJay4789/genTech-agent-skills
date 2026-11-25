@@ -48,6 +48,14 @@ script broke on every successful run** — and a guard that always goes red is n
 cannot go red is equally useless. The contract is what makes red means red: **exit 0 + a printed finding**
 is a working guard reporting news; **exit 2** is a guard admitting it cannot see.
 
+**An overloaded code that defaults to healthy is worse than no code.** `2` is not yours alone: **`python3`
+exits 2 for "can't open file"**, and a wrapper that maps *your* `2` (findings, or UNKNOWN) to `exit 0` thereby
+maps *python's* `2` (the tool does not exist) to `exit 0` as well. The job then records a clean run every
+period, forever, while the tool never executed once. Before interpreting any exit code, **assert the instrument
+exists** (`[ -f "$TOOL" ]`) and exit a distinct code — 3 — when it does not, so "ran and found something", "could
+not read the input", and "could not find the program" are three different numbers. Falsify it: point the wrapper
+at a seat with no tool and confirm it does NOT return 0.
+
 **Implement it in the wrapper, not only the tool.** The tool should already follow 0/2 (no 1); the wrapper
 is where the silence policy lives:
 
@@ -58,6 +66,15 @@ out=$(python3 "$TOOL" 2>&1); rc=$?
 [ -n "$out" ] && { echo "$out"; echo "Findings are not breakage — exit 0 on purpose."; }
 exit 0
 ```
+
+**`deliver: local` has no alert path, so decide where the alarm lives before you pick the code.** A job that
+only saves its output writes a nonzero exit into run history, where nobody reads it — so either point the job at
+a **verified** channel, or accept that the artefact is the alarm: have the wrapper write ONE state file
+(`/opt/data/backups/<what>-state.txt`) on any finding and delete it when clean, and exit 0 so the run reads as a
+successful report rather than a nightly failure. **Pick one deliberately and write which one in the job's comment
+header** — a guard that pages nobody and a guard that cries failure every night are both muted within a week.
+Do not point an alert at a transport you have not seen deliver; an unverified channel is worse than a file,
+because it makes the absence of an alarm look like the absence of a problem.
 
 **The tool must print nothing when clean** (empty output = silent tick) and print only the failing rows
 when not. Printing a full PASS table every run trains the reader to ignore the message.
@@ -114,6 +131,13 @@ when not. Printing a full PASS table every run trains the reader to ignore the m
     schedule is a **positional first argument**: `hermes cron create "50 15 * * *" --name … --script name.sh
     --no-agent --deliver origin`. Confirm the interface with `hermes cron create --help` rather than guessing from
     another scheduler's grammar.
+  - **There is no `enable` — the verb is `resume`.** Turning a paused/disabled job back on is
+    `hermes cron resume <id>`; `hermes cron enable` returns *"'enable' is not a `hermes cron` command"*. The
+    subcommand list is `{list,create,add,edit,pause,resume,run,cancel,remove,rm,delete,status,runs,history,
+    incidents,notepad,doctor,tick}` — note both `create`/`add` and `remove`/`rm` aliases exist, so a verb that
+    "should" be there may simply be spelled differently. **Read `hermes cron --help` before assuming a verb is
+    missing**, and confirm the state change by re-reading `enabled` in `jobs.json` — not by the command's own
+    success line.
   After creation, **fire it once by hand** (`hermes cron run <id>`) and confirm the run row exists
   (`hermes cron runs <id>`) — a created job is a claim, a completed run is evidence.
 - **If a SECOND consumer reads this job's output, write the artefact EVERY run to a default path.** An opt-in
@@ -124,6 +148,14 @@ when not. Printing a full PASS table every run trains the reader to ignore the m
 - **A dependency the wrapper needs must be resolvable from the wrapper's working directory.** `cd` into
   the profile dir before invoking the tool, or a config/key file read by relative path resolves against
   the scheduler's cwd and the step fails only when scheduled.
+- **Never derive a profile/seat path from the script path by counting `dirname`s.** Passing the script path
+  through two nested `dirname` calls is correct only when that path is absolute; invoked as `scripts/foo.sh`
+  the two calls collapse to `.`, the seat becomes `.`, and the tool path becomes
+  `/opt/data/profiles/./scripts/tool.py` — a file that does not exist, while the wrapper can still exit 0
+  (see the overloaded-code rule above). Resolve through the script's real directory instead — capture
+  `HERE` as the absolute directory of the script, then take the seat as the basename of its parent. **Test
+  both invocation styles** — relative from the profile dir *and* absolute — because the scheduled path is
+  whichever the scheduler uses and the bug is invisible in the other one.
 
 ## Related
 

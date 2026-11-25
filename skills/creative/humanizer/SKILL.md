@@ -546,6 +546,78 @@ Avoiding AI patterns is only half the job. Sterile, voiceless writing is just as
 **After:**
 > Many teams start without a testing setup and add one once regressions begin costing real time.
 
+### 35. MEMO GRAMMAR IN SPOKEN TEXT
+
+**Signs to watch:** a phrase joined to its explanation by a colon, three items welded with semicolons, nouns
+piled where a verb belongs ("the custody precondition", "the venue-terms question"), clause upon clause with no
+full stop.
+
+**Problem:** colons and semicolons are visual punctuation. Read aloud they are pauses nobody hears, so the
+listener receives one long run-on and loses the thread. A sentence that reads as organised on a page can be
+unfollowable in an ear. The same defect shows up when a status code or rule name is spoken: **"under rule
+R-HOLD" is an audit trail being read to a human**, and it carries no meaning to anyone who does not already
+know the code.
+
+**Before (spoken briefing):**
+> The verdict is Hold, under rule R HOLD. Still outstanding: the custody precondition: one shard per tenant
+> still lives on this host; two unresolved venue terms from the principal.
+
+**After:**
+> The verdict is Hold. In plain terms, we are not buying yet. Still outstanding. One of the two keys for each
+> book sits on this same machine. Two venues are still waiting on your sign-off.
+
+**The procedure, in order:**
+
+1. **Say the consequence before the label.** "We are not buying yet" lands; "Hold under R-HOLD" does not.
+   Keep the code in the record, out of the ear.
+2. **Split every colon and semicolon into a full stop.** The claim does not change, only where the breath goes.
+3. **One number per idea.** A spoken line carrying three figures is three lines the listener cannot hold.
+4. **End on a sentence they could repeat to someone else.** "This was a read of the book, not a trade" is
+   repeatable; "no action was taken" is not.
+
+### 36. A GLOSS THAT BREAKS THE SENTENCE IT LANDS IN
+
+**Problem:** the common way to make jargon speakable is a term-to-plain-phrase map. A map applied naively
+produces text that is technically translated and grammatically wrong, and the error is invisible when you read
+the map instead of the sentence.
+
+**Three collisions, all measured on the same map in one sitting:**
+
+| the sentence | the gloss produced | why |
+|---|---|---|
+| "below **its** 200-week moving average" | "below its **the** average price over four years" | gloss started with an article the possessive already occupied |
+| "**a** fair value gap" | "**a a** price the market skipped" | gloss started with an article the source also carried |
+| "custody precondition" inside a longer phrase | "the how we hold the keys" | a short term matched part of a longer one |
+
+**The rules that prevent all three:**
+
+- **Match the fullest phrase first, longest to shortest, in ONE pass.** A short term must never eat part of a
+  longer one. `re.sub` over a mapping does not re-scan text it just produced, so a single ordered pass is safe.
+- **Write glosses that work after a possessive and after an article.** Prefer a bare noun phrase
+  ("four-year average price, which rises with time") over one starting with "the" or "a".
+- **Test the translated SENTENCE, not the gloss.** Run the real phrasing through, print the result, and read it.
+  A map that passes its own unit tests can still emit "a a".
+
+### 37. DEFINE THE TERM, OR STATE WHAT IT DOES?
+
+**State what it does.** A definition asks the listener to hold a concept; a consequence lets them see the thing
+happen. This is the single most useful thing to borrow from people who explain markets to an audience, and it is
+the opposite of what jargon translation usually produces.
+
+| term | definition (weak) | consequence (strong) |
+|---|---|---|
+| moving average | "the average closing price over N periods" | "the average price over the last four years, and it rises as time passes, so it sits under the price like a floor" |
+| priced in | "already reflected in the current price" | "the market already assumes two rate hikes, so fewer than that is the surprise" |
+| liquidity | "the ease of converting an asset to cash" | "money that is available to buy; when it leaves, price falls and nobody has to sell" |
+
+**Two refinements that make it honest rather than punchy:** a prior-frequency claim plus a hedge ("normally it
+acts as a floor") is more truthful than a promise, and a countable threshold ("two hikes are assumed") beats any
+amount of explanation because the listener can check it themselves.
+
+**Keep the register.** Making text speakable is a translation problem, not a personality change. Do not reach
+for hype, urgency or exclamation to seem human. The plain sentence is what lands, and the professional tone is
+what makes it worth listening to.
+
 ---
 
 ## Process

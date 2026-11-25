@@ -1,0 +1,11 @@
+{
+ "merged_at": "2026-11-24",
+ "base_seat": "gentech",
+ "contributed": {
+  "arthur": 39
+ },
+ "source_seats": [
+  "gentech",
+  "arthur"
+ ]
+}

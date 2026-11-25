@@ -18,6 +18,7 @@ Create PDFs from structured specs, build and fill AcroForm forms (with layout li
 
 - **Scanned/image-only PDFs and OCR** (pymupdf fast path, marker-pdf quality path, scripts/extract_pymupdf.py + scripts/extract_marker.py): `references/ocr-extraction.md`
 - **Editing text inside an existing PDF via natural-language prompts** (nano-pdf CLI): `references/nano-pdf-editing.md`
+- **HTML → PDF with a headless browser** — the print command that works, CSS page geometry, and the three-check proof (page count, extractable text, real last line): `references/html-to-pdf-headless-browser.md`
 
 ## When to Use
 

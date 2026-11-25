@@ -147,7 +147,7 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9119/
 - **Dashboard auth**: No auth when using `--insecure` — anyone on the Tailscale network can access. Acceptable for single-user VPS.
 - **Stub verification**: `python3 -c "import hermes_cli.dashboard_auth; print('OK')"` should print `OK` after creating stubs.
 - **systemd service**: Uses `Restart=always` + `RestartSec=5` for auto-recovery on crash.
-- **Port**: 9119 (Hermes default). Access via Tailscale: `http://100.73.143.15:9119`
+- **Port**: 9119 (Hermes default). Access via Tailscale: `http://<mesh-ip>:9119`
 
 ## Theme Activation
 

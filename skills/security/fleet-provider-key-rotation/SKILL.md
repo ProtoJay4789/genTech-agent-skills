@@ -160,6 +160,36 @@ backup and dotfile copy, then confirm no copy remains.
 - **Do not assume the fallback survived the cutover.** Fallback entries are separate from the primary
   block and are easy to leave pointing at the provider you just moved off.
 
+## An AUXILIARY capability reads its key at PROCESS START, not per call
+
+Inference rails re-read a key often enough that a `.env` edit can feel like it takes effect. **Auxiliary capabilities
+— speech-to-text, vision, embeddings, search — usually decide their provider once, at module import, and the running
+gateway keeps that decision for its whole life.** So the file, the config, and a direct API probe can all say yes
+while the process still says no, and the user experiences "it doesn't work" on a stack where every layer you can
+read is correct.
+
+Measured: a key was written to four seat `.env` files and `stt.provider` was set to the new provider on all four. A
+direct call to the vendor transcribed audio perfectly. Voice notes still failed, because the transcription module
+evaluates its `_has_<provider>_key` probe **at import**, and every gateway had booted before the key existed.
+
+- **Treat "key written + config set" as an unfinished change.** The capability is live only after the process that
+  hosts it has restarted, and after a call through the runtime has actually returned a transcript.
+- **Verify through the runtime's own entry point, not the vendor API** — a raw `curl` proves the credential, which is
+  the easy half:
+  ```bash
+  HERMES_HOME=/opt/data/profiles/<seat> python3 -c "
+  import sys; sys.path.insert(0,'/opt/hermes')
+  from tools import transcription_tools as t
+  print(t.transcribe_audio('/path/to/real-audio.ogg'))"
+  ```
+  A `{'success': True, 'transcript': '…'}` from a real recording on the seat's own config is the receipt.
+- **A capability probe that cannot read the process is `UNKNOWN`, not live.** Start times can be unreadable from
+  inside the container (uid separation), and a liveness script that prints a green verdict beside its own
+  `start time: not found` column is manufacturing confidence from missing evidence. Print `UNKNOWN` and name the gap.
+- **Restart scope is measured, not stated.** A container bounce restarts **every** seat in it, so "only two were
+  bounced" is usually wrong. Read process start times and each seat's log lines at that minute before reporting which
+  seats came back — and after any bounce, re-run the runtime probe per seat rather than assuming one covers all.
+
 ## Related
 
 - `direct-model-api-calls` — the Cloudflare 1010 fix and direct-call patterns.

@@ -461,5 +461,11 @@ here were stale and wrong)*:
 
 **Reference Files**
 - **[briefing-file-creation.md](references/briefing-file-creation.md)** — Guide for creating missing BRIEFING.md file
-- **[dual-agent-wake-up-implementations-jun-2026.md](references/dual-agent-wake-up-implementations-jun-2026.md)** — Dual-agent coordination implementation guide
+- **[dual-agent-wake-up-implementations-jun-2026.md](references/dual-agent-wake-up-implementations-jun-2026.md)** — Dual-agent coordination implementation guide *(reference not shipped with this release — the body was consolidated and the file was not carried across; treat the guidance above as complete)*
 - **[hermes-operator-guide.md](references/hermes-operator-guide.md)** — Tony Simons' "Operator's Guide to Hermes Agent" — external reference on tools, memory, skills, and multi-agent architecture
+
+## Missing references
+
+The following paths are cited above but are not shipped with this release. They were written on our own seat and belong to work that was never published. The guidance in this skill stands without them.
+
+- `references/dual-agent-wake-up-implementations-jun-2026.md`

@@ -1,6 +1,6 @@
 # html-video — VPS Setup & Reference
 
-## Installation (VPS: root@100.73.143.15)
+## Installation (VPS: root@<mesh-ip>)
 
 ```bash
 cd /root && git clone https://github.com/nexu-io/html-video.git
@@ -22,7 +22,7 @@ node packages/cli/dist/bin.js project-render <id> --output /tmp/demo.mp4
 
 # Studio (Browser UI)
 node packages/cli/dist/bin.js studio --port 3071
-# → http://127.0.0.1:3071 (or http://100.73.143.15:3071 via Tailscale)
+# → http://127.0.0.1:3071 (or http://<mesh-ip>:3071 via Tailscale)
 ```
 
 **⚠️ Studio binds to 127.0.0.1 by default.** For remote access (Tailscale), patch the bind address:

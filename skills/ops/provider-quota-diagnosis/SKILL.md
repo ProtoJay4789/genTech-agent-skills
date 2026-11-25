@@ -112,6 +112,41 @@ Three traps, all measured on one key:
 **Report the state, not the intention.** "We can fall back to X" is a plan; "X answers a completion" is a fact.
 Until the fact exists, say the fallback is unconfigured and name what unblocks it (an account, a key, a paid plan).
 
+### A fallback that is carrying the work BECOMES the primary — with named conditions for coming back
+
+**Running a degraded primary means every turn pays for a failover and reports it.** When the fallback has
+been serving every request for days, the config is lying about reality, and the fix is not to silence the
+banner — it is to make the fallback primary and demote the broken rail to a later hop where it can sit dark
+without generating a warning per turn.
+
+**The doctrine (user-stated, and it is the default): the fallback becomes primary until stated conditions are
+met, then we switch back.** "Switch back when it looks better" is a mood, not a rule. The four conditions:
+
+1. **A real chat turn succeeds** — not `/models`. A provider can serve its model list at HTTP 200 for hours while
+   refusing every actual turn. **Reachability is not capacity.**
+2. **A RUN of turns with no fallback event** — one clean turn is a fluke, not a recovery.
+3. **The retry ETA is counting DOWN, not re-arming.** Compare the quoted cooldown across days: a number that
+   GROWS on every attempt (measured: 813,048s → 857,571s) means waiting does not converge and the rail is not
+   recovering on its stated schedule.
+4. **The switch-back is recorded with its measurement**, so nobody later mistakes a deliberate move for drift.
+
+And the inverse, which matters as much: **a fallback must be a rail you would run on for days**, not a free
+model picked for convenience. A fallback that cannot carry the work is the second outage, scheduled for the
+moment the first one arrives.
+
+### A profile's `model:` block overrides the global config — changing `/opt/data/config.yaml` moves nothing
+
+**Every seat carries its own `model:` block, and it wins.** Measured: the global config had been switched to the
+working provider while **all four seats still declared the dead one** — every profile was failing over on every
+turn while the config that had been edited looked correct.
+
+- **Enumerate `profiles/*/config.yaml` and read `provider` / `default` / `base_url` per seat.** A fleet change is
+  one change per seat, and the report must show before → after for each, not one edited file.
+- **A rail change is read at gateway start.** Deploy it with a restart, and move every seat together — a half-moved
+  fleet is worse than an unmoved one, because the seats disagree about which rail is real.
+- **Grep for the retired provider name across all seats, including auxiliary/aux models.** A primary fixed while
+  nine auxiliary models still point at the dead rail produces intermittent failures that read like a new bug.
+
 ### Ollama Cloud
 - **Usage endpoint is `/api/usage`, NOT `/v1/usage`.** `https://ollama.com/v1/usage` returns `{"error":"path \"/v1/usage\" not found"}`. The real endpoint `https://ollama.com/api/usage` (Bearer `OLLAMA_API_KEY`) returns `limits.weekly.usage` and `limits.session.usage` as fractions (0.0-1.0) plus per-model request counts. Verified Aug 2026.
 - **Weekly is the binding constraint** (resets every 7 days); session resets every ~5h. The dashboard shows "Weekly usage" and "Session usage" — read both from `/api/usage`.

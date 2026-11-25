@@ -1,8 +1,11 @@
 ---
 name: image-generation-workflow
-description: "Reliable image generation and editing with the FAL image_generate tool — reference-image hosting rules, progressive JPEG conversion, verification, and delivery. Use whenever generating or editing images from user-sent photos."
+description: "Generate or edit images from photos; BlockRun first."
 tags: [image-generation, image-editing, fal, reference-images, vision-verify]
 triggers:
+  - "turn us into"
+  - "loading screen"
+  - "make a scene with"
   - "edit this picture"
   - "make a portrait from these photos"
   - "combine these two images"
@@ -10,14 +13,17 @@ triggers:
   - "reference image"
 ---
 
-# Image Generation Workflow (FAL image_generate)
+# Image Generation Workflow (BlockRun default, FAL fallback)
 
 ## ⛔ WALLET STATUS — 2026-11-03
 
 `0xebc8c71970EEb6973bd87F1FF146B3Ec4a5972f8` (F8) is **RETIRED** — key lost in the Oct 12 wipe; its 0.4868 USDC is unspendable.
 **Do not fund it; do not expect it to work.** Current BlockRun wallet:
 `0xc0A1f229a0CE65F576DC2fd885109cB3eEAf64a0` — one shared key file at `/opt/data/.blockrun/.session`, symlinked into every seat.
-It holds 0.9687 USDC and **0.000000 ETH** on Base: calls fail until gas is funded.
+It holds a small USDC balance and **0.000000 ETH** on Base — and **zero ETH does NOT block a call**: BlockRun
+settles the x402 payment server-side from the signed authorization, so the payer needs no gas. **Fund USDC, not
+ETH.** The balance moves with every render, so read it (`scripts/blockrun-balance.mjs`) instead of trusting any
+figure written into this file.
 Detail: `gentech-wallet-management` → WALLET STATUS.
 
 
@@ -156,10 +162,18 @@ session toolset: It provides GPT Image 2 (and other models) paid via USDC on Bas
 **BlockRun quirks (Aug 7 2026):**
 - `client.getBalance()` is broken (`not a function`) in the installed build. Read the on-chain USDC balance directly instead — see `scripts/blockrun-balance.mjs`.
 - BlockRun CDN URLs can 502 transiently through the vision proxy. Download locally first (`curl -sL -o <name>.png <url>`), then vision-verify the local path.
-- **Funded wallet: `/opt/data/.blockrun/.session`** (`0xc0A1f229…4a0`, USDC on Base), passed explicitly as `new ImageClient({ privateKey })`. GPT Image 2 img2img edit ≈ $0.128/image.
+- **Funded wallet: `/opt/data/.blockrun/.session`** (`0xc0A1f229…4a0`, USDC on Base), passed explicitly as `new ImageClient({ privateKey })`. GPT Image 2 img2img edit ≈ $0.064/image (measured, and charged even when the call is refused).
   ⚠️ **`0xebc8c719…72f8 (RETIRED)` is the OLD skill address and is stranded (~0.49 left) — never fund or target it.** And the MCP's own `profiles/<seat>/home/.blockrun/.session` is a different, EMPTY account: a funded path in one is not a funded path in the other.
 
-**Cost check:** a 1024×1024 gpt-image-2 generation costs ~$0.065. The BlockRun Base wallet typically holds enough for many generations.
+**Cost check:** a 1024×1024 gpt-image-2 render is **$0.064** (measured; the API returns
+`price.basis:"per_image"`, `amount:"0.064000"`). The BlockRun Base wallet typically holds enough for many renders.
+
+**⛔ A POLICY REFUSAL IS CHARGED — the vendor takes payment BEFORE it decides.** A refused render returns
+`APIError: API error after payment: 400 · Content policy violation` and **the money is gone with no file**.
+Measured: a two-image job rendered the first, then refused the second, and charged **$0.128 for one
+deliverable**. So a refusal is not a free probe — design a risky brief to pass on the first attempt (see the
+sensitive-brief gate), and expect to lose a render whenever you are unsure. Confirm the real cost from the
+wallet delta after a failure rather than assuming it was free.
 
 **MEASURED 2026-10-31 — model size limits and refusal behaviour (do not re-derive):**
 
@@ -173,7 +187,54 @@ session toolset: It provides GPT Image 2 (and other models) paid via USDC on Bas
 
 **Describe the person RICHLY in the prompt — omitting description is not the safe choice.** A sparse prompt does not protect a subject's features; it hands the model a free hand to invent them. Write the observable traits (face shape, hair length and style, skin tone, earrings, expression, pose) and then constrain: *"keep her as exactly the same person — same face, same hair, same expression, same pose; do not alter her features, ethnicity, skin tone or body."* State unchanged parts and changed parts as two separate clauses, then vision-verify that the *unchanged* ones survived the render.
 
+**⚠️ A RICH PROMPT CANNOT FIX AN OBSTRUCTED SOURCE — add a second reference image instead.** Better wording
+recovers what the prompt *omits*; it cannot recover what the photo *does not show*. When a subject's face is
+partly blocked — a hand at the mouth, a headset boom across the jaw, a cigarette, backlight, or simply being
+the further figure in a group shot — the model invents the hidden detail and the user instantly sees a
+different person. Measured: a second man with his hand up and a mic across his jaw came back with a
+**connected beard instead of his disconnected goatee, a wrong hairline, and a missing nostril stud** — three
+invented features in one render, while the unobstructed foreground face was accurate. `edit` fuses **up to 4
+source images**, so pass the scene photo AND a clean frontal portrait, and sentence the portrait to face-only:
+*"the second reference is for this man's face only — do not borrow its room, clothing or lighting."*
+
+**Read the source with vision and ask outright whether each face is clear BEFORE spending the call.** If the
+answer is "partly blocked", stop and ask for a better photo. Two cautions: an *older* clear portrait can be
+worse than none, because beards, hairlines and piercings move over time — **confirm which look is current**
+before locking the render to it; and a good face reference is usually a terrible *scene* reference (a bathroom
+selfie carries its wall and light into the result unless you explicitly exclude them).
+
+**Pre-crop a portrait source to square yourself, and check the faces are in frame BEFORE the render.** BlockRun
+returns square only, so a portrait source is reframed by the model and a head can leave the frame. Crop
+top-biased and vision-check the crop, then spend:
+
+```python
+from PIL import Image
+im = Image.open(src); w, h = im.size
+im.crop((0, 0, w, w)).convert('RGB').save(out, 'JPEG', quality=95, progressive=False)
+```
+
+Keep the original beside the output — the crop is a lossy composition choice, not a neutral copy.
+
 **⚠️ Sensitive-brief gate — judge the BRIEF, not the medium.** When a request would put a real, identifiable person in less clothing than they chose, in a sexualized context, or in a situation that never happened, **decline the alteration of the person and offer the alternatives instead**: change the *setting* only, produce a *stylized illustration* where likeness is inspired rather than photographic, or decline outright if the person is the point. **Consent must come from the subject** — a third party's assurance, or a screenshot showing they were on a call, is evidence of contact, not of consent to *that edit*. Say plainly what was left unchanged, record the scope beside the output, and treat a subject who is not present to speak for themselves (an ex-partner, a private individual) as the case needing the most care rather than the least.
+
+**A real, identifiable person committing a crime is the photoreal line — even privately commissioned and never
+published.** A photographic-looking frame of a named living person mid-armed-robbery is refused whatever the
+stated intent, because the model reads *content*, not intent, and the file cannot be told apart from evidence
+of a real event. "It's just for fun" and "I won't post it" do not clear it, and shopping the lane's models does
+not either: read `GET /v1/images/models` and you will find a mainstream vendor set (OpenAI, Google, xAI,
+ByteDance, Zhipu) all carrying the same class of filter — **the agreement between vendors is the finding, not an
+obstacle to route around.** Renderable substitutes, ordered by how often they pass first try:
+
+1. **The same scene in a painted/illustration idiom** — poster or loading-screen art carries far more latitude
+   than a game-engine photoreal frame, and the two are genuinely different deliverables.
+2. **Remove the weapon** — a crew, a duffel bag, bandanas at the neck, a clerk with hands up and cash on the
+   floor still reads unmistakably as a heist.
+3. **The crew shot without the act** — streetwear, low angle, held tension, no crime at all.
+
+**Name what the wardrobe must NOT read as.** A garment chosen for "crew" can read as ordinary labour:
+fluorescent hi-vis signals sanitation/workwear, so a robbery crew dressed in it reads as a joke about trash
+collectors. Replace it explicitly (plain streetwear, or dark tactical) rather than asking the model to make the
+same garment mean something else.
 
 **⚠️ MOTION IS A STRICTER LINE THAN A STILL — and "uncensored" does not move it.** A still illustration
 of a real person is already one step from a photograph. A five-second *moving photographic* likeness is
@@ -248,6 +309,9 @@ Character sheets often render view labels ("FRONT/PROFILE/BACK") as garbled pseu
 - User-sent photos in Telegram arrive as JPEGs in `image_cache/`; verify they exist before generating.
 - The generated image reinterprets faces — set expectations ("looks similar but not identical") and iterate with stronger prompt language.
 - Verify with vision_analyze BEFORE showing the user — never deliver unverified generations.
+- **Name the art idiom instead of re-rolling the prompt.** "Loading-screen poster art" and "in-game cutscene
+  render" are two genuinely different outputs from the same model, same source and same face lock — specifying
+  the idiom by name is how you give a user variety. Re-running a near-identical prompt just yields duplicates.
 
 ## References
 - `references/fal-reference-image-hosting.md` — full failure transcript and debugging path

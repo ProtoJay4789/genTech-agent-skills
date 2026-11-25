@@ -297,7 +297,7 @@ requires all five checks to pass.
 ## References
 
 - `references/solenrich-routine-pattern.md` — Full SolEnrich Condor routine code and usage
-- `references/agent-builders-cup-2026.md` — Competition rules, strategy, and build queue
+- `references/agent-builders-cup-2026.md` — Competition rules, strategy, and build queue *(reference not shipped with this release — the body was consolidated and the file was not carried across; treat the guidance above as complete)*
 - `references/hummingbot-gateway-mtls-certs.md` — Fix the Hummingbot Gateway mTLS cert crash (SEC-048): generate CA+server+client certs with openssl, the hostname-mismatch SAN pitfall, and syncing certs to BOTH API-container cert locations.
 
 ## Hummingbot Gateway mTLS cert crash (Aug 6, 2026)
@@ -346,3 +346,9 @@ Forge is a desktop-only Telegram presence, not 24/7, so it can NOT run a live tr
 NOT go hunting for "Forge's old bot" for a trading competition; the VPS agent is the correct
 execution layer. (Aug 4, 2026: Jordan floated "use Forge's old bot" then corrected — Forge has no
 24/7 presence on the apps.)
+
+## Missing references
+
+The following paths are cited above but are not shipped with this release. They were written on our own seat and belong to work that was never published. The guidance in this skill stands without them.
+
+- `references/agent-builders-cup-2026.md`

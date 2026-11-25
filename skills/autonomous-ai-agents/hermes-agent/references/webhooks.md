@@ -120,7 +120,7 @@ hermes webhook subscribe github-issues \
   --events "issues" \
   --prompt "New GitHub issue #{issue.number}: {issue.title}\n\nAction: {action}\nAuthor: {issue.user.login}\nBody:\n{issue.body}\n\nPlease triage this issue." \
   --deliver telegram \
-  --deliver-chat-id "-100123456789"
+  --deliver-chat-id "<telegram-group-id>"
 ```
 
 Then in GitHub repo Settings → Webhooks → Add webhook:
@@ -144,7 +144,7 @@ hermes webhook subscribe stripe-payments \
   --events "payment_intent.succeeded,payment_intent.payment_failed" \
   --prompt "Payment {data.object.status}: {data.object.amount} cents from {data.object.receipt_email}" \
   --deliver telegram \
-  --deliver-chat-id "-100123456789"
+  --deliver-chat-id "<telegram-group-id>"
 ```
 
 ### CI/CD: build notifications

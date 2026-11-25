@@ -87,6 +87,21 @@ git clone --depth 1 <url> /tmp/recovered-<repo>
 find /tmp/recovered-<repo> -name '*.py' -not -path '*/.git/*' | wc -l
 ```
 
+**⚠️ A `find` bounded to one filesystem answers "is it here", not "does it exist".** `-xdev` (and any
+single-mount traversal) crosses no boundary, so an artifact on a second mount returns **zero hits that read
+exactly like absence**. Measured: three scripts were absent from the notes tree *and* from a `find / -xdev`
+sweep, yet present on another mount that sweep never entered. Enumerate the roots and mounts **before** a
+search is called conclusive, and re-run without the boundary before reporting a loss.
+
+**A sync/merge manifest is an inventory of what was stranded, not only of what moved.** When a tool records
+entries as `plan.SKIP` alongside a `path`, it has named files it deliberately did not carry — so a grep for
+the basename across `*merge-manifest*.json` is a cheap index to the lost set, and it survives when the file
+itself does not. Those `SKIP` rows also explain *why* the artifact vanished without anyone deleting it.
+
+**Match the recorded digest, not the filename.** A record that quotes an md5 is the strongest available proof
+that a restore is the same artifact rather than a same-named rebuild: `md5sum` the candidates against it and
+report the match per file. A same-named file in a recovery tree is a candidate, not the original.
+
 **A `--depth 1` clone proves nothing about history.** It answers "is it in the tip", which is a different
 question from "did it ever exist". Before concluding a thing was **never** there — as opposed to lost —
 `git fetch --unshallow` and search **all** commits. Also check whether the backup trail has an end date:
@@ -127,31 +142,6 @@ A write tool reporting success is a claim about the *request*. Verify the *state
 - **A push of a branch name that does not exist fails benignly** (`src refspec main does not match any`) — the
   remote's default may be `master`. Rename or push the branch that exists; do not conclude the remote is broken.
 
-### 3b. A restore is a bulk copy with three proofs — hash, parse, manifest
-
-**Restoring the files you think you need produces a tree that cannot run.** A recovered module's imports, test
-fixtures and data files are part of the artifact; cherry-picking the obvious entry point is how a restore becomes
-a rewrite by accident. **Copy the whole subtree, then prove it.**
-
-Three proofs, in this order, and none of them is "the copy command returned 0":
-
-1. **Hash every file against the source.** A byte-for-byte `sha256` comparison with a zero-mismatch count is the
-   only evidence the copy is the original and not a truncated or re-encoded relative.
-2. **Parse every file you restored.** A restored `.py` that cannot compile is not restored — it is a file with the
-   right name. Run the language's own syntax check on each one, and treat any failure as an incomplete restore
-   rather than a cosmetic warning.
-3. **Write a manifest** (`{path, bytes, sha256}` per file, plus source, timestamp and mismatch count) next to the
-   restore, outside the artifact tree. A later reader must be able to audit what was copied without trusting the
-   session that copied it.
-
-**Restore OUTSIDE the note-sync tree.** Recovered code inside a synced vault bloats the sync and can trip its
-size limits — the same rule as the backup shape below, applied at the moment it matters most.
-
-**Then state the next action correctly: a restored artifact needs a RUN, not a build.** If a queue row named it,
-the row does not become `shipped` on restore — it stays open until something executes it and returns a result.
-*Built, restored, and never executed* is its own state, and collapsing it into "done" is how a dead tool reads as
-working.
-
 ### 4. Choose between versions by CONTENT PROVENANCE, never by size or mtime
 
 When a recovered copy and a local copy both exist, "which is newer" is not answerable from the filesystem:
@@ -167,33 +157,33 @@ When a recovered copy and a local copy both exist, "which is newer" is not answe
   what exists can.** Comparing line counts picks the wrong one. Check the recovered version's declared inputs
   against the host, and prefer the **merge**: the recovered decision logic running on feeds that exist, with
   the rebuild's honesty about what is missing.
-- **FILE COUNT IS NOT AUTHORITY — the same trap one level up, and it is the one that bites.** A snapshot restore
-  routinely lands as a huge superset (hundreds of files) next to a small live tree (tens), which reads as
-  "the restore is clearly the fuller, better copy." It is not: the small tree can be **newer on several files
-  and contain files the snapshot cannot possibly hold** — anything written *after* the snapshot was taken.
-  Declaring the restore canonical then silently shadows post-snapshot work.
 
-  **So a restore is a MERGE, never a replacement. Before treating a restored tree as authoritative, walk the
-  existing tree and produce two lists:**
+### 4b. A RESTORE IS NOT THE NEWEST COPY — diff the file SETS, not the trees
 
-  ```bash
-  # 1) files the restore DOES NOT HAVE at all (post-snapshot additions)
-  for f in $(cd "$LIVE" && find . -type f); do [ -e "$RESTORE/$f" ] || echo "ABSENT: $f"; done
-  # 2) files the LIVE tree has NEWER than the restore
-  for f in $(cd "$LIVE" && find . -type f); do
-    [ -e "$RESTORE/$f" ] && [ "$LIVE/$f" -nt "$RESTORE/$f" ] && echo "NEWER: $f"
-  done
-  ```
+A recovery tree comes from a dated snapshot, so it can be **older than a copy that survived on the box**, and it
+can be **missing files that only the surviving copy holds**. "I restored it, sha256 verified" proves the copy is
+internally intact; it says nothing about being complete. Before calling a restore canonical:
 
-  **The live tree wins on both lists; everything else comes from the restore.** Then prove the merge took by
-  checking a *content* fact, not a byte count — a restored document that "references neither amendment" (0
-  matches) is the tell that you copied the pre-amendment version. Write the merge decision, with both lists,
-  to the manifest so the next reader can audit it.
+```bash
+# 1. FIND every copy, including the ones whose directory name looks like a backup
+find / -maxdepth 6 -type d -name '<tree>' 2>/dev/null
+# 2. per copy: file count, total bytes, newest mtime
+# 3. per-file sha256 of each copy, then: only-in-A, only-in-B, content-differs
+```
 
-- **A backup directory can be a label rather than a copy.** A timestamped, plausibly-named backup path that
-  contains **0 files** passes every name-based check and fails the only one that matters. Count the files
-  inside a candidate backup before citing it as coverage — and report a zero as a finding about the backup
-  regime, not as an absence of the artifact.
+- **`only-in-X` is the decisive number, and it is not an age question.** A file present in one copy and absent
+  from the restore is not "older" or "newer" — it is the **only** copy, and a restore that silently omits it
+  loses it the moment the snapshot is treated as authoritative. Report those filenames first, by name.
+- **A restore's mtimes are the restore's own timestamp.** Do not rank copies by mtime; rank by content hash and
+  by **set membership**. (Same trap as §4: a bulk copy stamps everything at the moment it ran.)
+- **A `backups/<date>/` directory is a label until it is counted.** An empty one — 0 files, 0 bytes — reads as
+  protection in every listing and protects nothing. Print the file count, not the path.
+- **Cross-copy newer-ness is real and it runs both ways.** A tree synced into a notes vault can carry edits made
+  *after* the snapshot: an extended document, a patched script, a state file rewritten. When the surviving copy
+  is newer on N files and holds M files the snapshot lacks, the honest answer is "the restore is not a superset —
+  merge these M files in and diff these N", said before anything writes over the other copy.
+- **Report the comparison as a table** (copy · files · bytes · newest · only-in · differs). A restore claim with
+  no such table is a claim about one directory, not about the tree's coverage.
 
 ### 5. A sole copy is not waste — verify before anything is removed
 
@@ -264,9 +254,9 @@ box-only. **Back the rebuilt artifacts up in the session that produced them**, n
 - [ ] The loss claim's scope is stated, and off-host copies were enumerated before any rewrite.
 - [ ] Recovered artifacts are named individually, not just counted.
 - [ ] Every write is verified by reading the target back, not by the writer's own status.
-- [ ] A restore is the whole subtree, hash-verified with zero mismatches, parse-checked file by file, and recorded in a manifest outside the tree.
-- [ ] A restored artifact is not reported as working until something has RUN it.
 - [ ] Version choice is justified by content provenance, not size or mtime.
+- [ ] Every other copy of the tree was sha256-diffed: `only-in` files are named before the restore is called complete.
+- [ ] Any `backups/<date>/` copy was verified by file count, not by its directory name.
 - [ ] Anything proposed for removal was probed for being the sole copy first.
 - [ ] Rebuilt artifacts are committed in the same session, and the secrets gate was proven to fire.
 

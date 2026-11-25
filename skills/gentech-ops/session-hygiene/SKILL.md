@@ -306,6 +306,38 @@ disk; the reader is frozen. Nothing about this is a bug in the memory file, and 
 - **Report capacity beside freshness.** A seat at 98–99% of its memory budget is one lesson away from a
   silently refused write, and freezing is what kept it there. Both numbers belong in the same answer.
 
+## ✋ A mid-turn message is ADDITIVE — abandoning the running task is YOUR defect, not transport loss
+
+**When a user says "messages get skipped" or "they don't queue normally", check how the harness delivers a
+mid-turn message before theorising about queue limits.** Measured from the engine's own source
+(`agent/interrupt_control.py`) and its docstrings:
+
+| call | documented behaviour |
+|---|---|
+| `steer(text)` | *"Queue user text for delivery as its own user row **after the current tool batch finishes (no interrupt)**"*; several calls **concatenate** |
+| `redirect(text)` | **cancels** the current request, keeps completed work, appends the correction and retries |
+
+**So a chat message arriving mid-turn does NOT replace the running instruction.** If a task ends unfinished
+and nobody said stop, **the agent abandoned it** — the message was never dropped. Report it that way rather
+than blaming a transport limit. (A held-inbound queue does exist, but it buffers **disconnects**, so its cap is
+irrelevant to someone typing quickly — reading that constant and calling it the cause is a wrong diagnosis
+that survives because it sounds mechanistic.)
+
+**Classify before acting, every time:**
+
+- **ADDITIVE** — it references the work or adds a detail, constraint, correction of fact, or extra scope
+  ("also", "and", "remember", "here's the detail"). → **Fold it in and keep executing. Do not restart.**
+- **CORRECTIVE** — it negates the direction ("no", "stop", "instead", "wrong file"). → **Switch**, and say in
+  one line what is being dropped.
+- **AMBIGUOUS** — neither references nor negates. → **Keep working and ask.** Never silently pick one.
+
+**The obligation at the end of the turn: name both.** What finished, and what was added. A reply that answers
+only the newest message is how a user learns their first instruction was ignored.
+
+**For work that must survive a restart, the durable form is `kanban_comment`** — it injects *"New note … take
+it into account for the work you're doing right now"* against a board task. Use it when the work outlives the
+session; it is not needed for ordinary mid-turn chat, and it is not a reason to build a new queue.
+
 ## When asked whether `/new` is needed daily — the answer is no
 
 A daily `/new` is a ritual, not a requirement. Sessions persist across days and compression manages

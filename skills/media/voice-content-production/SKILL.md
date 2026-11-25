@@ -147,6 +147,61 @@ ffmpeg -y -f concat -safe 0 -i /tmp/track.txt -c copy /tmp/final-track.mp3
 [Closer — direct, punchy, Steve energy]
 ```
 
+## Writing a script that is HEARD, not read
+
+**"Too professional" is a GRAMMAR complaint, not a vocabulary complaint.** When a listener says the voice is
+hard to follow, the instinct is to simplify words — and that is usually the wrong edit. Measured on a briefing
+script of **88 words (~40 seconds)**: length was fine and most sentences were plain, yet it read badly. Three
+defects accounted for all of it:
+
+| defect | example shape | why it fails in the ear |
+|---|---|---|
+| an **ID read aloud** | "under rule R-HOLD" | a code is an audit trail; the listener gets no consequence from it |
+| **clauses welded with `:` and `;`** | "Still outstanding: X; Y." | a colon or semicolon is a pause nobody hears — it arrives as one run-on |
+| **noun labels where verbs belong** | "the custody precondition" | a category name, not the thing; the listener has to decode it |
+
+**The fix is to keep the accuracy and drop the paperwork** — and a good translation is **more** precise, not
+vaguer: *"One of the two keys for each book sits on this same machine"* tells the listener which problem it is;
+*"the custody precondition"* only tells them a category exists. Never soften a fact into a mood.
+
+**Rules for the script itself:**
+- **Lead with the consequence, then the label.** "We're not buying yet" before any internal name.
+- **One number per idea.** A single price and its change beats a table read aloud.
+- **End on a sentence the listener could repeat to someone else.** That line is usually the one already in
+  plain English ("this was a read of the book, not a trade") — keep it and write toward it.
+- **Segment by topic before shortening anything.** A two-minute segment carries one claim and one number; a long
+  monologue has to fill, and filling is where hedging and restatement appear. If a script is one continuous
+  block, split the block before touching the prose.
+
+### A term-replacement translator must consume whole phrases, once
+
+**If you implement a jargon map, do not run it term-by-term across the sentence.** Two measured failure modes:
+
+- **Substring collision** — a short term matched inside a longer one, producing a fragment: replacing
+  `precondition` after `custody precondition` had already been handled left *"The how we hold the keys."*
+- **Duplicated word** — replacement text repeating a word already present: `two unresolved venue terms` →
+  *"Two two venues…"*.
+
+**The pattern that works:** map the **fullest phrase first**, iterate longest-key-first, let one regex pass consume
+what it replaced (never re-scan your own output), and **use a translation that is already a complete sentence
+as-is** rather than re-splitting it. Then **assert the transform** instead of eyeballing one run: no source term
+survives, no doubled adjacent word, no sentence starting with an article after a stripped noun.
+
+**Test every gloss IN SITU, never standalone.** A replacement can be perfectly grammatical alone and broken where
+it lands, because the source sentence already supplies the determiner the gloss brings with it. Two collisions
+that survive a longest-first regex and are invisible in a unit test of the gloss itself:
+
+| collision | source → result |
+|---|---|
+| **possessive + definite article** | `below its 200-week moving average` → *"below its **the** average price…"* |
+| **indefinite article in both** | `a fair value gap` → *"**a a** price the market skipped…"* |
+
+**Fix at the map, not the matcher:** write the gloss so it can absorb whatever determiner precedes it
+(`four-year average price, which rises…` rather than `the average price…`), and assert on a **carrier sentence
+per term** — the term embedded in a natural clause, then check for `\ba\s+a\b`, `\bits\s+the\b`, `\bthe\s+the\b`.
+A lint that only greps for surviving source terms passes every one of these, so the grammar check is a separate
+assertion from the vocabulary check and both must run.
+
 ## ElevenLabs Credit Conservation
 
 When credits are depleted on Creator plan ($22/mo):
@@ -195,7 +250,7 @@ For analyzing/reviewing existing music files (not generating), use the `audio-an
   Load with: `export $(grep ELEVENLABS_API_KEY ~/.hermes/profiles/gentech/config/elevenlabs.env 2>/dev/null || grep ELEVENLABS_API_KEY ~/.hermes/profiles/gentech/.env 2>/dev/null | xargs)`
 - **Payment fallback chain:** Prefer `mcp_blockrun_blockrun_speech` tool for ElevenLabs voice (x402, no key needed). If it fails (gateway error 502, low wallet), fall back to **direct ElevenLabs API via curl** with the configured API key — this is the reliable path for custom clone voices. The `text_to_speech` tool (Edge TTS) is last-resort-only for informational/non-character audio — the user explicitly rejects it for character voices. Verify audio output with `file` command (should return "Audio file with ID3" not "JSON data").
 - **Voice ID search failures:** Custom voice IDs from voice lists may return "Not Found" errors. Have backup voices ready (e.g., Brian `nPczCjzI2devNBz1zQrb` for deep/warm tones). Test voice IDs before production use.
-- **Audio format verification:** Use `file /tmp/audio.mp3` to confirm proper audio format. Should show "Audio file with ID3 version 2.4.0, contains: MPEG ADTS..." for MP3 or "Ogg data, Opus audio" for OGG. JSON responses indicate authentication or format issues.
+- **Audio format verification:** Use `file /tmp/audio.mp3` to confirm proper audio format. Should show "Audio file with ID3 version 2.4.0, contains: MPEG ADTS..." for MP3 or "Ogg data, Opus audio" for OGG. JSON responses indicate authentication or format issues. **Format is not completeness** — a valid MP3 header on a truncated or partial render passes `file` and plays three seconds of a forty-second script. Read the DURATION too: `ffprobe -v quiet -show_entries format=duration,bit_rate -of default=nw=1 out.mp3`, then compare the seconds against `words ÷ 2.4` at speaking pace. A render that is short by more than a few percent was cut, not spoken; re-synthesise rather than shipping it.
 - **Edge TTS fallback:** When ElevenLabs API key is invalid or credits are depleted, use Edge TTS as a free fallback. Voice mapping: Steve Harvey → `en-US-AndrewNeural` (rate=-5%, pitch=-2Hz), Vanito → `en-US-BrianNeural`. See `speech-engine` skill for full integration pattern.   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `speech-engine` exists on this seat -->
 - **Cron job TTS silence:** When writing cron job prompts that should generate voice, the prompt MUST explicitly say "You MUST call the text_to_speech tool" and "If you only output text without calling the tool, the voice message will not be delivered." Without this, the cron runner writes the script text but never generates audio. Proven on Daily Digest cron (May 25, 2026).
 

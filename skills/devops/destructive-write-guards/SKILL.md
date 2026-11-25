@@ -493,6 +493,102 @@ being filed as finished work.
 - **Do not relax or "fix" the exclusion to make it pass on a later run.** The filter already passed; the
   unexplained part is the operation, and rewriting the pattern buries the only evidence you have.
 
+## When a MODEL proposes the rewrite, make the proposal ARITHMETIC
+
+A model asked to merge, dedupe, condense or "tidy" a protected file will return something plausible and shorter,
+and **plausibility is not coverage**. Do not let it write. Split the job in two: the model **proposes**, and a
+deterministic script is the only thing that writes, backs up, ledgers and can refuse.
+
+**Make the proposal a COVERAGE MAP, and let the arithmetic be the guard:**
+
+```
+{"target":"/abs/path","entries":[{"from":[1,3],"text":"merged..."},{"from":[2],"text":"kept..."}]}
+```
+
+Every input entry index must appear in **exactly one** output entry. A merge cites several; a keep cites one.
+- **A GAP refuses** (`indices [3] appear in NO output entry`) — that is the silent deletion, caught before a byte
+  is written.
+- **A DUPLICATE refuses** (`index 1 appears in entry 0 AND entry 1`) — that file would grow a copy while looking
+  tidier.
+- **An out-of-range index refuses** — a model citing 7 on a six-entry file is inventing structure.
+- **Enforce the size cap too**, or a "merge" can produce a longer file and pass every coverage test.
+
+**Prove both failure modes before trusting the applier.** A guard tested only on a correct map proves the happy
+path. Run the real entry point against a fixture three times: complete map → applies; one index dropped →
+non-zero refusal naming the index; one index duplicated → non-zero refusal. Then run a 1:1 map over a real
+protected file and assert **byte-identity** — if a no-op merge changes the bytes, every later merge is
+unattributable.
+
+**The applier owes four things beyond the check:** backup beside the file, the pre-write text archived
+elsewhere, a ledger row with **before/after hashes and counts**, and a **post-write re-read** that rolls back and
+fails loudly when what is on disk disagrees with what it wrote. A write that reports success is not a write that
+took effect.
+
+**Two rules that keep the model honest:** the refusal must be reported as the finding, never retried with a
+looser map — a refusal means the map was wrong, and a wrong map is the thing to surface; and the model must be
+told that an entry which cannot be merged without losing a fact should be left alone, with "could not merge" as an
+acceptable answer.
+
+## When the automation ALREADY ran — classify before you revert
+
+Every rule above is about the write that has not happened yet. The other half is the morning you
+discover an unattended process changed files nobody approved. **The instinct to `git checkout` everything
+is a second data loss**, and it is dressed as hygiene.
+
+**1 · Stop the source, not the outputs.** Disable the flag or loop that produced the writes, and confirm the
+process holds the new value (a running process keeps the config it booted with — restart is part of the
+change). Removing the write-back is temporary if the writer is still armed, and it will re-create them on
+the next tick. **The release/reclaim verb is not a stop** — it re-arms the item.
+
+**2 · Sort every changed artifact into three classes before touching any of them.**
+
+| class | test | action |
+|---|---|---|
+| **verified correct** | you can measure the outcome and it is what the work was supposed to produce | **keep it** — reverting a correct change because it arrived the wrong way churns a public surface for nothing |
+| **formatting-only** | parsed content identical apart from intended fields | normalise, and prove the claim (below) |
+| **unverified** | real work you cannot confirm ran under review, especially credentials, keys, money paths | **preserve, then revert** |
+
+**3 · Preserve before you revert — a revert that discards unverified work is a loss, not a cleanup.**
+
+```bash
+git diff -- <subtree> > <bundle>/<name>.patch      # the work, reconstructable
+cp <new-untracked-files> <bundle>/                 # what a patch cannot carry
+git checkout -- <subtree>                          # only now revert
+```
+
+Say in the record that the patch exists. The same work re-landed deliberately after review is cheap;
+re-derived from scratch, it is a second unverified version. **Refuse to revert code whose own tests
+cannot run** — that is the strongest argument for parking rather than adopting, and it is also why the
+preserved patch matters more than the revert.
+
+**4 · Prove "formatting-only" by comparing parsed objects, never by eyeballing the diff.**
+
+```python
+old = json.loads(subprocess.run(["git","show",f"HEAD:{path}"],capture_output=True,text=True).stdout)
+new = json.load(open(path))
+# compare row by row, field by field; print every differing field and the COUNT of changed rows
+```
+
+A re-serialisation produces a diff with thousands of lines and a content delta of two rows. **Print the
+changed-row count and the field names** — `items: 119 → 119 · added 0 · removed 0 · rows changed 2` is
+the whole finding, and it is the only form in which a reviewer can check it. A large diff is not a large
+change until this number says so.
+
+**5 · Re-normalise to the style the file had, not to the style you prefer.** Read the original from
+`git show HEAD:<path>` and match its indent and escaping, then re-prove with step 4. A file that is
+internally inconsistent (hand-spliced rows at one indent, generated rows at another) cannot round-trip
+through any single `json.dump` setting — that inconsistency is the reason the splice rule exists, and
+normalising it is a decision to record, not a side effect to hide.
+
+**6 · File the incident with the measurements that cost the reader nothing to verify** — what ran, how
+many, for how long, which artifacts changed, which were kept and which reverted, and what still needs a
+human. **Do not narrate the discovery; list the state.** The next reader should be able to re-run every
+claim.
+
+**The generalisable shape:** an automation is a writer, and a writer whose defaults you did not read is an
+unreviewed contributor. Recovering well means **classifying, preserving, then reverting** — in that order,
+because the reverse order is indistinguishable from a second incident.
+
 ## References
 
 - `references/seat-sync-clobber.md` — the multi-target sync case in depth: why three audits all read

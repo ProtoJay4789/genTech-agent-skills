@@ -459,6 +459,30 @@ ob sync --path /opt/data/.obsidian-vault # the invocation the working cron actua
   gate says handoffs are BLOCKED on sync, reproduce the gate's OWN argv before investigating the account: the
   cheapest explanation is a missing `--path`, not a full remote.
 
+## ⚠️ Two vault directories under `sync/` — the RETIRED one's log looks authoritative
+
+**A re-bind leaves the old vault's directory in place, and its `sync.log` stops dead at the re-bind moment.** A
+consumer that hardcodes the old id (a verifier, an SLA gate, a heartbeat check) then reads a frozen file and
+reports a week-long outage while the live vault is syncing every hour.
+**Measured:** two directories under `obsidian-headless/sync/` (`config.json` created 15 Nov and 17 Nov), both
+naming `vaultPath: /opt/data/.obsidian-vault`; the older log's last line was `Disconnected from server` from the
+17th, the newer log showed `Fully synced` minutes ago and `Upload complete` for a file written seconds before.
+
+**Rule: resolve the ACTIVE vault, never a stored id.**
+
+```bash
+SYNC="$XDG_CONFIG_HOME/obsidian-headless/sync"
+ACTIVE=$(ls -t "$SYNC"/*/config.json | head -1 | xargs dirname)     # newest config.json wins
+python3 -c "import json,sys;d=json.load(open('$ACTIVE/config.json'));print(d['vaultId'],d['vaultPath'])"
+```
+
+- **A log older than 2 hours is `UNKNOWN`, not `healthy` and not `blocked`.** Age the file (`date -r`), then say
+  which it is. A monitor that reads a stale log manufactures confidence — the opposite of its job.
+- **Both directories can name the SAME `vaultPath`.** The path is not the discriminator; the mtimes are.
+- **Prove liveness with a visible probe, not a status string:** write `00-HQ/sync-probe-visible.md` (never a
+  dot-file), sync, then `grep 'sync-probe-visible' "$ACTIVE/sync.log"` for `Upload complete`. That is the only
+  evidence the carrier end-to-end works, and it takes ten seconds.
+
 ## ⚠️ Excluded folders are a DELIVERY hole, not just a quota lever
 
 **A handoff that tells a remote seat to read a file inside an excluded folder is not a delivery** — the file exists

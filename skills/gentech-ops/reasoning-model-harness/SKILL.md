@@ -249,6 +249,33 @@ Per model, `words in content / tokens spent`:
 **When to raise it:** only when the deliberation IS the deliverable (a genuine audit, a design review). Then set a
 generous budget *and* a higher effort deliberately, and say so at the call site. Never leave it unset.
 
+## 🚨 AN EMPTY RESPONSE MUST NOT BECOME AN EMPTY RESULT SET
+
+**The most damaging form of the empty-content failure is downstream, not upstream.** A script that asks a model for
+*N items* and gets `""` back will happily parse it into an empty list, then report **"0 items generated"** — which
+reads exactly like *the source had nothing in it*. That is the same false-green family as a monitor reporting
+a green light it never checked: an instrument failure wearing the costume of a finding.
+
+Measured on structured generation (a JSON array of questions from a ~5 KB source, `deepseek-v4.1-flash`):
+
+| `max_tokens` | deliberation | `content` |
+|---|---|---|
+| 3000 | ~2,000–2,600 tokens | **0 chars** |
+| 4000 | ~2,600 | full array |
+| 9000 | ~2,000 | full array |
+
+Rules that follow, and they apply to every generator script:
+
+1. **Budget must clear deliberation AND the artefact.** The rule "budget it tight" applies to short prose answers;
+   a multi-item JSON artefact over a multi-KB source needs the deliberation cost *plus* the output, and ~3,000
+   tokens does not cover both. Scale the budget with the size of the requested artefact.
+2. **Treat `content == ""` as an ERROR with the `finish_reason` attached** — retry once at double the budget, then
+   raise naming the reason. Never return it as an empty collection.
+3. **Print the funnel, not just the count.** `generated N · kept M · dropped K` distinguishes "the source was
+   empty" from "the model returned nothing" from "the output failed validation". A bare `0` cannot.
+4. **A validator that never rejects anything is not running.** If every generated item survives, check the
+   rejection path against a deliberately ungrounded input before believing the pass.
+
 ## Pitfalls
 - Don't retry the same reasoning model with a bigger budget — it just reasons longer, and (measured)
   it answers SHORTER. Tighten the budget, and frame the ask as a job rather than a question.

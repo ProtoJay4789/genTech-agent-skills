@@ -125,6 +125,29 @@ silent until the agent returns or it's resolved.
   Jordan (funding, credentials, login), say so — the watchdog can't tell a
   stalled agent from a waiting-on-human handoff.
 
+## STEP 3½ — AN ACK IS A VERDICT ON THE CLAIM, NOT A RECEIPT FOR THE MESSAGE
+
+A handoff is a **claim plus a request**. Closing it by agreeing costs nothing and verifies nothing — and the
+peer's premise is often stale by the time you read it, because they measured their vantage two days ago.
+
+- **Re-measure the claim, then say what you measured.** The job still exists? The lane still 401s? The path still
+  there? One command each. An answer built from the note's own text is a paraphrase of the peer's vantage, not a
+  verification of yours.
+- **When the finding no longer reproduces, name the action that must NOT be taken.** Measured: a peer's *"every
+  authenticated call is 401"* note had healed by the time it was read — and the useful sentence was not *"it works
+  now"* but **"do not rotate or reissue the key"**, because rotating a working credential destroys the ability to
+  tell a future 401 from this one. **A stale finding that invites a destructive remedy is worse than silence.**
+- **Split what you closed from what stays open.** A note can be answered while its root cause lives: the specific
+  job was gone, and the identical defect was still present on three of the answering seat's own jobs. Report both,
+  or the peer concludes the class was fixed.
+- **A finding can be right and its premise wrong.** Upheld a challenge whose central sentence was correct while one
+  of its cited numbers was not derivable from the source file — accept the argument, correct the arithmetic, and
+  keep the two verdicts separate.
+- **State the deadline and the release condition when work remains.** *"Within 7 days, or I write back with what
+  blocked it"* is the difference between a closure and a promise nobody can audit.
+- **Refusing to close is a valid answer.** A note that needs a human decision must never be closed by composing
+  the decision yourself — see the human-identity lane rule below.
+
 ## Decision Table
 | Situation | Action |
 |-----------|--------|
@@ -217,6 +240,30 @@ filing pass, measure how many carry an explicit `## What's needed` section. Meas
 the real backlog** — everything else is filing, and calling it work inflates the number the next audit
 chases.
 
+### A LANE whose NAME declares it an archive is not a handoff inbox
+
+**Handoff enumerators must skip by lane SHAPE, not by a hardcoded name list.** The `_` prefix convention
+(`_archive/`, `_quiet-hours-log.md`) is only half the contract: a lane can sit in the handoff tree, hold
+nothing but finished records, and carry no underscore. Measured: a `completions-archive/` lane supplied
+**14 of 44** "notes with no agreement block" on every sign-off run — permanently unanswerable, because
+closing one would mean writing an agreement into an archive file, which is a forged receipt.
+
+- **Test the name, not the roster:** a lane is an archive when its own name says so
+  (`re.compile(r"(^_)|(archive$)", re.I)`). A name list is an excuse that survives the fix; a shape test
+  covers the next archive lane nobody has created yet.
+- **Every instrument has its OWN enumerator — fixing one does not fix its siblings.** The lane-shape rule
+  above was documented here and implemented in the filing pass and the watcher, while a third script
+  (`signoff-check.py`) kept its own `os.listdir(01-HANDOFFS)` loop with no shape test and re-reported the
+  same archive lane on every run for days. **When you change WHICH LANES count, grep the whole scripts tree
+  for the enumerator before declaring it fixed** — `grep -rn "listdir\(.*HANDOFF\|listdir\(.*INBOX\|rglob\("`
+  — and apply the same predicate in each hit. A coverage number is only as honest as the enumerator that
+  produced it, and there is never just one.
+- **A fixed denominator must be re-earned, not announced.** After changing the scan, report the DELTA
+  (`44 → 31`) so the reader can tell which 13 left and why — a new absolute number hides whether you
+  removed noise or lost real work.
+- **Do not "fix" the inflation by writing closure blocks into the archive.** The count was wrong; the
+  files were correct. Repair the instrument, never the evidence.
+
 ### Where archived notes go — the lane decides, not the age
 
 | what the note is | where it goes |
@@ -227,6 +274,55 @@ chases.
 **Never file a retired lane's notes into `01-HANDOFFS/`.** A lane with no receiver manufactures notes
 that look live forever and can never be closed — the exact defect a filing pass exists to remove.
 The test is not "is it old": it is **"can anyone still act on this?"**
+
+### Clearing a backlog of ANSWERED-but-OPEN escalations — close by CITATION, never by composition
+
+**When the SLA reports a page of escalations, the first question is not "who owes a reply" — it is "does a
+reply of record already exist in the answering seat's own lane?"** A complete answer filed into
+`<you>-to-<sender>/` never touches the inbound note, so the clock runs forever on work that finished days
+ago. Measured on one report: **15 listed → 11 had a reply of record → 4 were genuinely open.**
+
+The legitimate repair, per note, in this order:
+
+1. **Find the reply of record** — grep the outbound lane for the inbound note's filename or topic slug
+   (`grep -rl "<inbound-slug>" <you>-to-<sender>/*.md`). **No reply found = the note is real work. Stop.**
+2. **Append a closure block to the ORIGIN note citing that reply's path**, with one sentence on what was
+   answered. A closure that names its evidence is auditable; one that says "answered" is a claim.
+3. **Re-run the checker and report the DELTA with the reason** (`15 → 4`), not a new absolute.
+
+```markdown
+---
+
+## Supersede
+
+**Closed:** <UTC ts> · **By:** <seat>
+
+Answered in `<relative/path/to/reply>.md`.
+
+<one sentence: what the ask was and what settled it>
+
+*Closed so the ledger and the reality agree — the reply existed, it was filed in our own lane.*
+```
+
+**The line you must not cross:** closing by citation records something that happened; composing an answer
+to clear a counter is forgery, and closing a note that is genuinely waiting on a human is not yours to do
+(see the human-identity lane). **A reply you have to write in order to close is a reply that did not
+exist.**
+
+**Two traps, both measured in the same pass:**
+
+- **Match the HEADING regex the checker uses, not the word.** A closure test that greps for `Supersede`
+  anywhere in the file matched prose *about* closure and skipped a note that had no closure at all — a false
+  "already closed" that hid a real open item. Test with the checker's own pattern
+  (`re.search(r"(?m)^##\s+(Agreement|Supersede)\b", text)`) and confirm the note's own headings.
+- **A reported filename that loses its extension is not a missing file.** The SLA printed
+  `…-a-gitignore-gap` (no `.md`) and a naive existence check answered `MISSING FILE`. **Glob the lane for the
+  stem before concluding absence** — `ls <lane>/*<stem>*` — because a false "missing" on an answerable note
+  is how a real backlog gets dismissed.
+
+**After the pass, name what remains and who is blocked on what.** Four rows in a report are only useful if
+each one says which gate holds it: a human decision, a peer's lane, or a transport. A cleaned list with no
+owners reads exactly like the one you started with.
 
 ## ⚠️ ONE closure vocabulary — every scanner must parse the format the skill documents
 
@@ -243,10 +339,28 @@ The canonical set, all of which close a note:
 ```
 ## Agreement
 ## Supersede
+## Receipt                (ONLY on a DIRECTIVE — see below)
 ## STATUS: ANSWERED        (any heading level, optionally followed by — closure record)
 **State:** CLOSED          (in the closure block)
 Status: resolved | closed | answered | done | [x]
 ```
+
+### `## Receipt` closes a DIRECTIVE and must never close a BRIEFING
+
+**Two kinds of note share one format, and a closure check that treats them alike is wrong in one
+direction or the other.** An **order** (a restart checkpoint: *finish, log, verify, then ACK*) has nothing to
+agree TO — its closure lane is the Receipt the receiving seat writes back, so an order with a Receipt lane
+and no Agreement block is **complete**. A **briefing** asks for agreement, so a stray Receipt on it closes
+nothing.
+
+- **Gate the marker on the note's own words:** count `## Receipt` as closure only when the note states a
+  required action (`must`, `never`, `finish`, `write`, `run`, `reply`, `ack`, `send`, `hold`, `wait` at the
+  start of a line or list item). Otherwise treat it as absent.
+- **Do not exempt checkpoint notes by filename.** A name pattern exempts the next checkpoint that really did
+  omit its closure lane; the directive test reads the document, not its title.
+- **The tell that you have this bug:** a batch of your own outbound directives appears as a jump of exactly
+  their own count in "notes with no agreement block". A false accusation of that size trains the reader to
+  skip the report — the same failure as a monitor nobody reads.
 
 - **When you add a closure format to this skill, add it to every script that counts closures in the same
   change** — `handoff-sla.py` (SLA bands), `signoff-check.py` (agreement coverage), `handoff-watcher.py`
@@ -389,6 +503,31 @@ Status: resolved | closed | answered | done | [x]
   found teaching the false wording. State your transport consequence in terms of **which receiver**.
   Full detail: `00-System/vault-transport-protocol.md` (git-tracked, so every seat can read it).
 
+## ⚠️ A HUMAN-IDENTITY LANE IS NOT A SEAT — it cannot go overdue, and you may not close it
+
+A lane can exist, deliver perfectly, and still have **no agent on the other end** — the recipient is a human's
+own identity (an avatar or personal handle that publishes under a person's name). Nothing in that lane will ever
+reply to a clock. Measured: six notes addressed to an identity lane sat flagged as overdue for two days, on a
+lane whose entire purpose is that a *human* reads it.
+
+| state | meaning | who acts |
+|---|---|---|
+| **HUMAN-DECISION** | the lane's receiver is a person, not an agent | the human, on their own schedule |
+| **OVERDUE** | an agent received it and did not answer | the seat |
+
+- **Classify it `HUMAN-DECISION` and keep it out of the SLA bands.** The note is not late — it is waiting for a
+  person. An SLA band against it manufactures a debt nobody owes and renders a human's normal pace as neglect.
+- **Route it upward as a decision with the measurement attached**: *"Forge measured the GPU path; someone has to
+  choose"* is actionable. `2.1d overdue → <handle>` is noise that also misrepresents the handle's owner.
+- **Never write the answer yourself to clear the counter.** Composing a reply on a person's behalf to make a
+  report go green is the same defect as a monitor repairing a finding by silencing it — the counter clears and
+  the decision was never made.
+- **Keep both numbers, never sum them**: `N owed by seats · M awaiting a human decision`. Adding them produces a
+  figure that describes neither population.
+- **The tell that you are in this case:** the lane's folder name matches a person, the notes carry real
+  measurements from a peer, and no seat on the roster answers to that name. Confirm against the roster before
+  assigning an owner — a lane that exists is not a lane that is staffed.
+
 ## ⚠️ A seat with no delivery channel cannot be LATE — classify BLOCKED, never overdue
 
 **An accountability report may only count an item against a seat that could have received it.** When a
@@ -416,7 +555,33 @@ buries the one actionable fact: the transport is down.
   pile-up of notes is the symptom; the dead transport is the finding.
 
 Probe design — measuring a failure whose log does not state it — is in
-`references/blocked-transport-probe.md`.
+`references/blocked-transport-probe.md`. *(reference not shipped with this release — the body was consolidated and the file was not carried across; treat the guidance above as complete)*
+
+### NO READER is a third class — a seat on the roster with no mailbox on this host
+
+**BLOCKED means the transport failed. NO READER means there was never a mailbox.** A seat can be live in
+the fleet and still have **no profile directory here and no registered peer** — it runs on another machine
+and reads the vault only when a human boots it. Confirm by measurement, never by assumption:
+
+```bash
+ls -d /opt/data/profiles/<seat>          # absent  = no cron, no gateway, no session here
+hermes peer list                        # absent  = no instant channel either
+```
+
+- **Park such rows with their gate AND their release condition**, and keep them out of the SLA bands. A note
+to a seat that cannot read it is *delivered and awaiting a reader who may not exist* — calling it late
+manufactures a debt nobody owes and buries the real finding (the lane is one-way).
+- **The park must be falsifiable, or it outlives its reason.** Set the seat's park list to empty in a test
+  and confirm the rows walk straight back into ESCALATE; a hardcoded skip that nobody can reverse becomes a
+  permanent silencer. Release on either event: the seat answers, or the lane is retired as a correspondent.
+- **Print it as its own band, never folded into the count.** `N owe a reply · M parked for a seat with no
+  mailbox` — summing them produces a figure that describes neither population, exactly like BLOCKED.
+- **A seat answering after days of silence usually explains WHY, and that explanation is the finding.**
+  Measured: a desktop seat's watcher wrote its report with `deliver: local` (a cron output file, no
+  message) and then dedup marked the item permanently reported — so three notes were picked up, logged,
+  and never seen. **A report into a void is not a delivery**, and permanent dedup converts that into
+  permanent silence. The fix pattern: store a timestamp with each reported item and **re-nag while the item
+  is still open**, instead of suppressing forever.
 
 ### A stale clone is a seat reading a DIFFERENT, OLDER world
 
@@ -781,3 +946,8 @@ print(hw.is_resolved("<note path>"))     # True = the nag is cleared
 And a file COUNT of the INBOX folder is not a count of unresolved notes — resolved notes stay on
 disk. Count with the resolver, or you will report an open item that is already closed.
 
+## Missing references
+
+The following paths are cited above but are not shipped with this release. They were written on our own seat and belong to work that was never published. The guidance in this skill stands without them.
+
+- `references/blocked-transport-probe.md`

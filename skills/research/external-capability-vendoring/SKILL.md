@@ -50,6 +50,21 @@ python3 scripts/verify-repos.py owner/repo owner/other-repo
 at **our real material**, not a toy string. A candidate that finds a real defect in our own data on the first
 run has earned its place; one you can only *describe* is documentation, not tooling.
 
+#### If the candidate WRAPS another engine, test the ENGINE first — the wrapper's value IS that engine
+
+A downloader, scraper, transcriber or converter is usually a front-end over a core tool it bundles or invokes.
+Install the wrapper, see it handle a small case, and it is tempting to rule — but the wrapper inherits every
+limit of its core, and the limit that decides adoption is **reachability from this host**.
+
+**The stripped test, before any feature reading:** invoke the underlying engine directly (`yt-dlp -F <url>`,
+`ffmpeg -i <url>`, `curl` at the target) and see whether it reaches the source at all. If the engine cannot fetch
+from this address, the wrapper's format list, GUI and 1,800-site count are moot — nothing above the core can work,
+and the verdict belongs to the engine, not the packaging. Say that in one line and stop, rather than spending the
+session evaluating a front-end for a core that is not answering.
+
+The general form: **when a candidate's value is delegated, evaluate the delegate.** Same reasoning as the plugin
+case below, which tests registration against the platform's own predicate rather than the vendor's table.
+
 #### If the candidate is a PLUGIN for our own platform, test REGISTRATION — not the vendor's compatibility table
 
 A plugin's README states a minimum platform version, and that number is usually counted on a **different scheme**
@@ -78,6 +93,34 @@ loader source when the predicate surprises you; it is the authoritative answer a
   and never touched the runtime every hook routes through. **A health check that only proves presence is a false
   green**, and it is the exact class this fleet keeps finding in its own instruments.
 
+#### If the candidate is a GRADED CURRICULUM, test the grader on BOTH sides — and count only what runs here
+
+A repo whose selling point is "every project is graded" is asking you to trust its own instrument. Treat the
+grader as the thing under evaluation, not the thing doing the evaluating.
+
+- **Run the reference solution AND the starter.** Reference passes, starter must **FAIL**. A grader that passes
+  both grades nothing, and its "N/N green" is a description of a directory, not of learning. Quote both runs.
+- **Read the exit codes, not just the words.** `solution → 0` and `starter → 1` is the shape that can be wired
+  into a pipeline; a grader that exits `0` on a learner failure is unusable, however green the output looks.
+  Capture the status with `out=$(cmd); rc=$?` — piping the command into another program reports the last stage's
+  status, not the grader's.
+- **Gate the adoption on the TOOLCHAIN the corpus needs, per item, and expect the headline count to shrink.**
+  Count the machine-readable manifests and their declared languages first (`projects/*/project.json`), then
+  compare against the runtimes the seat actually has. Measured on one candidate: Python 39 · TypeScript 28 ·
+  Go 13 · Rust 10 against a box with `python3` and `node` only — so **four of the six projects that mapped to
+  work we already run printed `SKIP … missing executable`**. Those four are not adopted, they are **deferred**,
+  and a `SKIP` is never a pass: say which items grade today and what installing the runtime would cost
+  (user-space install, no root), rather than adopting a track you cannot execute.
+- **Count what the repo CONTAINS, not what its blurb claims.** A directory that is a harness or a docs folder
+  sits inside the same listing as the items; counting subdirectories over-reports by one and every downstream
+  ratio inherits it. Count manifests, print the number you counted, and correct the vendor's figure in the
+  ruling.
+- **Prefer LINK + PIN THE SHA over vendoring a media-heavy repo, and keep only the adopted subset.** A clone of
+  a course repo ran to **329 MB on disk** because every item carried GIFs and screenshots — into a **synced**
+  vault that is the wrong trade at any price. Pin the commit, link the source, vendor only our own adaptation
+  notes plus upstream's licence — and if you keep the gradable subset locally, **re-run the grader from the
+  pruned copy** to prove it is self-contained (`329 MB → 3.1 MB`, same 5/5 stages passing).
+
 ### 4. Apply the gates (a decline is a result, not a failure)
 
 | Gate | Pass | Decline |
@@ -98,7 +141,25 @@ a single evaluation: exactly **one** was MIT and **four** were Apache-2.0. Apach
 not interchangeable with MIT — it carries an explicit **patent grant**, a **NOTICE-file obligation** you must
 carry into whatever you distribute, and it is incompatible with GPLv2-only projects. Read the licence **per
 repo** (`GET /repos/<owner>/<repo>` → `license.spdx_id`) instead of accepting "they're all open source" for a
-whole candidate list; it is one cheap call per repo and it is the difference between a clean adoption and a
+it is one cheap call per repo and it is the difference between a clean adoption and a remediation.
+
+**A licence can be present, visible, and still unusable.** The gates table's two poles — permissive, or none at
+all — leave out the shape that actually catches people, because a repo can display a licence file and still
+forbid the only thing we do with it. Read for two families explicitly, both of which advertise themselves as
+open source:
+
+- **NonCommercial** (`CC BY-NC`, `CC BY-NC-SA`): fine to read, fatal to ship. A model, dataset or codebase under
+  NC cannot appear in anything we sell, so *"it runs on our box"* and *"we may use it"* are different verdicts —
+  state which one you established.
+- **A vendor "Community Licence" wearing the word open**: a bespoke grant carrying a **territorial carve-out**
+  (a header excluding the EU / UK / South Korea) and a **MAU trigger** requiring a negotiated licence above a
+  user threshold. Source and weights may both be public and it is still not OSI open source; quoting it as free
+  is a wrong claim about a real file.
+
+**The check is one line of the licence head, not a survey:** `NonCommercial`, `does not apply in the`,
+`monthly active users`, `research purposes only`. Run it per item and name the ones that fail — a set of ten
+candidates routinely holds three or four, and they tend to be the ones with the best demo videos. **A repo that
+ships a licence has not thereby granted us our use of it.**
 remediation.
 
 **Taking the IDEA and taking the CODE are different acts.** A licence governs the code; an algorithm, a rule or a

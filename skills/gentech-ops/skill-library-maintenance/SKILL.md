@@ -16,6 +16,58 @@ Editing, extracting from, and propagating skill files that are at or near the pl
 > healthy. Extend the existing file; author new only when the lesson is genuinely new, and say which search
 > you ran.
 
+> **And MERGE by default, not as a fallback.** The user's standing instruction: when a lesson arrives, first
+> look for the skill it belongs inside and merge it there; a new file is the exception, not the habit. Two
+> reasons, one of them measurable: **a near-duplicate pair makes the loading agent guess which file is
+> canonical** (they will guess differently on different days), and **every skill charges the always-loaded
+> index on every turn whether or not anyone loads it.** See the merge procedure below.
+
+## Merge before you create: measure the index, then hunt the near-duplicates
+
+**The library's cost is not its total size — skills load on demand. The cost is the INDEX**: one
+name-plus-description line per skill, present in every turn of every session. Measured on this fleet:
+**352 skills ≈ 33,500 chars ≈ 8,400 tokens of standing overhead.** That number, not the 7 MB of content, is
+what a new skill actually spends, and it is the number to cut when the library feels heavy.
+
+**Find merge candidates by description overlap, not by name.** Names diverge on purpose; descriptions
+converge when two skills really do the same job:
+
+```python
+import glob, os, re, itertools
+words = lambda d: set(re.findall(r'[a-z]{4,}', d.lower()))
+rows = []
+for p in glob.glob(f'{CORE}/*/*/SKILL.md'):
+    txt = open(p, errors='ignore').read()
+    m = re.search(r'^description:\s*(.+)$', txt, re.M)
+    rows.append((os.path.basename(os.path.dirname(p)), m.group(1) if m else ''))
+for (n1, d1), (n2, d2) in itertools.combinations(rows, 2):
+    a, b = words(d1), words(d2)
+    if a and b and len(a & b) / len(a | b) >= 0.42:
+        print(round(len(a & b) / len(a | b), 2), n1, '<->', n2)
+```
+
+**≥0.42 is the review threshold; ≥0.80 is almost certainly one job wearing two names.** Read both files
+before deciding — an overlap score is a lead, not a verdict, and a pair can share a description while one is
+the procedure and the other the audit of that procedure.
+
+### Merging two skills without losing either half
+
+1. **Keep the entry with the better trigger** (the one a real request would match) as the surviving name;
+   absorb the other as a named *shape* or *phase* inside it — `## Shape B — <what the other skill did>`.
+   A reader arriving with the second skill's problem must find a heading that names it.
+2. **Concatenate the bodies; do not summarise either one.** You are consolidating entry points, not editing
+the lessons. Drop only duplicated frontmatter and the repeated `## When to Use`.
+3. **Carry every `references/` file across** into the survivor and keep the filenames.
+4. **Rewrite the description to cover BOTH jobs in one line** — a merged skill whose description only names
+the first job will never fire for the second.
+5. **Verify by counting headings on both sides before and after:** `kept_from_A + kept_from_B == original_A +
+   original_B`. A merged file that reads well can still have lost a section.
+6. **Leave the absorbed copy in place as a tombstone for one cycle** (it costs one index line) or delete it
+   only after the survivor is confirmed on every seat — never delete first.
+
+**Do not delete a skill because nothing references it yet.** A newly promoted lesson is cited by nothing
+precisely because it is new. Emptiness of inbound references is evidence of age, not of value.
+
 The platform keeps skills loadable by capping them. **The cap is enforced at WRITE time, not at
 write-intent time** — so a skill can absorb lessons for months and only reveal it is full on the day
 you need to record the most important one.
@@ -88,6 +140,38 @@ if prev == c_hash:   ...          # compare STRINGS, never dict-vs-string
 - **Prove the tool by making it PRINT A VERDICT TABLE, not by reading its source.** A repair is unverified until
   the dry run emits decisions and a deliberately inconsistent fixture still exits non-zero.
 
+### Applying PROMOTE makes CORE newer than every OTHER seat — expect the sync count to GROW, then run again
+
+**One `--apply` is not convergence.** Promoting a seat's copy into CORE makes CORE the newest version for
+*every other* seat, so the very next dry run correctly reports those seats as stale and the **sync count
+rises**. That is propagation, not regression — and reading it as regression sends you back to the classifier
+that just worked.
+
+Measured on one repair: apply #1 → `promoted 53 · synced 13 · failed 0`; dry run immediately after → **sync
+13 → 103**; apply #2 → synced away; dry run → `0 promote · 0 sync`, **167 review**. **The stop condition is
+`promote + sync == 0` on a DRY RUN — never the exit code of an apply.**
+
+- **Expect at least two applies.** Loop until the dry run reports zero mechanical decisions, and cap the loop:
+  a count that will not fall means the classifier is comparing live CORE against a stale baseline, not that
+  more syncing is needed.
+- **`review` can RISE while the mechanical counts fall** (145 → 167 here) because promoted content changes the
+  CORE baseline for skills that also differ elsewhere. Reporting `0 promote` alone hides the real backlog;
+  publish both numbers, and say the remainder needs merges rather than a command.
+
+### SEAT-ONLY is the quiet catastrophe: a skill that exists on exactly one machine
+
+A skill with no CORE counterpart is a **contribution nobody promoted**. It looks normal to the one seat that
+has it and is invisible to the rest — and **a seat rebuild deletes it outright**. No drift audit flags it,
+because "differs from CORE" and "has NO CORE copy" are different findings and only the first one shows up as
+drift.
+
+- **Count them explicitly**, then promote additively: copy only where the destination does **not** exist and
+  **refuse loudly otherwise** — an overwrite there is a merge decision wearing a copy's clothes.
+- **Check the NEWEST skills first.** Work authored in the current session is the most likely to be seat-only
+  and the least likely to be noticed by a human reading a long list.
+- **Prove it per seat afterwards** (`2/2 present` on every seat plus CORE). "Promoted" is a claim until the
+  file exists everywhere, and this is exactly the class of work that silently ships to one machine.
+
 ## ⚠️ Verify the edit reached CORE — one grep, every time
 
 **A successful `skill_manage` edit says the write landed. It never says it landed in the file that
@@ -131,8 +215,15 @@ diff <core>/SKILL.md <seat>/SKILL.md | grep '^<'   # lines ONLY in CORE
 to CORE is the only evidence the fleet agrees.
 - **Never whole-file copy when both sides carry unique sections.** Extract the missing section and insert
   it, exactly as for the reverse direction.
-- **Do not use mtime as the tell.** The newer file may be the wrong one; the diff is the evidence, the
-  timestamp is a hint.
+- **Do not use mtime as the tell — a hand-rolled mtime classifier over-reports in the DANGEROUS direction.**
+  The newer file may be the wrong one; the diff is the evidence, the timestamp is a hint. Measured: a
+  purpose-written mtime classifier called **162 promote · 40 sync · 35 seat-only** on a tree where the
+  content-aware reconciler said **53 promote · 13 sync · 145 review** — i.e. **145 skills had changed on BOTH
+  sides**, a state no timestamp can express. Acting on the mtime verdict would have replaced CORE with one
+  seat's variant on all 145 and reported success on every one.
+- **Never hand-roll a classifier when the repo already ships one.** Read the existing sync tool's flags before
+  writing a new one: a `--reconcile`-style mode that reasons over content exists precisely because mtime was
+  tried first and was wrong. Run it dry before writing a line of your own.
 - **Say which direction you promoted, in the record.** The next reader needs to know whether CORE led or
   followed, or they will re-run the same guess.
 
@@ -153,6 +244,31 @@ for p in glob.glob('/opt/data/profiles/*/skills/**/SKILL.md', recursive=True):
 **Treat 90k as the action threshold, not 100k.** A skill parked at 88–99k is a skill whose *next*
 ordinary lesson silently fails to land, and the failure surfaces weeks later as "that fix never got
 recorded." Headroom is the feature.
+
+## ⚠️ A malformed FRONTMATTER blocks every future patch, not just the one that wrote it
+
+**The write path re-parses the whole YAML frontmatter on every `skill_manage` patch** and refuses when it does
+not parse — so one bad line, inherited from any earlier author, makes every later correction fail with a
+message about line 2 that names nothing you touched. The file still loads and reads perfectly, which is why it
+sits there for months.
+
+Two shapes seen on live skills, both fatal to patching:
+
+```yaml
+description: "…long text…"   <!-- not installed: no skill named `x` exists -->   # ❌ a trailing comment
+                                                                                #    after a quoted scalar
+description: "…294 characters…"                                                 # ❌ over the 60-char index cap
+```
+
+- **Repair the frontmatter as its own first patch**, before the edit you actually came to make: it is the only
+  write the guard will accept, and doing it first means a content patch does not get blamed for it.
+- **`description` is index text, not documentation.** It must fit ~60 characters, one sentence, trigger first,
+  ending in a period. Long prose that used to live there belongs in the body — move it, do not shorten it into
+  nonsense.
+- **Never leave an HTML comment or a `#` note on a frontmatter line.** A caveat about a retired skill belongs in
+  the body, where a reader sees it in context, not welded to a YAML scalar.
+- **A patch that fails with a YAML parse error is a finding about the file, not about your edit** — read the
+  frontmatter before rephrasing the body, or you will rewrite working content chasing a fault that was above it.
 
 ## ⚠️ The cap gates ANY `skill_manage` write — extraction MOVES the problem, it does not cap it
 
@@ -212,6 +328,21 @@ the same defect as writing the rule nowhere**, while looking like a completed ta
 already exists deep in a file, the fix is **placement, not another copy** — move it to where it is actually
 read, then delete the stale duplicate so the two cannot drift.
 
+### Count the heading before you add one — an append-grown skill accumulates duplicate blocks
+
+**A skill edited by many hands, one append at a time, grows a stack of near-identical header blocks**: the
+same six rules under the same `##` heading, two or three times, each copy with its own date stamp, and often
+a mangled heading from a re-append (`# Title — date — date`). Measured on a live skill: three copies of the
+same six-rule block before the real content began, one of them under a heading that repeated its own date.
+
+- **`grep -c '^#\{1,3\} <heading text>' <skill>` before adding a section.** A count above 1 means the rules
+there are already written — extend ONE copy and delete the others, never append a fourth.
+- **The duplicated block is not just noise, it is a contradiction risk:** the copies drift apart the moment
+  one is corrected, and a reader who quotes the wrong copy is quoting a rule the file also denies.
+- **A repeated date in a heading marks a re-append**, not a revision — collapse to one heading and one block.
+- **Do the collapse as its own edit, verified**, rather than folding it into a content change: the diff should
+  show only removals, and nothing in the surviving block's wording should move.
+
 ## Procedure — extract to `references/`, never delete
 
 1. **Back up first.** `shutil.copy2(SKILL.md, SKILL.md + '.bak-<what-you-are-doing>')`. Do not skip this
@@ -234,6 +365,42 @@ read, then delete the stale duplicate so the two cannot drift.
 **Never drop content to make a skill fit.** Extraction preserves it in `references/`; deletion destroys
 it. A skill that sheds its own history to pass a size check has lost the thing that made it valuable.
 
+## Apply ONE skill through the fleet sync, and count its items before and after
+
+**A fleet sync guards the batch, not just the file: a whole-library apply refuses at `--max-changes`
+(often 25) and tells you nothing was changed.** So a single-skill edit routed through it needs the
+narrow form, and the refusals arrive in a fixed order — batch first, size second — which means fixing
+the size and re-running still refuses if the batch gate was the real blocker:
+
+```bash
+python3 $VAULT/00-System/agent-profiles/fleet_skills_sync.py --check | grep -i '<skill>'   # see the diff
+python3 $VAULT/00-System/agent-profiles/fleet_skills_sync.py --only <skill>                 # the narrow apply
+```
+
+**`--only` takes the change-list FORM of the name, `<category>/<skill>` — not the bare directory name.**
+Passing the bare name answers `✗ not in shared core (nothing to sync): <skill>` for a skill that is sitting
+right there, which reads as *the file was never created* and sends you to re-check a write that already
+landed. Read the dry-run line (`agent-kit/<skill>:would-add`) and pass exactly that string.
+
+**Read the refusal, do not retry it:** `exceed --max-changes` means *use `--only`*; `over-cap` means
+*extract first*. Raising the batch limit to get one skill through is the wrong dial — it is the guard
+that stops a broad apply from shipping 39 unreviewed changes.
+
+**Then prove the split by COUNTING ITS ITEMS, not by reading the diff.** Pick the unit the content is
+authored in — bullets, entries, headings — count it in the section BEFORE the split, and assert
+`kept + moved == original`:
+
+```python
+pit = sum(1 for l in lines[s:e] if l.startswith('- **'))      # section in the trimmed SKILL.md
+mv  = sum(1 for l in open(ref) if l.startswith('- **'))      # the extracted reference
+assert pit + mv == ORIGINAL_COUNT, (pit, mv)
+```
+
+**A bullet count taken over the WHOLE file is not this check** — it also counts bullets in every other
+section and reports a false "lost some". Scope the count to the section boundaries (from its heading to
+the next `## `), and state both numbers when you report the split, because "nothing was dropped" is a
+claim a count can prove and a diff cannot.
+
 ## ⚠️ Split on `\n(?=## )`, never `(?=\n## )`
 
 The lookahead placement decides whether the heading comes back with its section:
@@ -252,6 +419,17 @@ placeholder filenames — plausible-looking output from a script that reported s
 one-character defect whose damage is invisible until someone opens the skill.
 
 ## Verify the OUTPUT, not the operation's success
+
+**A tool that prints an APPLY report has told you what it INTENDED, not what it wrote.** Measured: an
+`--apply` invocation printed the complete decision report and the tree was **unchanged — `git status` showed
+zero files**; the same command re-run wrote 63. Nothing in either output distinguished the two.
+
+- **Assert the write, never print the result.** `git status --short <tree> | wc -l`, or a fresh dry run whose
+  counts actually moved, is the evidence. `APPLIED` / `✓` is a claim made by the same code that failed to write.
+- **Capture the TAIL, not the head.** A decision report prints dozens of rows before its summary, so `head -N`
+  truncates away exactly the `failed N` / `APPLIED` line you needed — and the run then reads as "produced a
+  list and did nothing".
+- **Re-running the dry run is the check.** Counts that did not move prove nothing happened, whatever the log said.
 
 ## ✅ Validate against the OFFICIAL spec before publishing a skill outward
 

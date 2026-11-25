@@ -41,7 +41,7 @@ tailscale serve --bg --tcp=9222 tcp://127.0.0.1:9222
 
 ## Pitfalls (all hit live this session)
 - **pkill self-match**: `pkill -f browser_harness.daemon` kills the invoking shell (pattern matches own cmdline). Use `pkill -f 'browser_harness[.]daemon'`.
-- **Host-header reset**: Chromium's debug endpoint resets connections whose Host header isn't localhost — a raw TCP forward must present the right Host; `tailscale serve --tcp` handles this, netsh portproxy also works (firewall scope 100.64.0.0/10).
+- **Host-header reset**: Chromium's debug endpoint resets connections whose Host header isn't localhost — a raw TCP forward must present the right Host; `tailscale serve --tcp` handles this, netsh portproxy also works (firewall scope <mesh-ip>/10).
 - **Tabs vanishing**: user closes the automation window without realizing. Don't assume the bridge broke — re-enumerate tabs, reopen the URL in the surviving window, re-mark the tab title.
 - **Signaling the right window**: `Browser.bringToFront` may be unsupported over remote CDP. `Target.activateTarget` (tab) + `Browser.setWindowBounds` (windowState: maximized) both work. Also set `document.title = "🟢 GENTECH — ..."` so the user can find the tab by name.
 - **Fresh profile = logged out everywhere**: sessions do NOT cross between the user's normal browser and the automation profile. Expect one manual login per site in the automation window — hand the user precise modal steps, never enter credentials yourself.

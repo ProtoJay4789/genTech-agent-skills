@@ -190,6 +190,46 @@ the alert became noise.
   Use the sanctioned CLI (`hermes config set memory.memory_char_limit 3200`) rather than editing the file, and
   verify by re-reading the key afterwards — the guard refuses silently enough that a failed edit looks like success.
 
+### The cap counts CHARACTERS, not bytes — prove the unit in the ENFORCER before diagnosing
+
+The budget is a **character** count and the writer compares `len()` of the joined entries against it. Measuring
+the file with `wc -c` or `len(bytes)` counts UTF-8 **bytes**, and every em-dash, `§` separator, `→` and `≠` costs
+several. On a dense file the gap reaches tens of characters — measured, 1,739 bytes against 1,701 characters, so
+a file reported as "31 chars over cap" actually held **99 characters of headroom** and had never refused a write.
+
+- **Grep the writer's own comparison before diagnosing a cap.** `len(ENTRY_DELIMITER.join(entries))` vs `limit`
+  settles the unit in one read; a byte count is a proxy that is wrong by the width of every non-ASCII glyph.
+- **The two errors have opposite signs, so say which one you are making.** Measuring bytes against a char cap
+  **over-reports** fill — a false "over cap" that invites a destructive trim of headroom the file already had.
+  Measuring chars against a byte cap **under-reports** it — the silent direction, where a seat is told it has room
+  it does not have. Only the second can cost a fact; only the first can cost trust in the instrument.
+- **Never report "over cap / silently refusing writes" from a byte measurement.** It tells the owner a mechanism
+  is broken when it is not, and the correction has to be made in public after the trim has already run.
+- **Re-measure the same way the enforcer does, immediately after a trim**, so before/after numbers are comparable.
+  A trim verified in bytes and reported in characters looks like it freed twice what it did.
+
+### An instrument that grades "seats" must prove each one is a seat
+
+Enumerating `profiles/*` and treating every directory as a seat grades **artifacts** as agents — a leftover test
+profile with a `SOUL.md` and an empty `memories/` dir, no `config.yaml`, and no agent behind it, reported as a
+filling file that needs trimming.
+
+- **Require the artifact that proves a runnable profile** (a `config.yaml`) before grading, and say in the output
+  what was excluded.
+- **A seat that cannot speak is not graded — it is clutter**, and grading it manufactures a finding the owner
+  cannot act on. Report the omission rather than silently dropping it, so a genuine misconfiguration is still visible.
+
+### "NO RULE FIRED" must name the ACTION, or it reads as all-clear
+
+The terminal-state section above says to speak the phrase out loud instead of inventing a cut. **Saying only that
+no rule matched is not enough** — an operator reads *"nothing matched, the seat can choose"* as *nothing to do*, and
+the alert gets skipped for weeks while the files sit at 96–100%.
+
+- **End the line with the move**: `ACTION: this seat must consolidate BY HAND (merge same-topic entries, push detail
+  to the archive)`. A ranker with no writer cannot act, so its output has to say who can.
+- **A recommendation that names no actor is indistinguishable from a clean bill of health** — the same failure as a
+  report whose exit code cannot separate "found something" from "crashed".
+
 ## Trimming: PROPOSE, never rewrite the file
 
 A script that trims memory is trimming by **position**, and the lines it cuts are exactly the ones the agent would
@@ -257,6 +297,28 @@ you no longer want me to know?* Answering with a deletion instead invents a pref
   floor is a plan, and when the target is under the floor the plan is "change what the file is for".
 - **Portable is not the same as valueless.** Those entries were load-bearing every turn *while they were long*; they
   are still load-bearing as pointers, which is why they must be **compressed, not deleted**.
+
+### PORTABLE = 0 is not a dead end — TIGHTEN before you escalate to the owner
+
+**When a file's portable set is empty, the entries have no other home, but the PROSE around them is usually fat.**
+The third move between "compress to a pointer" (impossible here) and "ask the owner which facts to forget" (a
+question, not a fix) is a **rewrite-in-place that keeps every fact and removes the words that only restate it**.
+Measured on an owner-preferences file at 90.6% with **0 chars portable**: two passes of tightening — deleting a
+clause whose neighbour already said it, and replacing an explanatory tail with the rule it explained — took it to
+**79.1% with all six entries and every fact intact**.
+
+- **Tighten means fewer words for the same claim, never fewer claims.** The test is fact-by-fact, not
+  character-by-character: walk the original entry, name each assertion it makes, and confirm the new text still
+  makes it. A paragraph that reads tighter and has lost a "never" or a "which" has done the wrong thing well.
+- **Cut in this order:** a duplicated clause (the same fact stated twice in one entry), then an explanatory tail
+  (*"which is why…"*, *"this means…"*) where the rule already implies it, then decorative qualifiers. **Never**
+  cut an enumerator (*"full", "every", "never", "only"*), a number, or the object of a rule — those are the
+  load-bearing tokens, and a tightened sentence that loses one is a silently narrowed instruction.
+- **Escalate to the owner only after tightening has been tried and measured.** *"Which of these do you no longer
+  want me to know?"* is a fair question at a genuine wall; asked first, it makes the owner do work a rewrite
+  would have done.
+- **Say which move you used.** "Moved 724 chars of operating detail to the brain, then tightened the rest without
+  dropping a fact — 93.4% → 79.8%" is reproducible and auditable. "Trimmed memory" is neither.
 
 ### Compressing to a pointer — the reversible cut
 
@@ -409,6 +471,31 @@ seat's vault-memory root) on a schedule, and read the two together:
 
 **Memory-down + vault-flat is the failure that looks identical from the memory side**, which is why the vault column
 is not optional in the instrument.
+
+### When the owner authorises an ACTING relief step — the five walls
+
+A proposer with no apply path is safe; an actor with no walls is not. "PROPOSE, never rewrite" stays the default, but
+when the owner explicitly asks for the acting half to be built, it has to be narrow enough that a bad night cannot
+empty a file:
+
+- **One entry per run, never a sweep.** A cap of one makes the worst case a single lost line and keeps every change
+  reviewable. A relief step that can empty a file under pressure will, on the night pressure peaks.
+- **Never the file that describes the owner.** Facts about the person have no other home and no size rule can decide
+  which of them they would rather keep. Exclude that file by path in the code, and prove the exclusion by hashing it
+  before and after a run — a comment saying "never touches it" is not a test.
+- **Move verbatim; never rewrite.** Same rule as a manual trim: an acting step that rephrases an entry is authoring new
+  memory, and the shortest way to fill a freed slot is a plausible sentence.
+- **Archive before rewriting, and confirm the entry landed.** Write the entry whole to the dated archive, verify it is
+  there, and only then rewrite the live file. Archive-first makes every relief reversible; the reverse order has a
+  window where the fact exists in neither place.
+- **Refuse when every entry is load-bearing.** *"This file needs a human"* is a correct result and the common one for
+  a seat whose entries are all operating facts — model rails, addresses, credentials, paths. Printing the refusal beats
+  cutting the least-bad candidate, and it is the same "NO RULE FIRED names the ACTION" discipline applied to an actor.
+
+**Selection by size is wrong for an auto-actor, even where it is wrong for a ranker.** Longest-first picks the model
+rail, the mount path and the rate-limit numbers — precisely the entries that exist to load every turn. Before ranking
+by length, exclude anything that names a live system, path, command, credential or rail; length is a poor proxy for
+expendability, and an automated cutter gets no second opinion.
 
 ## How to apply (standing agentic behavior — do this EVERY save)
 1. Before adding a NEW memory entry, ask: "will this be needed EVERY session, or

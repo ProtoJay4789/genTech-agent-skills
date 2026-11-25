@@ -417,8 +417,20 @@ redacted`, four orders of magnitude more than a 9-character needle could touch):
 
 - **Raw bytes persist in `state.db-wal` and in freed pages until a checkpoint + VACUUM.** A clean logical
   scan is not a clean file on disk. Measure both: count the needle in the raw bytes of `state.db` **and**
-  `state.db-wal`. If bytes remain, a checkpoint + VACUUM clears them — but that rewrites a live DB, so
-  schedule it for a restart window rather than doing it mid-session.
+  `state.db-wal`. If bytes remain, a checkpoint + VACUUM clears them. **The checkpoint alone is usually enough for
+the WAL, and it is cheap enough to run straight away:**
+
+  ```python
+  import sqlite3
+  con = sqlite3.connect("<profile>/state.db")
+  con.execute("PRAGMA wal_checkpoint(TRUNCATE)")   # truncates the WAL file to 0 bytes
+  con.commit(); con.close()
+  ```
+
+  Measured: a 64 MB WAL truncated to **0** mid-session, and the needle count went to zero, with no
+  restart needed. **VACUUM is the heavier step** (it rewrites the whole DB to clear freed pages) and
+  is the one worth deferring to a quiet window. Verify by re-counting in the raw bytes of both files,
+  not by the absence of an error.
 - **A live conversation keeps re-introducing the value.** Any turn that quotes the secret (including your
 own analysis of it, or the user pasting the error again) writes a fresh copy. **Assemble the needle from
 parts in your own commands** (e.g. `P="8ab2""bcfe5"`) so the tool call itself does not re-insert it, and

@@ -416,6 +416,41 @@ side — a provider, not a depositor — so the whole rail scorecard is the wron
   automatically. After any rail-adapter change, md5-check the copy the cron actually
   runs — the executed copy is what matters, not the one you edited.
 
+## "Does this rail speak OUR protocol?" — verify at the package, never the page
+
+**A rail can share a status code with our protocol and speak a completely different one.** Ask the registry and
+the vendor's own limitation table, in that order; a landing page and an analyst blog are both lagging
+indicators, and the blog is usually describing a build that has since changed.
+
+1. **Read the package metadata, not the marketing.** `curl -s https://registry.npmjs.org/<pkg>` (or the PyPI
+   JSON API) returns the README, `keywords`, `dependencies`, `version` and per-version **publish timestamp** in
+   one call. `grep -c` the README for our protocol name — **zero occurrences means zero support, regardless of
+   what the launch post implied.** The dependency list is the second tell: a payment SDK that needs no
+   payment-protocol client does not implement payments the way we do.
+2. **Date the build before trusting any analysis.** A protocol can be **retired between versions**. Record
+   `version` and its publish timestamp beside the verdict, and re-check when the analysis is older than the
+   package — the analyst's "convergence" story may be true of a build that no longer ships.
+3. **Find the vendor's own REFUSAL table.** The decisive artifact is not the feature list but the
+   "what we reject" list — `no_<x>_charge`, "not offered", "refused as…". A protocol named as a *refused* input
+   is a stronger negative than its absence from the marketing.
+4. **Distrust the shared status code.** Two protocols can both answer **HTTP 402** and mean entirely different
+   things by it (challenge scheme, chain, asset, settlement call). "It does 402 too" is a coincidence of
+   numbers, not interoperability — compare scheme, chain and asset as three separate axes and say which one
+   fails.
+5. **Check whether the premise's payment instrument is actually an identity check.** The thing assumed to be
+   "the card that pays" is often only proof of who owns the agent. Read the README sentence that describes what
+   the credential does before building a no-on-ramp story on it.
+6. **A missing legal page is a NAV gap until you check the other host.** Terms, privacy and eligibility often
+   live on an `auth.`/`legal.` subdomain while the product page carries no link. Fetch `/legal/terms` and
+   `/legal/privacy` and report sizes before writing "no terms" — that claim is expensive and usually wrong.
+
+**Report shape:** what it speaks, on which chain, in which asset, at which version — then the single-axis
+reason our protocol fails. "Same status code, different protocol, different chain, different asset" is the
+complete verdict, and each clause is separately checked.
+
+Concrete commands, the packument fields worth reading, and the refusal-table pattern:
+`references/protocol-compatibility-verification.md`.
+
 ## Pitfalls
 - **A fork's pools can use DIFFERENT contract sets (Algebra V3 vs legacy V1).** Before writing
   any ABI calls against a DEX fork, detect the pool's version via its version-detection
@@ -563,6 +598,46 @@ per-use or per-unit payment is documented). Gates convert "we said no" into "her
 the difference between a decision and a mood. **ARCHIVE AS TEACHING is a complete outcome**: the artifact
 becomes a case study (how a consensus/API design ages), and the read-back — what the platform is now, what our
 thing did, what changed — is the first deliverable, before any code is touched.
+
+## Evaluating a THIRD-PARTY BOT FRAMEWORK (Hummingbot and its class)
+
+When the ask is "can we use their trading bots with our treasury", a features comparison is the wrong first
+question. Three gates, in this order — each is cheap, and each can end the evaluation by itself.
+
+1. **REACH — enumerate the framework's actual connectors, never its feature page.**
+
+      GET /repos/<owner>/<repo>/contents/<pkg>/connector/exchange?ref=<branch>   # dir listing
+      GET /repos/<owner>/<repo>/git/trees/<branch>?recursive=1                   # full file list
+
+   For a DEX-capable framework the connectors usually live in a SECOND repo (a gateway/bridge service) with
+   `src/connectors/<name>` — check both or you will report "no DEX support" for a framework that has it, and
+   vice versa. **Name the venues in OUR book and match them one by one.** If none of the framework's connectors
+   reaches our venues, the capability question is moot and a no-write-path objection never needed to be raised.
+2. **BRAND ≠ PROGRAM — resolve "supports X" to the contract/program family before planning anything.**
+   A connector named after a protocol covers ONE of that protocol's products. Proven trap: a framework's
+   `meteora` connector was **DAMM v2 (constant-product `cp-amm`)**, while the pool we had measured was a
+   **DLMM bin pool** — different program, different fee mechanics, and the measured yield does not transfer.
+   Read the connector's own doc/markdown (`docs/connectors/<name>.md` in the repo) for the program ID or the
+   AMM type in its first lines. **"Framework supports <protocol>" is true and misleading**; the only honest
+   statement names the sub-product. Same discipline as fork-set detection below, applied to a dependency
+   rather than a chain.
+3. **CAPABILITY — a backtester can only simulate what executors it ships.**
+
+      grep -i backtest on the recursive tree, then list the `*_executor_simulator` files
+
+   A framework with DCA / grid / single-order / position-with-SL-TP simulators has **no LP simulator**, so it
+   cannot backtest a concentrated-liquidity strategy: LP P&L depends on which bins price crosses and how long
+   it sits in range, which OHLCV candles alone do not carry. **Say "cannot" early** rather than planning a
+   backtest around an engine that will not run it — and say the same limit about our own LP numbers when the
+   model behind them is a full-range approximation.
+
+**Verdict shape for an execution framework: no on execution, yes on read/backtest, and separate the two.**
+Rejecting it for execution is usually right on two independent grounds — our no-write-path rule, plus reach
+(see gate 1). That rejection is NOT a rejection of the tool: keyless read/quote connectors and the backtest
+engine remain legitimate, and the backtest engine is often the more valuable half because it can price a
+stop or a fill we currently assume. Also note what the release history says about the framework's threat
+model (remote-API deserialisation, `eval` in connectors) — a service where a third party can run code inside
+the process is not where keys belong, and that argument survives any feature list.
 
 ## Perp / CLOB derivative rail evaluation checklist
 

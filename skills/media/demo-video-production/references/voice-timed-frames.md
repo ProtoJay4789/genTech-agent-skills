@@ -118,6 +118,39 @@ only touches head and tail of each clip. Running it through the body of a clip (
 `stop_duration` longer than the ordinary pause) eats the deliberate pauses the slow read was written to
 include, and the result measures shorter while sounding *happier* and less clear.
 
+## Gate the RENDER on its own claims — refusing to build beats noticing afterwards
+
+A renderer that prints what it put on screen is a transcript; a renderer that **checks the numbers first
+and exits non-zero when one has drifted** is an instrument. Put the contract in the script:
+
+```python
+def verify_claims() -> dict:          # read the live surface at render time, never from a note
+    ...                               # manifest count, tool list bytes, a probe's exit code
+
+def check(facts) -> list[str]:        # one line per number that appears on screen
+    return [...]                      # non-empty => REFUSING TO RENDER, exit 2
+```
+
+- **Every on-screen figure gets a check, not just the headline ones.** The frame that says "0 findings" over
+  an API that has since gained a finding is the worst artifact this pipeline can produce, because it is
+  evidence of the exact discipline it is lying about.
+- **Refuse, do not warn.** A warning at build time has no reader; a missing MP4 is impossible to miss.
+- **Keep an explicit `--no-verify` escape that prints its own unverified status**, so a deliberate draft is
+  possible and is labelled as one.
+
+## A frame that states a NUMBER and then a LIST must be counted against itself
+
+**Read the still and count the items.** Measured: a frame read *"our own audit was wrong four times"* over a
+list of **three** assumptions — the most quotable line in the video, off by one, and invisible to `ffprobe`,
+to the render's exit code, and to a diff of the script. The fix belongs in the copy: make the count and the
+enumeration agree, or drop the count.
+
+- **Prefer enumerating without a count** ("we were wrong about the shape, the price, the status code and the
+  parameter") — it cannot drift when a fifth item is added.
+- **Two scopes, one quoted.** A payload's array and its whole envelope are different measurements (e.g. a
+  tool list that is 5,958 bytes as an array and 7,130 bytes as the response). Decide which number the guard
+  watches, then quote THAT one everywhere, and name the scope on screen if both appear.
+
 ## Pitfalls
 
 - **Frame durations guessed instead of measured** — the drift is cumulative and invisible until the last frame.

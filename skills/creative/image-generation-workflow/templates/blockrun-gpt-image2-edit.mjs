@@ -1,51 +1,38 @@
-// GPT Image 2 img2img edit — direct ImageClient invocation (works even when
-// blockrun_image MCP tool is NOT in the session toolset).
-//
-// Copy to /root/.hermes/blockrun-mcp/<job>.mjs, set the character sheet path
-// + prompt, then:  cd /root/.hermes/blockrun-mcp && node <job>.mjs
-//
-// User preference (Aug 7 2026): for CHARACTER-CONSISTENT art (KAGE/HIKARI/
-// Vanito cast), GPT Image 2 beats the FAL/FLUX Klein 9B image backend — it
-// edits the character sheet into the scene so hair/face/accessories stay
-// locked, and it reliably honors Dutch angle + low camera phrasing that the
-// FAL backend often misses (defaults to straight-on).
-import { ImageClient, getOrCreateWallet } from '/root/.hermes/blockrun-mcp/node_modules/@blockrun/llm/dist/index.js';
-import { readFileSync } from 'node:fs';
+// BlockRun GPT Image 2 img2img edit — direct SDK, no MCP tool, no public hosting.
+// Verify the SDK path first:
+//   ls -d /opt/data/tools/blockrun/node_modules/@blockrun/llm/dist/index.js
+// Run from the install root so any bare imports resolve:
+//   cd /opt/data/tools/blockrun && node /path/to/this-file.mjs
+import { ImageClient } from '/opt/data/tools/blockrun/node_modules/@blockrun/llm/dist/index.js';
+import { readFileSync, writeFileSync } from 'node:fs';
 
-async function main() {
-  const wallet = getOrCreateWallet();
-  console.error(`Wallet: ${wallet.address}`);
-  const client = new ImageClient({ privateKey: wallet.privateKey });
+// ---------------- CONFIG ----------------
+const SRC = '/opt/data/profiles/<seat>/image_cache/<source>.jpg';   // local path is fine here
+const OUT = '/opt/data/profiles/<seat>/image_cache/<output>.png';
+const MODEL = 'openai/gpt-image-2';   // ~$0.064 per 1024x1024 edit (measured)
+const SIZE = '1024x1024';             // portrait sizes are NOT supported on this lane
+const PROMPT = `
+KEEP EXACTLY UNCHANGED: <face shape, skin tone, hair, beard connection, eyewear, expression, head angle>; same age, same pose; do not alter his features, ethnicity or body.
+CHANGE (setting and wardrobe only): <new costume, materials, accents — and what replaces each old gear element>.
+BACKGROUND: <new world, 3-4 objects, one light direction>.
+STYLE: photorealistic cinematic film still, 35mm anamorphic, shallow depth of field. ABSOLUTELY NO TEXT, NO LOGOS, NO WATERMARKS.
+`;
+// ----------------------------------------
 
-  // Character sheet = the LOCKED design reference. Download once:
-  //   curl -sL -o <sheet>.png "<blockrun-sheet-url>"  → save in
-  //   /root/.hermes/profiles/gentech/image_cache/
-  const sheet = readFileSync('/root/.hermes/profiles/gentech/image_cache/kage-sheet.png');
-  const sheetUri = `data:image/png;base64,${sheet.toString('base64')}`;
+const key = readFileSync('/opt/data/.blockrun/.session', 'utf8').trim();
+const client = new ImageClient({ privateKey: key });          // zero ETH balance is fine — no payer gas needed
+const uri = `data:image/jpeg;base64,${readFileSync(SRC).toString('base64')}`;
 
-  const prompt = `Transform this man into ... 
-KEEP HIS IDENTITY IDENTICAL: <hair, face, tattoos, ALL signature accessories — chains, pendants, emblem — enumerate explicitly>.
-SETTING: <scene>.
-STYLE: High-end 3D anime cinematic, AAA fantasy game cutscene, <genre refs>.
-Cold blue rim light above/behind, warm golden rim light below, low camera angle, Dutch angle composition,
-dynamic wind-blown hair, foreground particles, volumetric fog, high contrast chiaroscuro,
-ray-traced reflections, shallow depth of field, filmic tone-mapping.
-Painterly semi-realistic anime, 8K, masterpiece. NOT a photograph, NOT a real person.
-No watermark, no text, no extra limbs, no deformed anatomy.`;
+const res = await client.edit(PROMPT, uri, { model: MODEL, size: SIZE });
+// response keys: id, created, data, price, usage, payment  — there is no `cost_usd` in this build
+console.log('price/usage:', JSON.stringify(res.price ?? res.usage ?? null));
 
-  console.error('Generating with gpt-image-2 (img2img edit)...');
-  // ⚠️ SIZE — match the SOURCE image's aspect ratio. The render is rebuilt at whatever
-  // aspect you pass, so passing the wrong one silently re-composes the whole scene
-  // (framing, subject scale, negative space). Read it first:
-  //   python3 -c "from PIL import Image;print(Image.open('<src>').size)"
-  // Non-square is fine ('1536x1024' works). Assert the output matches the source.
-  const result = await client.edit(prompt, sheetUri, { model: 'openai/gpt-image-2', size: '1024x1024' });
-  const url = result.data?.[0]?.url;
-  if (url) {
-    console.log(JSON.stringify({ url, model: 'openai/gpt-image-2', cost: result.cost_usd }));
-  } else {
-    console.error('No URL:', JSON.stringify(result));
-    process.exit(1);
-  }
+const item = (res.data && res.data[0]) || res;
+if (item.b64_json) writeFileSync(OUT, Buffer.from(item.b64_json, 'base64'));
+if (item.url) {
+  const r = await fetch(item.url);                 // download first; don't feed the CDN url straight to vision
+  writeFileSync(OUT, Buffer.from(await r.arrayBuffer()));
 }
-main().catch(err => { console.error('Failed:', err.message); process.exit(1); });
+console.log('wrote', OUT);
+// Receipt: query USDC balanceOf before and after the run — that delta is the real charge.
+// Keep a copy of the source beside the output (<name>_source.jpg) so each edit stays comparable.

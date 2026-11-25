@@ -80,10 +80,10 @@ When encountering bot detection challenges:
 Combine information from multiple sources to build a comprehensive picture.
 
 ### 8. Authenticated / agent-gated pages — remote CDP attach to Jordan's browser
-When a page needs Jordan's LOGIN (not just a fetch): attach Gentech's browser stack to a Brave instance on his PC (`gentechhq`, tailnet 100.102.61.86) over Chrome DevTools Protocol, and drive it with his sessions.
+When a page needs Jordan's LOGIN (not just a fetch): attach Gentech's browser stack to a Brave instance on his PC (`gentechhq`, tailnet <mesh-ip>) over Chrome DevTools Protocol, and drive it with his sessions.
 
 - **One-time on his PC:** dedicated-profile Brave `--remote-debugging-port=9222 --user-data-dir="C:\gentech-brave-profile" --no-first-run` + `tailscale serve --bg --tcp=9222 tcp://127.0.0.1:9222` (tailnet-only; default-profile CDP is blocked since Chromium M136).
-- **Gentech attach:** `BU_CDP_URL=http://100.102.61.86:9222` env into `ensure_daemon()` — harness-native, verified in `browser_harness/daemon.py`. Pre-flight: `curl http://100.102.61.86:9222/json/version`.
+- **Gentech attach:** `BU_CDP_URL=http://<mesh-ip>:9222` env into `ensure_daemon()` — harness-native, verified in `browser_harness/daemon.py`. Pre-flight: `curl http://<mesh-ip>:9222/json/version`.
 - **Full procedure + fallbacks + security rules:** vault `00-HQ/brave-cdp-bridge-setup.md`. Status Sep 3 2026: path verified, end-to-end attach not yet live-tested (Jordan hasn't run his side).
 - **Use for:** DoraHacks forms, Discord faucets, AKINDO access forms — anything Jordan currently does the 2-minute human step for. Automation profile = build tasks only, never banking/personal email.
 

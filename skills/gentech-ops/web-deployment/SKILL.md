@@ -31,6 +31,29 @@ There are THREE public surfaces. Route every piece of content to exactly ONE of 
 
 **Pitfall — the portfolio is served at TWO URLs:** `portfolio.gentechlabs.net` (own nginx server block) AND `gentechlabs.net/portfolio/` (alias to the same `/var/www/portfolio/index.html`). Both point at the one file. Edit that file and both update. `/root/portfolio/` is a SEPARATE, older repo that is NOT the deployed source — do not confuse them.
 
+## A data page must state its own data's age — reachable is not true
+
+**A dashboard that cannot state the age of its data will always be mistaken for a live one.** Measured: a hub's
+fetches were fixed from a wrong owner (404s, dashes — visibly broken) to the correct owner, where the data was
+**87–126 days old**. Every panel filled, and a token at $6.30 from August read as today's price under a badge saying
+*Active — Harvesting*. **Dashes look broken and get investigated; stale numbers look fine and get believed.**
+
+- **Print a freshness bar under the header, per source, from each file's own `lastUpdated`** — not the page load
+time. Bands `>3d` STALE · `>30d` ARCHIVED, with the date and the age in days.
+- **Never let the loudest element contradict the data**: a status badge is the strongest claim on the page, so it
+  must read *Archived snapshot · 97d old* rather than *Active*.
+- **A source that does not parse says so in the bar**; falling back to placeholder cards is the page claiming data
+  it does not have. Fix the generator, do not hand-resolve a 67-hunk conflict — an old conflict has no correct side.
+- **Render-clean is not markup-clean.** A browser showing zero `Loading...` strings can still ship three of them in
+  markup that JS overwrites — so a single failed fetch silently restores "loading forever". Start those nodes empty
+  and check both the served bytes and the rendered DOM.
+- **Back it with a guard job** that asserts each source parses and is under N days, prints `UNKNOWN` (never `0`)
+  when it cannot read, and outranks STALE with UNKNOWN. The guard catches the writer stopping; it does not restart it
+  — name who owns regeneration.
+
+> Bands, the guard's exit codes and planted-failure selftests, and the render-vs-markup trap:
+> `references/data-freshness-bar.md`.
+
 ## A page describing a GENERATED system must be GENERATED from that system
 
 **A marketing page and the API it markets drift apart silently, and the page always drifts in the
@@ -685,6 +708,59 @@ content.
   file is a fabrication.
 - After restoring, **fetch the live surface and grep for the test token**. A successful restore you did not
   verify is the same class of claim as the artifact you just removed.
+
+### 5 · A derived copy with no publisher is a snapshot — find the runner before you blame the file
+
+**Measured 2026-11-24.** A public page served a JSON three weeks stale, naming a person the owner had cleared on a
+public surface — and the stale file was the *smaller* half of the defect: **0 of 92 cron jobs across five seats named
+that Pages project, and no script copied the vault source into any deploy tree.** The served copy had been written by
+hand once and never regenerated. *"The file is stale"* and *"nothing refreshes this file"* are different bugs with
+different fixes, and patching the file without the second just resets the clock.
+
+- **Grep the scheduler, not the filename.** A project with deploys happening and no cron naming it is a hand-deployed
+  surface: every derived file under it is a snapshot, not a pipeline.
+- **Build the publisher as a gate, not a `cp`** — canonical → served, never the reverse, with (a) the fields the page
+  renders asserted, (b) a **refusal** (exit 3) on anything that must not be published, and (c) exit 2 on drift so a
+  `--check` can run on a schedule.
+- **Publish only what may be public.** The record may state *who is not travelling*; the publication may not name
+  them. Keep forbidden names in a **list in the script**, so the gate holds for the next writer instead of being one
+  hand-clean that the next writer undoes — and have the refusal print the JSON path of the survivor.
+
+### 6 · Preflight the deployment's file map, or the deploy deletes live routes
+
+**A Pages deploy REPLACES the project. A deploy tree missing files does not fail — it silently deletes them.**
+Measured the same day: two `/DeFi/rainbow/*.json` files were live and in the deployment's `files` map but absent from
+the local deploy tree, so `wrangler pages deploy .` would have removed both and blanked the tab that fetches them.
+
+```bash
+dep=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  ".../pages/projects/$PROJ/deployments?per_page=1&env=production" | jq -r '.result[0].id')
+curl -s -H "Authorization: Bearer $TOKEN" ".../pages/projects/$PROJ/deployments/$dep" \
+  | jq -r '.result.files | keys[]'     # every path here must exist locally before you deploy
+```
+- **`files` is the only complete inventory** of what a source-less project serves. Compare it with the deploy tree;
+  never infer coverage from a directory listing that looks right. Recover missing paths (`curl` each back, confirm it
+  parses) and re-run the comparison.
+- **The map omits config files** (`_headers`, `_redirects`). A project can serve four security headers with no
+  `_headers` in the tree — so if the live responses carry headers the tree has no source for, write `_headers` from
+  the *observed* values and verify them after the deploy.
+
+### 7 · A corrected JSON can still render a broken page — count the placeholders
+
+**Data being right is not the page being right.** Publishing a canonical JSON whose shapes differed from the served
+copy made the dashboard go **blank below the header**: `renderBudget` threw on a missing `budget.categories`, and the
+file's own comment promising *"isolate every renderer"* was implemented for exactly **one** of twelve calls — so the
+throw skipped the footer and the `#main` reveal. Other renderers printed `Invalid Date`, `undefined` and `$NaN`:
+placeholders that read like values.
+
+- **Render the LIVE page in a browser and count the placeholders** — `Invalid Date`, `undefined`, `NaN`, and the
+  `display` of `#main` and each section. Zero is the pass. A 200 and a byte match say nothing about any of the four.
+- **Test both data shapes.** Legacy data against the new renderer is the regression test; a fix that only satisfies
+  the new shape is half a fix, and the legacy shape is what a rollback or the next writer produces.
+- **Wrap every renderer** (`safe(name, fn)` recording failures) rather than trusting a comment that says the calls
+  are isolated. A straight-line chain has one failure mode: the first throw wins.
+- **Format a date from its date portion.** Appending `'T00:00:00'` to a value that already carries a time makes every
+  ISO stamp render *Invalid Date*, and parsing a bare date as UTC shifts the day west of UTC.
 
 ## Pitfalls
 

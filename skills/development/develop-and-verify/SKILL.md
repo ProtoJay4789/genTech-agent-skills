@@ -40,9 +40,24 @@ Media builds run the same 5 phases: PLAN (storyboard + fact list w/ sources) →
 
 | Phase | Model | Provider | Cost | What |
 |-------|-------|----------|------|------|
-| **DEV (Jr)** | DeepSeek V4 Flash | **the active worker rail** (see below) | ~$0/M out | Draft code, make it functional, pass tests |
-| **AUDIT (Sr)** | **Kimi K2.7-code** | **the OTHER rail** (resolved at call time) | ~$0-2/M out | Code tracing, bug hunting, security, architecture review |
+| **DEV (Jr)** | **the FREE model on the `nous` rail** — `meituan/longcat-2.5:free` (Jordan, 2026-11-25: *"we'll treat the free model we use as the Jr by default"*) | `nous` | **$0** | Draft code, mechanical work, classify/extract/rewrite |
+| **AUDIT (Sr)** | **resolved at call time from the ladder** | **the OTHER rail** (resolved at call time) | ~$0-2/M out | Code tracing, bug hunting, security, architecture review |
 | **BIG BOY** | Kimi K3 | either rail | ~$15/M out | Architecture decisions, security audits, design reviews, full-codebase analysis |
+
+**Jr-by-default, measured before it was adopted.** Four free models were probed with two live completions each on
+2026-11-25: `meituan/longcat-2.5:free` (17 tokens for a one-word reply — cheapest), `tencent/hy4-flash:free` (42),
+and `stepfun/step-3.7-flash:free` **which returned HTTP 400 twice and was rejected**. The alias we had been
+pointing at for months, `upstage/solar-mini4:free`, also returns **HTTP 400** — a configured fallback that had
+never worked. **Prove the tier before you assign work to it.**
+
+**Two tasks are deliberately NOT Jr, and the reason is a failure, not a preference:**
+
+- **`compression`** writes the summary a future session reads *instead of* the transcript. A small model that
+  compresses badly destroys context for every later turn — the saving buys amnesia.
+- **`vision`** needs an image-capable model; none of the free set is proven for images.
+
+Both stay on the capable aux model (`glm-5.3-flash`). **Everything mechanical — approval classifier, triage
+specifier, curator, session search, skills hub, MCP, web extract, background review — runs free on all four seats.**
 
 **DUAL-RAIL ROUTING (Jordan, Sep 21 2026 — this is the rule):**
 
@@ -222,7 +237,19 @@ When Jordan provides a clear task list from prior context (status report, build 
 - **Operation ordering in security-sensitive code** — Signature verification, auth checks, and access control must execute BEFORE any state mutation (caching, persistence, database writes). A verify-then-cache ordering bug lets an attacker poison the cache with forged data even when their signature fails. Fix: verify first, then mutate state. This applies to payment middleware, webhook handlers, and any endpoint that validates then stores.
 - **A check that records while it checks burns evidence a later step still needs** — even if the earlier step refuses, its write has already consumed a token the downstream step needs. If every guard must agree before acceptance, **record only after all guards have agreed**. Measured: a replay guard inserted the `jti` while checking it; a token then refused by a later step (stale roster) had already burned its `jti`, so re-presenting the same valid token after the roster refreshed failed as a replay for a call that never happened. Fix: separate `is_seen` (read-only check) from `claim` (accept-once write), and call `claim` last.
 - **Runtime-only variable name errors after renaming a dict/var** — Renaming a module-level variable (e.g. `KNOWN_SERVICES` → `KNOWN_SENDERS`) leaves stale `Name` references in down-branch code paths. These pass `ast.parse` (the old name is still a syntactically valid Python identifier) but crash with `NameError` at runtime the first time that branch executes. Fix: after renaming any module-level variable, run `grep -n 'OLD_NAME' <file>` to catch every reference — don't trust that the linter caught them all. The linter is blind to this because the old name may still be assigned elsewhere, or the down-branch is enclosed in a `try/except Exception: pass` that swallows the error.
-- **`ast.parse` passing is NOT a syntax check of your EDIT — it is a check of the file you left behind.** Measured: a multi-line function was replaced by slicing the source between two index markers (`s[:s.index("def A")] + new + s[s.index("def B"):]`), and the slice landed mid-file and **deleted an unrelated module-level constant** that sat between the markers. `ast.parse` returned clean because the name was still *used* — a missing assignment is a runtime `NameError`, not a syntax error. The script then died on its first real run, two edits later, pointing at a constant nobody had touched. **Rule: after ANY scripted/automated multi-line rewrite, RUN the script (or `python3 -c "import ast,sys; …"` plus a `grep -n '^NAME'` for every global it references), never just parse it.** **Prefer a unique-anchor replace over index slicing** — `s.replace(OLD, NEW, 1)` with an `assert OLD in s` fails loudly when the anchor drifts; `s.index(...)` silently finds the wrong one. And when a rewrite touches a region containing a lookup table, verify the table still has a definition, not merely a use.
+- **`ast.parse` passing is NOT a syntax check of your EDIT — it is a check of the file you left behind, and the LINT DIAGNOSTICS that arrive after a patch are the check that catches the rest.** Measured: a multi-line function was replaced by slicing the source between two index markers (`s[:s.index("def A")] + new + s[s.index("def B"):]`), and the slice landed mid-file and **deleted an unrelated module-level constant** that sat between the markers. `ast.parse` returned clean because the name was still *used* — a missing assignment is a runtime `NameError`, not a syntax error. The script then died on its first real run, two edits later, pointing at a constant nobody had touched. **Rule: after ANY scripted/automated multi-line rewrite, RUN the script (or `python3 -c "import ast,sys; …"` plus a `grep -n '^NAME'` for every global it references), never just parse it.** **Prefer a unique-anchor replace over index slicing** — `s.replace(OLD, NEW, 1)` with an `assert OLD in s` fails loudly when the anchor drifts; `s.index(...)` silently finds the wrong one. And when a rewrite touches a region containing a lookup table, verify the table still has a definition, not merely a use.
+  - **Rewriting a TABLE of rows: splice LINE BY LINE, never regex the whole block.** A pattern like
+    `\('key'\s*:\s*\()[^)]*\)` to retype a dict-of-tuples **eats the closing paren on any row that carries a
+    trailing comment**, and the file still imports cleanly enough to look plausible until you run it. Measured: a
+    ten-row table rewrite destroyed a row that ended in `),  # note`; the guard was `py_compile`, which passed
+    because the damage was one row down. **The shape that survives:** keep a timestamped copy first, then split on
+    `lines`, `re.match` the key at the START of each line, rebuild only that line, and **preserve everything after
+    the last `)` verbatim** so comments survive — then `py_compile`, then re-read the table and confirm the count
+    and every name.
+  - **Prefer a line-oriented transform over a whole-block regex even when the regex looks simpler.** A block regex
+    has no idea which delimiter belongs to which row; a line that starts with the key you are editing is
+    unambiguous, and the diff is reviewable row by row instead of one opaque blob.
+  - **Read the editor's diagnostics — a red one is a real defect, not background noise.** Three patch hazards, all caught by the checker and none by intent: (1) replacing a line that was the **opening line of a docstring** leaves the body as bare code → `SyntaxError: invalid character '⚠'` at the emoji five lines down; (2) a patch written with typographic punctuation can insert a **smart quote inside an f-string** → `SyntaxError: invalid character '”'`, invisible because `”` and `"` look identical in a diff; (3) a module-level constant referenced under a near-miss name (`_PREFIXED` vs `PREFIXED`) **compiles clean and raises `NameError` on first use**. **After every patch: read the returned diagnostics block, and never dismiss a lint error because the file "was already like that" — check whether your edit created it.** A patch tool that reports `lint: ok` is reporting on the file it just wrote; a patch that reports one error is telling you the deploy would have failed.
   - **A file with TWO `def main()` blocks compiles and parses cleanly.** Python simply binds the second; `py_compile` returns 0 while the first copy sits there as dead code with an orphaned tail. Measured: a run of targeted patches left a duplicate `main()` in a 395-line script, the compile check printed `COMPILE-OK`, and the script then died at runtime on a `NameError` from the orphaned half. **After a scripted rewrite, compare STRUCTURAL COUNTS against expectation** (`grep -c '^def main'`, `grep -n '^def '`) — a count that rose by one is the tell. **When a patch loop has already produced duplicate definitions, stop patching**: slice at the last known-good header, rebuild the body once, then execute it. Repeated patching on a corrupted region is how one small edit becomes a rewrite.
   - **A helper's PARAMETER LIST and its BODY can disagree, and no parser checks that for you.** Measured: a
     probe was edited to `def probe(key, model)` while its body still interpolated a different free name; the
@@ -267,6 +294,32 @@ curl -s https://domain/<path> | grep -c "expected content"  # Content check, not
    - Add a cache-busting query param (`?v=<timestamp>`)
 4. File size comparison: if `curl -s https://domain/path | wc -c` differs significantly from the local file size, CDN is serving a different version (compressed or cached) — investigate.
 - **Karpathy Gate:** If something seems wrong, stop and name the confusion
+
+### When the deploy needs a restart only the USER can perform, verify on a SCRATCH INSTANCE first
+
+**A change gated on `docker restart` / a host command is not a reason to hand back unverified work.** Run the new
+code beside the live process on a spare port, read ITS output, kill it — then ask for the restart with the answer
+already known.
+
+```bash
+# same files, different port, no deploy — the code the container will run
+python3 -c "import os,uvicorn,importlib.util as u; os.environ['PORT']='8899';\
+ s=u.spec_from_file_location('srv','server.py'); m=u.module_from_spec(s); s.loader.exec_module(m);\
+ uvicorn.run(m.app, host='127.0.0.1', port=8899, log_level='error')"
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8899/status   # then read its OWN responses
+```
+
+- **Verify on a route computed IN-PROCESS.** A route that proxies to a backend will answer `503` from a scratch
+  instance in a different network namespace — **that refusal is the guard working, not a failure**, but it means a
+  proxy route's *content* cannot be proven this way while its *metadata and challenge shape* can.
+- **Kill it and prove the port is closed** (`curl` → `000`) before moving on. A stray listener on a spare port is
+  the kind of leftover that shadows a later test.
+- **Then say what the restart will change, in one line.** "The metadata is read at import; this restart is the
+  only step left, and I have already read the new challenge from the new code" is a complete handoff.
+- **⚠️ Give the user ONE copy-pasteable command, alone in the message.** He may be driving from a phone between
+  other work; a command buried in prose does not get run. **Then verify by re-probing the live surface yourself** —
+  "I ran it" is a report, and the served bytes are the proof. (This also means a phone can ship a change: prepare
+  it, hand over one line, verify the result.)
 ## Pre-Publish Audit Checklist
 
 Run through **Kimi K2.7-code** (Ollama Cloud) before pushing to public repos:
@@ -617,7 +670,16 @@ happy-path test, and every one produced a wrong answer in a single night:
 - **Verify the refusing direction.** A boundary never tested in the direction it blocks is not
   known to work.
 - **Hard-coded value in an executing path?** Make it required, or give it an expiry that is checked.
-- **After rewriting a function, diff its RETURN SHAPE.** Callers depend on fields that vanish silently.
+- **After rewriting OR EXTENDING a function, diff its RETURN SHAPE.** Callers depend on fields that vanish
+  silently, and a new branch is a new return. **A path that means "reject" must return the type its caller
+  already unpacks** — `None`, an empty list, `(False, reason)` — never a bare reason string, because the
+  string was written for a human to read and the caller was written to unpack something else. Measured: a
+  gate returning a human-readable reason was added to a scorer whose reject path returned `None`; the caller
+  unpacked it as a pair and the entrypoint died on `ValueError: too many values to unpack`, producing **no
+  output at all** rather than a wrong one — which reads to the user as "nothing new this week". **A reason
+  nobody can print is worth less than a row the user can read and argue with: put the gate where the reason
+  is DISPLAYED, not where the value is computed.** And prove it by running the composed entrypoint — a
+  direct call to the function you just edited passes happily while every real caller breaks.
 - **After a fix, re-audit — and re-test what the OLD code gave you for free.** A fix for a bug in a
   text/data transformer silently drops behaviour the previous implementation had. Proven: replacing
   `str.title()` with a custom title-caser fixed substring corruption (`solana`→`SOLana`) but lost
@@ -726,6 +788,31 @@ happy-path test, and every one produced a wrong answer in a single night:
 
 Say so, label the work **unaudited**, and do not call it verified. **An unaudited build is a
 known state; an unaudited build called verified is how a bug ships.**
+
+### A missing INSTRUMENT is not a weaker claim — install it, then measure (the sibling rule)
+
+**"The tool isn't on this box" is a setup fact, not a reason to downgrade the proof.** The temptation is to ship
+`validate: not run — terraform absent` in the artifact and call the work done. That turns a five-minute install
+into a permanently weaker claim, and the artifact reader cannot tell the difference between *not exercised* and
+*does not work*.
+
+**Reach for a user-writable install before you ever write "untested":**
+
+```bash
+mkdir -p "$HOME/bin"
+curl -sL -o /tmp/x.zip "https://releases.hashicorp.com/terraform/<ver>/terraform_<ver>_linux_amd64.zip"
+python3 -c "import zipfile;zipfile.ZipFile('/tmp/x.zip').extractall('$HOME/bin')"   # when `unzip` is absent
+chmod +x "$HOME/bin/terraform" && "$HOME/bin/terraform" validate -no-color
+```
+
+Static release binaries need no root — `unzip` is the usual absentee, and Python's `zipfile` covers it.
+
+- **Then quote the real verdict** (`"Success! The configuration is valid."`), not a description of the tool.
+- **If it genuinely cannot be installed, say `UNVERIFIED — <reason>`**, and name what would verify it. The
+distinction that must survive: *I could not run it* is honest; *it passes* on an unrun check is the bug class
+this whole skill exists to catch.
+- **Never let the absence hide in a silent pass** — a step skipped for lack of a binary must print its absence in
+the same output a reader consumes.
 
 ### Calling Sr directly over HTTP (the gotchas)
 
@@ -1030,6 +1117,7 @@ turning these on: **`references/cron-conformance.md`**.
 ## Reference Files
 
 - `references/prose-proofreading.md` — Proofreading published prose: deterministic checks, the FACT BLOCK, the non-reply trap, template-remedy drift, cross-model declaration, and the six-case selftest. — Three-way scan pattern for evaluating and contributing to open-source ecosystems. Covers forking workarounds, execution flow, and repos scanned.
+- `references/upstream-fix-proof.md` — Proving a fix to someone ELSE's code: toolchain from the manifest, behavioural tests over field assertions, why `[build failed]` is not a red test, root cause as a TYPE rather than a condition, and re-proving your own counter-example.
 - `references/pitfalls.md` — **INDEX** for 143 accumulated failure-mode lessons, the ledger behind this skill's silent-wrongness rule. The items live in `references/pitfalls-1.md`, `-2.md` and `-3.md` (**part 3 is the LIVE one — append new lessons there**); the index carries the part list, their counts and digests, and the stated census rule for checking an extraction. **Read on demand.**
 - `references/audit-findings-catalog.md` — Real bugs caught by Kimi K2.7 / Claude Opus 4.8 review sessions. CWE-338, CWE-1333, CWE-117, and exception isolation patterns with fixes and provenance.
 
@@ -1048,7 +1136,19 @@ Invisible to a hex test — the value wasn't hex. The credential-ASSIGNMENT test
 
 ```bash
 python3 tools/pii_secret_preflight.py <paths...> --fail-on-find   # exit 1 => do NOT commit/sync/ship
+python3 /opt/data/scripts/publish-preflight.py <paths...>        # fleet-shared gate, selftest-proven
 ```
+
+**Both run before a publish. They are not alternatives — they fail differently.** `pii_secret_preflight` is
+broader (four classes, PII opt-in); `publish-preflight` is tuned so that the shapes we publish *on purpose*
+stay silent: a `0x…` contract address, a placeholder, a documented insecure default, a PEM block inside
+`tests/`. **Measured 2026-11-25 across 150 public repos: 168 secret-shaped hits, 147 fixtures, and 6 of the
+remaining 7 were token CONTRACT ADDRESSES.** A gate that calls those secrets gets skipped, and a skipped gate
+is worse than none. `--selftest` proves both directions on every run.
+
+**Every exemption needs a reason, and it lives in `/opt/data/shared/` — never in `~`.** Each seat has its own
+HOME (`/opt/data/profiles/<seat>/home`), so a per-seat allowlist is invisible to the rest of the fleet and the
+same benign shape gets re-litigated seat by seat. An entry with no `reason` is refused at load.
 
 Four classes, and **the second is the one that fools people**:
 
@@ -1097,6 +1197,28 @@ prose → PASS, sha256-on-its-own-line → PASS, python import block → PASS, c
 > **The ledger lives in `references/pitfalls.md` — an INDEX since 2026-09-28** — 143 accumulated silent-wrongness lessons, in three part files (`references/pitfalls-1.md`, `-2.md`, `-3.md`; **part 3 is LIVE and takes new lessons**). Read the part you need with `skill_view(name='develop-and-verify', file_path='references/pitfalls-1.md')`, or grep the three. The index carries each part's count, digest and the stated census rule.
 > Extracted from this file 2026-09-28 to restore headroom (SKILL.md had reached 103,752 chars against the 100,000-char platform cap, which makes every write refuse), then SPLIT into parts the same evening when the single ledger reached 93,842 chars against the same per-file cap. **The cap is enforced PER FILE, not per directory** — so the parts, not the directory, are what must stay under it.
 > **Nothing was deleted — the section moved.**
+## A read that stopped early is a FLOOR, never a total — and measure in the unit the limit enforces
+
+Two reporting errors from one family. Both produce a confident, wrong number that nothing in the output flags.
+
+**① A paged or capped read counts as a total.** A sample of a deep collection reports only what fitted.
+Measured: an inbox paged to its cap yielded `779` messages in one year, and a query the source itself bounded
+(date filter, not enumeration) returned **2,472** for the same period — 32% of the truth, reported as the truth.
+**Before reporting any count from a paged source, ask whether the last page carried a continuation token.** If it
+did, the number is `>= n`. Prefer the count the source can bound itself over one you truncated, and state which
+one you used.
+
+**② The unit you measured is not the unit enforced.** A limit expressed in CHARACTERS refuses writes by
+character; a filesystem reports BYTES. Multi-byte glyphs (em dash, section sign) cost 1 char and 2-3 bytes, so a
+byte-based headroom figure drifts in the **permissive** direction — it reports room where the enforcement will
+refuse, or an alarm where there is none. Measured: two files reported as `-31` and `-75` (over cap) were actually
+`+99` and `+13`; the whole remediation that followed was fixing a problem that did not exist.
+**Read the constant off the code that ENFORCES it, then measure in that unit.**
+
+**③ A successful write is not a change.** Removing a label, setting a flag, or clearing a field on rows that
+already lacked it succeeds and alters nothing. After any bulk mutation, capture the pre-state or re-run the
+query the user would run — the API's success means the call was accepted, not that the world moved.
+
 ## The CANDIDATE-vs-FINDING rule — time it before you name it
 
 **A list of what a thing COULD be is not a finding. If you cannot say which one it IS, the answer is `UNKNOWN`.**

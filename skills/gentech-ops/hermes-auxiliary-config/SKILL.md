@@ -223,7 +223,7 @@ auxiliary:
 
 ### ❌ `hermes config set` can create a duplicate under the WRONG section (Aug 2026)
 
-**Symptom**: You run `hermes config set gateway.channel_prompts.-1002916759037 "..."` to update a Telegram group prompt, but the change lands in a DIFFERENT section than the one the gateway actually reads. The real prompt lives under `telegram.channel_prompts`, not `gateway.channel_prompts`. Result: a duplicate key appears in the wrong block, and the value the gateway reads is unchanged.
+**Symptom**: You run `hermes config set gateway.channel_prompts.<telegram-group-id> "..."` to update a Telegram group prompt, but the change lands in a DIFFERENT section than the one the gateway actually reads. The real prompt lives under `telegram.channel_prompts`, not `gateway.channel_prompts`. Result: a duplicate key appears in the wrong block, and the value the gateway reads is unchanged.
 
 **Root cause**: `hermes config set` writes to the dotted path you give it verbatim. If you guess the section wrong (or the key exists under a different parent), it ADDS a new entry rather than replacing the existing one. It also warns `'...' is not a recognized config key — it was saved anyway` for unknown paths.
 
@@ -234,11 +234,11 @@ auxiliary:
    ```
 2. Set the correct path:
    ```bash
-   hermes config set 'telegram.channel_prompts.-1002916759037' 'You are in Treasury — ...'
+   hermes config set 'telegram.channel_prompts.<telegram-group-id>' 'You are in Treasury — ...'
    ```
 3. Remove the stray duplicate you created:
    ```bash
-   hermes config unset 'gateway.channel_prompts.-1002916759037'
+   hermes config unset 'gateway.channel_prompts.<telegram-group-id>'
    ```
 4. Verify only ONE reference remains and it's in the right section:
    ```bash
@@ -876,10 +876,57 @@ curl -s -X POST https://api.elevenlabs.io/v1/speech-to-text \
 # {"text": "...", "language_code": "eng"}
 ```
 
+### Groq is the free lane — same shape, one models call to verify
+
+When the goal is "stop paying for transcription", `groq` is a first-class `stt.provider` and needs only an
+API key — no install, no venv write. The model block already exists (`stt.groq.model`, default
+`whisper-large-v3-turbo`); the key is the only input.
+
+```bash
+# 1 · prove the key FIRST, before touching any config (11 models, whisper ids listed = live)
+curl -s https://api.groq.com/openai/v1/models -H "Authorization: Bearer $GROQ_API_KEY" \
+ | python3 -c "import json,sys;d=json.load(sys.stdin);print(len(d.get('data',[])),[m['id'] for m in d.get('data',[]) if 'whisper' in m['id']])"
+
+# 2 · one seat at a time — HERMES_HOME is the selector, not HERMES_PROFILE
+for seat in <seat> <seat>; do
+  grep -q '^GROQ_API_KEY=' /opt/data/profiles/$seat/.env || printf 'GROQ_API_KEY=%s\n' "$GROQ_API_KEY" >> /opt/data/profiles/$seat/.env
+  chmod 600 /opt/data/profiles/$seat/.env
+  HERMES_HOME=/opt/data/profiles/$seat hermes config set stt.provider groq   # read the printed path
+ done
+```
+
+**Verify by presence-with-prefix, never by printing the value:** `grep -c '^GROQ_API_KEY=gsk_'` per seat. Then
+the same restart wall as above applies — the gateway reads `.env` at start, so a seat started before the key
+was written stays keyless until it bounces.
+
 **⚠️ A gateway started BEFORE the `.env` was written will not have the key.** Compare the gateway's start
  time to the `.env` mtime; if the key was added later, the running process may still be keyless. You often
  cannot read `/proc/<pid>/environ` to confirm, so **that is UNKNOWN, not "probably fine"** — the cheapest
  proof is asking the user to send one more voice note and seeing whether it arrives as text.
+
+**The mechanism, so you can predict instead of wait:** `tools/transcription_tools.py` computes
+`_has_groq_key = _has_key("GROQ_API_KEY", …)` **at module import**, and that flag is what feeds the provider
+list the runtime selects from. Dotenv is read per invocation, so a fresh `python -c` sees the key while a
+long-lived gateway still answers "provider configured but key not set". **Rule of thumb: grepped at module
+level ⇒ restart required; read inside the call ⇒ no restart.**
+
+**A probe that works from inside, without the user:** evaluate the same object the runtime evaluates, under
+that seat's own home, then drive one real file through the runtime's entry point — a positive probe plus a
+successful transcript is the pair that means live:
+
+```bash
+HERMES_HOME=/opt/data/profiles/<seat> /opt/hermes/.venv/bin/python - <<'PY'
+import sys; sys.path.insert(0, "/opt/hermes")
+from tools import transcription_tools as t
+print("key visible:", bool(t._has_groq_key() if callable(t._has_groq_key) else t._has_groq_key))
+print(t.transcribe_audio("<a real .ogg voice note>")["transcript"][:120])
+PY
+```
+
+**Restart scope: one container restart bounces every seat in it.** The operator may report "only two were
+restarted"; the container's start time and one log line per seat show all four came up. Measure both before
+saying which seats are on the new key — reporting the requested scope instead of the observed one leaves the
+next session planning a bounce that is not needed, or trusting one that never happened.
 
 ### Every seat needs its OWN `stt:` block — seats INHERIT the default profile's
 

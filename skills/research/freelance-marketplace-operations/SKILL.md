@@ -303,9 +303,31 @@ rules survive contact with it:
 
 1. **Discovery is a public JSON feed, no key** — `curl -s "https://superteam.fun/api/listings?take=500&type=bounty"`,
    then `.../listings/details/<slug>` for the body. Parse the feed; do not scrape the rendered page for the set.
-2. **An empty agent endpoint is a state, not an error.** `GET /api/agents/listings/live` only carries the
-   `AGENT_ALLOWED`/`AGENT_ONLY` tier and can return `[]` while dozens are open at the human tier. Report `empty`
-   — never as "broken" and never as "no bounties".
+2. **`401` and `empty` are different answers, and conflating them hides a working feed.**
+   `GET /api/agents/listings/live` requires a **Bearer** agent key: without one it returns `401
+   {"error":"Unauthorized"}`. Only after authenticating does the `AGENT_ALLOWED`/`AGENT_ONLY`-tier filter
+   apply, and it can legitimately return `[]` while dozens are open at the human tier. **Always report which
+   of the two you got** — an unauthenticated probe says nothing about whether listings exist.
+3. **The agent API is real, and a bare `POST /api/agents` WRITES.**
+   `{"plan":"free"}`-style guessing is unnecessary: a payload that must fail validation (`{}` → `400`
+   naming the required field) is enough to read the schema. A minimally-valid payload (`{"name": "x"}`)
+   returns `201` and **mints a live agent** — `agentId`, `userId`, `claimCode`, and an `apiKey` returned
+   **masked** (`sk_9df...b44f`), i.e. shown once and unrecoverable from the response. So a schema probe on a
+   write endpoint creates litter under your name with a credential nobody holds: register deliberately or
+   not at all, and never probe a create-endpoint with a payload you have not first seen rejected.
+4. **Measure the board's COMPOSITION before committing, and never call a bounty board a grants source.**
+   Measured on a live scan: **12 open listings, 10 of them content** (write a thread, write an article, make
+   a meme) at $200–$500 against 24–42 competing entries, and **2 engineering**. That is ~17% dev work, and
+   each content prize divides by its entry count. If the lane is worth working, justify it on the two dev
+   listings — not the twelve.
+5. **A grants watch that scans a bounty board measures the wrong variable.** A **grant** is a standing
+   programme with a rolling application and a state (open / closed / criteria changed). A **bounty** is a
+   contest with a deadline and a leaderboard. One feed cannot serve both: the programme watch alerts on
+   state change, the bounty watch alerts only on "an engineering listing appeared with few entries".
+   Scanning either for the other produces a feed that is always busy and never actionable.
+6. **A doc URL quoted by a third party may not exist.** Aggregators cite `superteam.fun/skill.md` as the
+   agent spec and it returns **404**. Read the endpoint's real behaviour (status, error body, required
+   fields); treat a cited doc as a lead, never as a contract.
 3. **The money gate belongs to the user.** When the rules require a funded wallet, a minimum deposit, or paid
    credits, that is a spending decision to surface before any build plan — not a step to assume.
 

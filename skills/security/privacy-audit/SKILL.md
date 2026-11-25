@@ -176,6 +176,52 @@ report has recreated the exposure somewhere new.
 Full procedure, exact commands, and the public-window rule:
 `references/public-repo-credential-remediation.md`
 
+## Publishing a curated subset of a private corpus (vault → portfolio, brain → public repo)
+
+**The request will arrive as "just copy it and delete the personal parts." Refuse that shape and say why.**
+A copy with a filter over it answers *"nothing I thought to look for is in here"*, never *"this is safe to
+publish"* — and the filter is wrong in both directions. Measured on a 7,261-file private vault, a
+category sweep returned 723 "address_and_travel" hits (a routing doc mentions a state name; every finance
+runbook names a flight) and 394 "personal_finance" hits that included vendor notes. **A denylist that
+over-matches silently publishes the things it missed, and there is no count that tells you which.**
+
+**The shape is a generated publication from an ALLOWLIST, in one direction:**
+
+```
+private corpus (everything)  ──►  build script  ──►  public tree (~40 files)  ──►  human read  ──►  publish
+                                  gate 1: allowlist
+                                  gate 2: pattern refusal (any hit = no build at all)
+                                  gate 3: human review (informs, never blocks)
+```
+
+**Rules, all of them load-bearing:**
+
+- **Allowlist, never denylist.** A file is published because a human named it, not because a filter failed
+  to catch it. Default is private; the allowlist is a checked-in file of corpus-relative paths.
+- **Generated, never hand-edited.** The public tree is rebuilt by script from the source, so it cannot drift
+  into a second brain. A hand-maintained public copy is stale within a week and nobody knows which is true.
+- **One hit REFUSES the entire build — it does not drop the file.** A build that silently omits the offending
+  file teaches nobody anything and ships on the next run when the pattern is tuned. Exit non-zero, name the
+  file and the class (never the value), and publish nothing.
+- **The refusal patterns must match REAL shapes.** A too-broad card pattern (`\b(?:\d[ -]*?){13,16}\b`)
+  matched date ranges and a chat id and refused two clean files. **A gate that cries wolf is a gate that gets
+  switched off**, so the pattern was narrowed to actual card shapes (16 contiguous digits, 4-4-4-4, 4-6-5).
+  Prefer a narrow pattern that always fires on a real hit over a broad one that fires on prose.
+- **Self-test the gate before trusting it — both directions.** Feed it known-bad strings (a hex private key,
+  a `ghp_` token, a PEM header, `sk_live_`, a JWT, an email, a card, an SSN) and known-good ones (prose, a
+  numeric chat id, a date range, a unix timestamp). Print caught/passed for each. An untested gate's silence
+  is not an acquittal.
+- **The human review step INFORMS; it must exit 0.** A review tool that blocks gets bypassed; one that prints
+  "N lines in M files for you to read" and returns success gets read. Give it a pattern file that means
+  *this needs a person* — personal names, addresses, family, employer, standing rules written about
+  individuals — and print the line with its file so the reviewer reads it in place.
+- **Nothing publishes until the human has read the flagged lines and approved the file list.** That read is
+  the third gate and it is not delegable: the script can prove "no secret shape", never "no personal detail".
+- **Publish a snapshot, not a feed.** Tagged and dated, so what a reader sees is what was chosen.
+
+**Build/review recipe, the exact regexes and the three-gate layout:
+`references/curated-publication-from-private-corpus.md`.**
+
 ## Pattern precision: a key needs BOTH halves, and the scope is the FILE not the repo
 
 A key pattern that tests only one property produces false positives and false negatives in the same

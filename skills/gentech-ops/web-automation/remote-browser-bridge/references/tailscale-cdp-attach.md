@@ -1,8 +1,8 @@
 # Tailscale CDP attach — verified command matrix (Sep 3, 2026 session)
 
 ## Topology
-- Agent: VPS, tailnet IP 100.126.236.51
-- User PC: `gentechhq`, Windows, tailnet IP 100.102.61.86
+- Agent: VPS, tailnet IP <mesh-ip>
+- User PC: `gentechhq`, Windows, tailnet IP <mesh-ip>
 - Brave 152.0.7977.76 with dedicated profile `C:\Users\jhitm\gentech-brave-profile`
 
 ## Verified sequence
@@ -17,15 +17,15 @@ tailscale serve --bg --tcp=9222 tcp://127.0.0.1:9222
 
 ### 2. VPS-side verification (raw HTTP first)
 ```bash
-curl -s -m 10 http://100.102.61.86:9222/json/version   # → Browser: Chrome/152...
-curl -s http://100.102.61.86:9222/json                 # → tab list
+curl -s -m 10 http://<mesh-ip>:9222/json/version   # → Browser: Chrome/152...
+curl -s http://<mesh-ip>:9222/json                 # → tab list
 ```
 
 ### 3. Daemon launch (VPS terminal, background=true)
 ```bash
 pkill -f 'browser_harness[.]daemon'; sleep 1
 PYTHONPATH=${PROFILES_DIR}/gentech/home/.cache/uv/archive-v0/eQ0C6m3fBESV2uLx/lib/python3.11/site-packages \
-BU_CDP_URL=http://100.102.61.86:9222 \
+BU_CDP_URL=http://<mesh-ip>:9222 \
 /usr/bin/python3.12 -m browser_harness.daemon
 ```
 Socket appears at `~/.hermes/profiles/gentech/home/.config/browser-harness/runtime/bu-default.sock`.

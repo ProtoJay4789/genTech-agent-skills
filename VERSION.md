@@ -1,39 +1,21 @@
-# GenTech Agent Kit — version marker
+# Version
 
-This file exists so that **"am I current?" is a command, not a conversation.**
-
-```bash
-git log -1 --format='%h %ci'        # what you have
-git pull --ff-only                  # take what we have
-```
-
-## What moves in this repo
-
-| path | what it is |
-|---|---|
-| `skills/agent-kit/` | the fleet's operating doctrine — the skills every GenTech seat runs |
-| `skills/` | the full library, by category (payments, DeFi, education, comms) |
-| `cron/` | scheduled-job patterns and the conformance rules behind them |
-| `vault-structure/` | how the brain is laid out, if you want the same shape |
-| `START-HERE.md` | read this first |
-
-## How to install one skill
+**261 skills · published 2026-11-25**
 
 ```bash
-hermes skills install https://raw.githubusercontent.com/ProtoJay4789/genTech-agent-skills/master/skills/agent-kit/<skill>/SKILL.md
+git log -1 --format='%h %ci'
 ```
 
-Or take the whole kit:
+## What changed in this release
 
-```bash
-git clone https://github.com/ProtoJay4789/genTech-agent-skills.git
-cp -a genTech-agent-skills/skills/agent-kit/. ~/.hermes/skills/agent-kit/
-```
-
-## A note on what these contain
-
-Every skill here was written after a defect, and most of them say **what broke and what it cost**.
-That is the point — the failures are the instructions. They include our own, by name.
-
-Two things are deliberately **not** here: the private vault, and any credential. If a skill needs a
-key, it reads it from your environment and says so.
+- **Curated to 261 skills** from a 362-skill internal library. Held back: trading venues, the paid product
+  line, people-specific lanes, and housekeeping. The test is on the README: would this make a stranger's agent
+  better without needing our venues, our money or our people?
+- **Seven duplicate pairs merged** — each absorbed body kept verbatim under `references/<name>/`, each survivor
+  carrying an `Absorbed:` line naming what it took in. Nothing deleted to look tidy.
+- **Every dangling reference either recovered or declared.** 0 undeclared dead citations; 31 declared under
+  `## Missing references`, where a reader can see them.
+- **Secret + PII preflight on the published tree:** 0 group ids, 0 mesh IPs, 0 hostnames, 0 credentials.
+  One test fixture legitimately contains a detector pattern; it is allowed by path, with a written reason.
+- **README rewritten.** The previous one described an August 2026 product (identity/execution/audit pillars)
+  that this repository no longer contains.

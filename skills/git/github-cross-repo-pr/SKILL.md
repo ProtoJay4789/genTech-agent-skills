@@ -3,9 +3,27 @@ name: github-cross-repo-pr
 description: Create PRs from a restricted GitHub account that cannot fork via API. Covers manual fork workarounds, shared-history rebase, browser-based PR creation, and troubleshooting comparison failures.
 ---
 
-# GitHub Cross-Repo PR — Restricted Account Workflow
+# GitHub Cross-Repo PR — opening a PR against a repo you cannot push to
 
-Use this when the user's GitHub account cannot fork a repo via API ("You cannot fork this repository at this time") and needs to submit a cross-repo pull request.
+Use this when the fix lives in a repo where your account lacks `push`. **Whether you also need the manual-repo
+workaround is a separate question, and it is answered by one API call — not by anything written in this file.**
+A fork refusal is account STATE, not a durable property of the account: measured, an account recorded here as
+fork-blocked returned **202** on a later attempt. Never read a previous refusal as a standing fact.
+
+## Step 0 — one call decides the whole workflow
+
+```bash
+curl -s -o /tmp/fork.json -w '%{http_code}\n' -X POST \
+  -H "Authorization: token $TOKEN" -H 'Accept: application/vnd.github+json' \
+  -d '{"name":"<REPO>"}' https://api.github.com/repos/<ORG>/<REPO>/forks
+```
+
+- **202** → a real fork now exists at `USER/<REPO>`. Skip Steps 1-5 entirely: push the branch there and open
+the PR with the API (Step 6). This is the common case and it costs one request.
+- **403 `You cannot fork this repository at this time`** → fall through to the manual-repo path below.
+
+**`permissions.push: false` (a `pull`-only repo) says nothing about forking.** Check `/repos/<ORG>/<REPO>` for
+`push` to decide whether a fork is needed at all, and for `allow_forking` before assuming a refusal.
 
 ## Prerequisites
 
@@ -71,6 +89,105 @@ Before clicking "Create Pull Request", check that:
 
 Title: `<type>: <brief description>` (e.g. `feat: add compliance plugin`)
 Body: Brief description of what was built and why.
+
+**When Step 0 returned a real fork, create the PR by API** — no browser, no compare URL, no dropdown:
+
+```
+POST https://api.github.com/repos/<ORG>/<REPO>/pulls
+{ "title": "<type>: <subject>", "head": "USER:<branch>", "base": "main",
+  "body": "<read from a file, never retyped>", "draft": true }
+```
+
+**Open `draft: true` by default.** A repo whose CONTRIBUTING says *"do not open a non-Draft PR until you have
+personally verified the generated code"* is telling you the draft IS the review state — the human un-drafts.
+Opening non-draft on an AI-assisted change spends the maintainer's trust on the first impression, which is the
+one thing a first contribution cannot buy back.
+
+### Step 7: Clean the commit BEFORE pushing, then verify the PR from outside
+
+**`git add -A` commits your own working files.** Measured: a `PR_BODY.md` written beside the clone rode along
+into the commit, and the diff showed it as a new file. Check and fix before the push, not after:
+
+```bash
+git show --stat --oneline HEAD          # expect ONLY source and test files
+echo 'PR_BODY.md' >> .git/info/exclude  # keep it out without editing the tracked .gitignore
+git rm --cached PR_BODY.md && git commit --amend --no-edit
+```
+
+**The create response is a claim; the GET is the receipt:**
+
+```
+GET /repos/<ORG>/<REPO>/pulls/<n>
+# state=open · draft=true · mergeable · changed_files · additions/deletions
+# head.repo.full_name must be YOURS · base.repo.full_name must be THEIRS
+```
+
+A PR opened against the wrong base, or silently non-draft, looks identical in the URL you constructed. Report
+the numbers from the GET, not from the POST.
+
+### Step 8: Some repos reject unsigned commits — and auto-close on a timer
+
+**A PR that opens successfully can still be unmergeable, and the bot that says so does it in a comment that
+looks like boilerplate.** Check for a commit-signature requirement in the same pass as the CONTRIBUTING read,
+and again from the PR's own comments after opening.
+
+A verified-commit gate typically says: *the team will not review until ALL commits are verified, and the PR
+will be closed after a week of inactivity.* Nothing in the PR's visible state announces this — `state: open`,
+`draft: true`, `mergeable: true` all stay true while the clock runs. Watch the PR after opening rather than
+assuming silence means review.
+
+**SSH signing needs no gpg.** `git` >= 2.34 signs with an ordinary SSH key:
+
+```bash
+ssh-keygen -t ed25519 -N '' -C "<label>" -f <secrets>/signing/id_ed25519   # keep private half off any repo
+git config gpg.format ssh
+git config user.signingkey <secrets>/signing/id_ed25519     # the PRIVATE key path
+git config commit.gpgsign true
+git commit --amend --no-edit -S                             # sign an existing commit, then force-push
+git log -1 --format='%G?  %GK'                             # G = good, N = could not check locally
+```
+
+**Register the key as a SIGNING key, not an authentication key.** This is the trap that costs a round trip:
+
+| endpoint | what it registers |
+|---|---|
+| `POST /user/keys` | **authentication** only |
+| `POST /user/ssh_signing_keys` | **signing** |
+
+Uploading the same public key to `/user/keys` produces `verification.verified: false` with
+`reason: unknown_key` — the signature is present and cryptographically fine, but the repo has no record
+that this key may sign. A key can be registered in both places; do that rather than choosing.
+
+**Verify from GitHub, not from git.** `git log %G?` returning `N` means only that the local
+`gpg.ssh.allowedSignersFile` is absent — it is not a verdict on the commit:
+
+```bash
+# allowed_signers wants: <email> <keytype> <base64>; without it local check reports N, not a failure.
+GET /repos/<ORG>/<REPO>/commits/<sha>   ->  commit.verification.{verified, reason, signature}
+# want: verified=true, reason="valid". "unknown_key" = registered as auth, not signing.
+```
+
+Only `verified: true` is a receipt. Report that field, never the fact that a force-push succeeded.
+
+### Step 9: opening the PR is not the end of the job — watch what you authored
+
+**An inbound inbox monitor is blind to your own outbound PRs.** A checker that scans *open PRs and issues on
+our repos* will never see the contribution you just sent elsewhere, so a maintainer reply, a requested
+change, a failing CI run or a seven-day auto-close all happen in silence. If the fleet's monitoring is
+inbound-only, add an outbound pass over PRs authored by the authenticated account before treating "no news"
+as good news:
+
+```
+GET /repos/<ORG>/<REPO>/pulls?state=all&sort=updated   -> filter user.login == /user login
+GET /repos/<ORG>/<REPO>/issues/<n>/comments           -> compare ids against stored last-seen
+GET /repos/<ORG>/<REPO>/pulls/<n>/reviews             -> CHANGES_REQUESTED / APPROVED
+```
+
+- **Silence must be earned.** Print a liveness line when a source cannot be read, so "nothing moved" and "the
+  watch is broken" never look identical.
+- **Ignore your own replies** when diffing comments, or the first run reports every thread as new forever.
+- **Record the bot comments you chose not to act on.** A signature gate, a deploy-authorisation request and a
+  licence check all read as noise and all block the PR.
 
 ## Troubleshooting
 

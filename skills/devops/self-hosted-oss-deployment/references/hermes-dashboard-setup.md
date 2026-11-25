@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-05
 **Hermes version:** v0.15.2 (v0.16.0 pending)
-**VPS:** root@100.73.143.15
+**VPS:** root@<mesh-ip>
 
 ## Setup
 

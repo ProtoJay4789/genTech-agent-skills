@@ -69,6 +69,145 @@ a burned address. Replacing the line with a placeholder plus the warning is the 
 Say both facts in the report: **gone from the branch head**, and **still in history** — the scrub is hygiene, the
 rotation is the fix.
 
+## Which account is canonical — measure `owner.type` before you promise a URL
+
+**A repo whose owner name reads like an organisation is not one.** `GET /users/{owner}` returns `type`:
+`Organization` or `User`. A `User` has no teams, no roles, no audit log, and **you cannot be invited into it
+by anyone who is not already that person** — so "fix the permissions in Settings" is advice you cannot act on.
+
+- **Read `permissions` on BOTH candidates and pick the account you can write to.** Measured: two accounts held
+  copies of the same library; the org-looking one answered `push: false` while the personal one answered
+  `push: true`. The advertised repo was the one nobody could maintain.
+- **`GET /orgs/{name}/members` returning `404` is the tell** that the account is a User, not a permissions gap.
+- **A second personal account dressed as an org is worse than an honest personal account**, because every
+  future reader (including you in three months) spends a measurement cycle discovering what the name implied and
+  the account is not. **Say the trade in the report**: the org-shaped name goes away, and in exchange the repo
+  we advertise is the repo we can push to.
+- **Create the canonical copy BEFORE you write the content**, then `permissions.push == true` on the new repo is
+  a measurement taken before the work — not after it. Verifying after the commit means discovering there is
+  nowhere to push with the commit already built.
+- **History carries.** `git fetch --unshallow` before the first push to a new home, so provenance survives the
+  move. A one-commit "new" repo loses the record that the work has been maintained for months.
+
+## Publishing a SUBSET of a library
+
+When the repo is a library and only part of it may go public, the split is a decision with a written test, not
+a keyword filter.
+
+- **State the test in one sentence and reuse it for every borderline file.** Ours: *does it need our
+  infrastructure, our wallets, or our people?* A test a reader can apply is what stops the next pass from
+  re-litigating each skill.
+- **Withholding something ALREADY public is a REMOVAL.** The publish list and the withhold list are computed
+  against different baselines: a path in the repo but not on the keep list is a delete, and a delete is
+  irreversible-looking to anyone who installed it. **Name the paths, name the commit where they remain
+  recoverable, and offer to restore any of them** — that is the difference between a curation and a disappearance.
+- **A typo'd published path is a RENAME, not a delete.** Deleting the misspelled directory without adding the
+  correct one silently shrinks the public library by one. Check every orphan against the live tree by
+  *similarity*, not by exact name, before removing it.
+- **Classify by category, then spot-check the exceptions inside a private category** — one generic skill often
+  sits in a category you are withholding wholesale, and one internal skill sits in a category you are
+  publishing. Publish/withhold at directory level, then override file by file.
+- **Decide twice, in two places, and the run will disagree with the announcement.** Measured: a category was
+  announced as publishing, then withheld by a list in the publish script; only checking the published tree
+  against the stated expectation caught it. **Verify against the EXPECTATION you told the user, not against
+  the script's own log.**
+
+### Publishing a GENERATED subset of a private brain — allowlist, never a scrub
+
+**The tempting shape is a copy with the personal material deleted. It cannot work**, for two independent
+reasons:
+
+- **A denylist cannot prove a negative.** Deleting everything a filter catches answers only *"nothing I
+  thought to look for is in here."* Measured over a ~7k-file vault, a travel/address classifier flagged
+  ~720 files because the routing doc names a city and every runbook mentions a flight — **wrong in both
+  directions**, so the copy is either useless or not actually safe.
+- **A copy drifts.** Two trees within a week, and the public one is the stale one nobody trusts.
+
+**Build it as a one-directional GENERATED publication from a small allowlist** — default private, a file
+ships because a human named it, the remote is regenerated rather than hand-edited.
+
+Three gates, each proved in **both** directions before the first render:
+
+1. **Path gate.** Every allowlisted path must resolve *inside* the root (reject `../` and symlink
+   escapes), match an allowed extension, and clear a veto list of directory/name fragments (secrets,
+   backups, keys, `.env`, tokens). Prove it refuses a traversal path as well as accepting a good one.
+2. **Secret gate, whole-build refusal.** A hit on ANY file refuses the ENTIRE build, not just that file.
+   *A publication of 39 clean files and 1 leak is a leak.*
+3. **Human read — a LIST, not a gate.** Print every personally-identifying or judgement-carrying line
+   with file and line number, and let it block nothing. A tool that claims to make that judgement is
+   lying, and the next reader believes the lie.
+
+**Test the secret patterns against CLEAN text, not only against planted secrets.** A card-shaped pattern
+`\b(?:\d[ -]*?){13,16}\b` matched a date range and a chat id and refused two clean files. Narrow to the
+real shapes (16 contiguous digits, `4-4-4-4`, `4-6-5`) and keep a fixture containing BOTH planted
+positives and known-clean negatives. **A gate that cries wolf gets switched off, and a switched-off gate
+protects nothing.**
+
+**Replace people with ROLES, not blanks.** In a published method doc, name collaborators
+`orchestrator-1`, `orchestrator-2`…. The document still reads as a working system and carries no one's
+identity; a doc full of `<omitted>` is broken for the reader and still leaks the shape of what was there.
+
+**Never render into a live repo on the first run.** Render to a scratch tree, have the human read the
+handful of lines that actually need a decision, then create the remote.
+
+Gate implementation, fixtures and the review-pass output shape:
+`references/generated-publication-from-private.md`.
+
+### Keeping the published copy honest after the first push
+
+A public library drifts from the live one silently, because nothing links them. The check, the withhold-list
+semantics and the cron wrapper that stays silent when in sync: `references/published-vs-live-drift.md`.
+
+## Branch patchwork across an account
+
+**Survey before touching: list every repo, then its branches.** Two classes, and only one is yours.
+
+- **Duplicate `main` + `master` on a repo we own is a defect, and the stale one is not always the non-default.**
+  Measured: `master` carried 58 directories at this month's commit while `main` carried **2 directories from
+  five months earlier**. Visitors land on the default branch and see the right tree — but every `main` URL, every
+  copy-pasted install command and every cached link serves the relic. **Pick the trunk by commit date AND tree
+  size, not by name, then document the choice in the README and point the old branch at it.**
+- **Fork and PR branches are not yours to tidy.** A fork's branches belong to upstream pull requests; pruning
+  them breaks open PRs and makes us bad citizens. **The rule: fix repos we own, leave forks alone** — and say
+  which repos you classified as forks so the next audit does not re-open it.
+- **A default branch from over a year ago is the loudest signal** that the real work lives on a feature branch.
+  Read the branch dates, not the names.
+
+## Publishing an INTERNAL SYSTEM as a portfolio repo
+
+A repo that packages something already running is a different artefact from a library release: the code is not
+the claim, **the shape of the work is**. Build it so a stranger can grade the engineering in ninety seconds.
+
+- **Publish under the person, not the org, and credit the org in the README.** A CV points at a human profile;
+an employer evaluates the candidate, and a company page is a company. State the decision rather than leaving the
+account choice implicit, and put "built while operating <org>" in the second paragraph so the work is attributed
+without being filed under a business.
+- **The README opens with the problem, never with the stack.** One paragraph naming the failure the system exists
+to prevent, then the architecture image, then the table of what each component answers. A reader who meets the
+service list first cannot tell whether the author had a reason for any of it.
+- **Name the author in the file.** A portfolio repo with no named author is a code dump; one line saying who built
+it and under what circumstances is what converts a repo into evidence.
+- **Grade it against the five things a reviewer actually checks:** did it cost money and was cost considered · are
+permissions locked · is there monitoring and logging · can the author explain each decision · **is there a written
+record of what broke**. The last one is the scarcest and the easiest to supply from real work — link the incident
+notes rather than summarising them.
+- **Ship a "what I would do next" section that names your own defects.** The next interview question is *what is
+wrong with it*, and a stated gap beats a discovered one. If the alarm watches a metric nothing publishes, or the
+monitor reports through the channel it monitors, write it down and say which defect class it belongs to.
+- **Label an unexercised artefact honestly.** An IaC module that validates but has never been applied is
+**"validated, not applied"** — a hypothesis about the provider, not a fact about it — and saying so is stronger
+than a screenshot of a console the author cannot open. Never imply a deploy that did not happen.
+- **Choose the licence by audience, then name a person in the copyright line.** For a small tool read by hiring
+managers, the short permissive licence everyone has already read is right; a long patent-grant licence buys
+protection this artefact does not need and reads as corporate overhead. Do not pick a licence on the author's
+behalf if the copyright holder is ambiguous between them and their company — ask, then write it.
+- **Run the stranger test before announcing it: clone to a cold directory and execute the entry point.**
+`git clone <url> /tmp/<name> && cd /tmp/<name> && <entrypoint>` — plus confirm the README's image and any linked
+asset resolve from the clone. A repo that works in the authoring tree and not from a fresh clone fails exactly
+the reader this artefact exists for, and nothing in `git push` reports it.
+- **Leak-scan the staged tree as a stranger would read it**, then verify visibility logged out — both already
+covered above; a portfolio repo is public by definition, so the scan is not optional here.
+
 ## Publishing rules (a public repo is a claim)
 - **A dead link is worse than no link.** Every advertised URL should be tested: a README that says "Live"
   beside a 404 is the first thing a reviewer checks, and it invalidates the rest of the page. If a
@@ -286,3 +425,35 @@ A delete is irreversible and the user often names one repo while a dead initiati
 - **Publishing before measuring.** A remote makes the content live; a secret in the first commit is in
   history forever.
 - **Judging public visibility from an authenticated call.** Owner-visible ≠ publicly visible.
+- **Treating a repo's NAME as its role.** A name that reads like an org is not one until `owner.type` says so;
+  a fork you remember creating may now be the canonical copy. Measure the object, then describe it.
+- **Publishing a directory because an earlier sync published everything it could see.** An auto-sync sets the
+  baseline, not the policy — every path it pushed is a decision that defaults to *public* until someone
+  reverses it visibly.
+
+## Learned on gentech (merged 2026-11-24)
+
+> Promoted verbatim from the seat that learned it. Kept separate on purpose: this is a second writer's evidence, not a rewrite of the section above.
+
+## Three or more published copies — the drift check is unreadable until ONE is canonical
+**Two copies is a canonicality question; three is a naming mess, and a drift checker aimed at one of them
+reports findings that cannot be acted on.** Measured: the same skill library was published under three owners
+with different ages and counts (314 / 174 / 176 entries against 369 live), overlapping descriptions, and no
+fork relationship between any pair. The drift job watched the 314 copy and correctly reported 14 missing + 58
+stale — while a reader had no way to tell whether "missing" meant *not yet published* or *published in a
+different repo*.
+- **Before acting on any drift report, ask how many copies of the artifact exist and which one the checker
+  names.** Print the repo + count in the report itself; a drift verdict without its target is a rumour.
+- **Pick ONE canonical copy and make the others a pointer**, not a rival: archive the duplicates with a README
+  that names the live one. Three live copies guarantee that whichever one a stranger finds is stale.
+- **Rank candidates by what actually helps a reader** — the furthest-ahead count, plus `permissions.push ==
+  true` for the account that will maintain it — and say the trade out loud when the best-populated copy lives on
+  a personal account while the org-shaped one cannot be pushed to.
+- **A change to the source library must include its publish step, or the drift returns forever.** Publishing is
+  part of the change: if the edit lands in the working copy and not in the canonical repo, the next check reports
+  drift that was created by the fix itself. Either wire publishing into the same pass or have the tooling say
+  loudly that it did not publish.
+- **Distinguish "withheld" from "missing" before publishing a batch.** A drift list is computed against every
+  file; the publish list subtracts deliberate exclusions. Merging the two turns a decision into an apparent gap
+  and invites publishing something the operator chose to keep private.
+

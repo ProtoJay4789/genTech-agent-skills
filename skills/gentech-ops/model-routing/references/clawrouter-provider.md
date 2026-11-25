@@ -137,7 +137,7 @@ from gateway.session import SessionStore
 from pathlib import Path
 import gateway.config as gc
 store = SessionStore(Path('${PROFILE_DIR}/sessions'), gc.GatewayConfig())
-key = 'agent:main:telegram:group:-1003863540828:7105876857'  # <session_key>
+key = 'agent:main:telegram:group:<telegram-group-id>:7105876857'  # <session_key>
 print('current:', store.get_model_override(key))
 store.set_model_override(key, None)   # None clears the persisted override
 print('after:', store.get_model_override(key))
@@ -162,7 +162,7 @@ Labs, Entertainment). Each group only differs by its `channel_prompts:` entry. S
 the provider/default model is set, **all four groups inherit it automatically** — there
 is NO per-group model wiring. To verify coverage, just confirm the 4 group IDs are all
 present in `channel_prompts:` (grep with `-F` because the `-100...` IDs parse as flags:
-`grep -qF -- "-1003863540828" config.yaml`). Restart the gateway once and every group is
+`grep -qF -- "<telegram-group-id>" config.yaml`). Restart the gateway once and every group is
 on the new provider.
 
 ## Jordan's routing plan (as of Aug 7, 2026)

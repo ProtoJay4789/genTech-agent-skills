@@ -1,6 +1,6 @@
 ---
 name: demo-video-production
-description: "Automated demo video pipeline: html-video (HTML→MP4 via agent + 21 templates) as primary, HyperFrames for custom GSAP compositions, Remotion as legacy fallback. Natural language or GitHub repo link → polished MP4. Covers hackathon demos, product promos, portfolio showcases, and social content."   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `hackathon` exists on this seat -->
+description: "Use when making a demo video, promo or explainer MP4."
 version: 2.0.0
 author: Gentech
 tags: [demo, video, html-video, hyperframes, hackathon, automation, ffmpeg, templates]
@@ -227,6 +227,20 @@ command you actually ran or a value you actually read.
    Claiming "I verified the video" after checking one channel is the same class of false receipt as reporting
    a wake that never landed.
 
+10. **Make the renderer RE-VERIFY every on-screen figure and refuse to render when one has drifted.**
+   A video is a set of numbers frozen in time while the numbers underneath keep moving. Put the probe inside the
+   build script — read the live source, compare against the values the frames print, and **exit non-zero before
+   the first frame** if they disagree. Measured: a build that hardcoded nothing still went stale in three fields
+   within a day (a byte budget, a route count, a tool count), and the file stayed honest only because the build
+   refused. "Remember to re-check" is not this; the gate has to be arithmetic.
+11. **A stated COUNT must equal the length of the list printed under it.** One frame read *"wrong four times"*
+   over a three-item list — a self-inflicted credibility leak on the one frame whose entire purpose was
+   credibility. Count programmatically when the list is generated; when it is hand-written, read the rendered
+   still back and count. **The reader who counts is the reader you are trying to convince.**
+12. **Read back EVERY frame, not a sample.** Extract one still per frame and transcribe it with
+   `vision_analyze`. Sampling frames 2, 4 and 7 is how a wrapped tally, a checkmark off the right edge, or a
+   three-for-four list ships: a successful render proves the encoder ran, never that the text landed.
+
 `templates/measured-demo-renderer.py` is a working starting point: textfile-based frames, per-frame durations,
 concat, and an `ffprobe` duration read-back.
 
@@ -252,6 +266,40 @@ frame the narrator is describing something that left the screen ten seconds ago.
    paragraph adds seconds per comma. Rewrite the script into short sentences and apply a slowing factor
    (0.90–0.97); raising `speed` past ~1.2 is the one edit that destroys the cadence the brief asked for.
    Landing the slot exactly is a pad→trim→fade→`loudnorm` step on the joined track, not a fractional tempo.
+
+6. **`atempo` ABOVE 1 SPEEDS UP — so the correction factor for a fast clip is `target/measured`, never the
+   reciprocal.** One read came back spanning 128–191 wpm (two narrators, not one); the fix is per-clip
+   normalisation toward a common target (`tempo = TARGET_WPM / measured_wpm`), clamped to ~0.85–1.20 so no
+   clip is audibly stretched to hit a number. Written the other way round (`measured/target`), the fastest
+   clip got faster and the spread widened — the arithmetic of the fix is the thing to check, not the result.
+   A deliberate explanatory read lands ~150 wpm; measure `words / (duration/60)` per clip before and after and
+   report both spreads, because "it sounds fine" is how a 63-wpm spread ships.
+
+7. **Resolve the voice ID from the account's own voice list before synthesising.** A TTS 404 is a wrong id far
+   more often than a dead account: `GET /v1/voices` and match on name, then one short probe sentence. Do not
+   retry the same id with a different model and call the lane broken.
+
+8. **Choose the voice by MEASURED noise floor, before a single frame is rendered — a clone inherits the room it
+   was recorded in.** Synthesise one identical sentence in every candidate voice, decode to PCM, and take the
+   mean level of the quietest ~10% of 20 ms frames: that is the level *between phrases*, which is where a room's
+   hum lives. Peak-over-floor is the SNR you are actually shipping.
+   Measured on one account: two pre-made voices sat at 46 and 45 dB, while the cloned voice the operator had
+   picked measured 26 dB with a floor **8.6×** higher — audible as a steady fan, and the operator heard it before
+   any measurement did. **No `atempo`, `loudnorm` or EQ removes a constant; it only makes the constant louder.**
+   Prefer a pre-made/library voice for anything scripted and long; reserve clones for content where the identity
+   is the point. **Do not delete a noisy clone as the fix** — deleting removes the evidence, not the defect;
+   retrain from a clean capture, and probe the SOURCE before ever building the next clone.
+   The probe, the scoring loop and the interpretation table: `references/voice-quality-probe.md`.
+
+9. **Pre-flight the SOURCE recording before a clone exists — a clone can be scored and still be born from a bad
+   room.** Run `scripts/clone-preflight.py <file|--dir>` on every candidate recording: it returns GOOD / MARGINAL /
+   REJECT from floor, peak, SNR, clip %, DC offset and longest natural pause (SNR ≥ 45 dB clone it · 35–45 denoise
+   then re-measure · below 35 re-record; any clipping or DC offset is an automatic REJECT). Two numbers that look
+   contradictory are answering different questions: a real hand-recorded collaborator source measured **MARGINAL at
+   43.5 dB with a floor of 22** while the clone later produced from that identity measured **58.5 dB clean** — the
+   clone is a synthetic re-render, so a good clone score never proves the recording was good, and a MARGINAL source
+   does not condemn a clone that already sounds right. Pre-flight decides whether to SPEND; the finished-voice
+   ranking decides what to SHIP. Report both, and never quote one as evidence for the other.
 
 Full procedure with the filter graph and the mux commands: `references/voice-timed-frames.md`.
 

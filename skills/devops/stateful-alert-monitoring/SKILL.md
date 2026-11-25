@@ -622,3 +622,5 @@ it is measuring the derivation, and it will be right up until the moment the der
 `03-Strategies/scripts/defi-master-cron.py` (post-enhancement) — watch for this file to appear with stateful debounce logic.
 
 *Last updated: 2026-05-07 20:25 UTC — Added §9a "Suppress-Until-Resolution Pattern" (Jordan's alert-once-per-condition preference). Added reference: suppress-until-resolution-case-2026-05-07.md with implementation details and comparison table.*
+
+**Absorbed:** `signal-watcher-monitor` — its full body and references now live at `references/signal-watcher-monitor/signal-watcher-monitor.md`. Do NOT re-create `signal-watcher-monitor` as its own skill: it is this one.

@@ -2,7 +2,7 @@
 """Read-only chat-room membership probe (Telegram Bot API).
 
 Usage:
-  python3 room_membership_probe.py --chat-id -1001234567890 \
+  python3 room_membership_probe.py --chat-id <telegram-group-id> \
       --registry /path/to/mapping.json [--env /path/to/profile/.env]
 
 Prints the room identity, member count, admin list, one line per registry person, and the count

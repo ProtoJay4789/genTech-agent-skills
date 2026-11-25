@@ -30,7 +30,9 @@ skill exists to prevent.
 - You found one seat's work missing and are re-dispatching after a cut-off.
 
 For sending a short message or a checkpoint, use `agent-to-agent-messaging` instead. This skill is about
-*handing over work*.
+*handing over work*. **For a user message that arrives MID-TURN while you are already executing, the rule
+lives in `session-hygiene`** — it is additive and does not cancel the running task; abandoning the task is
+the defect, not the message.
 
 ## Step 0 — Pick and MEASURE the channel before relying on it
 

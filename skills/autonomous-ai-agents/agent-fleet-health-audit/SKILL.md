@@ -150,7 +150,7 @@ references:
     description: "Detecting jobs with missing profile assignments (profile: ? or null) that block cron dispatch"
   - path: references/bytecode-corruption-recovery.md
     description: "Step-by-step: diagnose marshal errors, clear __pycache__, restart gateway processes"
-  - path: references/credential-failure-thresholds.md
+  - path: references/credential-failure-thresholds.md *(reference not shipped with this release — the body was consolidated and the file was not carried across; treat the guidance above as complete)*
     description: "Error count thresholds for escalation (YoYo>2500, DMOB>500, Gentech>1000 total errors) and fleet-wide TTS credential rotation"
   - path: references/operational-patterns.md
   - "Error accumulation thresholds: agents with >500 total historical errors (especially >100 recent) are critically degraded; prioritize credential rotation and gateway restart before investigating individual job failures"
@@ -201,3 +201,9 @@ Multiple agents failing? → Check systemic layer first:
 
 ## Reference Signals
 See `references/systemic-failure-patterns.md` for canonical error patterns and their fleet-wide implications.
+
+## Missing references
+
+The following paths are cited above but are not shipped with this release. They were written on our own seat and belong to work that was never published. The guidance in this skill stands without them.
+
+- `references/credential-failure-thresholds.md`

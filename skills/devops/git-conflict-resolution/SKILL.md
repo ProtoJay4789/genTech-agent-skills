@@ -490,7 +490,7 @@ git pull --no-rebase origin main
 git push origin main
 ```
 
-**See also:** `references/git-divergence-resolution-dual-agent-2026-07-06.md` in `agent-to-agent-communication-audit` skill   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `agent-to-agent-communication-audit` exists on this seat -->
+**See also:** `references/git-divergence-resolution-dual-agent-2026-07-06.md` in `agent-to-agent-communication-audit` skill   <!-- ⚠️ not installed (checked 2026-11-17): no skill named `agent-to-agent-communication-audit` exists on this seat --> *(reference not shipped with this release — the body was consolidated and the file was not carried across; treat the guidance above as complete)*
 
 ### Pitfall 8: Stash Pop Conflicts Get Committed — Corrupted JSON in Cron Workflows
 
@@ -1073,3 +1073,9 @@ git -c rebase.autoStash=true pull --rebase
 
 - **Case Study:** `references/protojay-github-conflict-case-study.md` — Complete analysis of real-world Git conflicts in gentechlabs.github.io repository with 5 concurrent cron jobs, timing overlaps, and concrete fix recommendations
 - **Cron Stash-Pop Recovery:** `references/hub-sync-stash-pop-recovery-pattern.md` — Hands-on recovery from corrupted JSON file (>100 merge conflict markers) committed by nightly hub sync cron job, including diverged branch resolution and prevention techniques
+
+## Missing references
+
+The following paths are cited above but are not shipped with this release. They were written on our own seat and belong to work that was never published. The guidance in this skill stands without them.
+
+- `references/git-divergence-resolution-dual-agent-2026-07-06.md`
