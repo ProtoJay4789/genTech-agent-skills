@@ -164,6 +164,37 @@ finding.** Five in one day (2026-10-01), each producing a confident wrong answer
 **THE RULE: before asserting on an identifier, READ it — the signature, the record's keys, or the variable's
 source.** One line each. **When a check surprises you, suspect the name you used before you suspect the system.**
 
+### ⚠️ The same name can resolve to two different things in two lookups — verify at the PUBLISHING surface
+
+**A helper that accepts aliases will happily resolve a key the real caller never passes.** Measured: a fix keyed on
+the short URL segment (`gas`) was "verified" by calling the resolver directly with that segment, which looked it up
+through an alias table and returned the corrected value — while the actual renderer iterated the manifest and passed
+the long key (`gas_oracle`), so it matched nothing and the published output never changed. Two correct-looking
+results, one dead fix, and only the second restart exposed it.
+
+- **Exercise the function the ROUTE calls, with the arguments the route passes** — import the app, call the real
+  handler, and assert on its output. Calling an inner helper is a unit test of the helper, not proof of the surface.
+- **When a lookup accepts several forms, print which form the caller used.** If your verification and the caller
+  disagree about the key, the fix is invisible.
+- **Re-verify after the restart, from outside**, because a passing pre-restart test plus a stale process is
+  indistinguishable from a failing fix.
+
+### ⚠️ Resolve live state by MTIME — a hardcoded id goes stale the moment the system is re-created
+
+**Any path keyed by an id the system can regenerate (vault id, session id, build dir, profile clone) is a latent
+time bomb: re-creating the object mints a new id and leaves the old directory on disk, frozen.** A checker pointed
+at the frozen one keeps reading a dead file and reports confidently forever. Measured: a sync log six days cold was
+quoted as "the transport is down" while a probe file uploaded in the same minute.
+
+- **Pick by `max(glob(...), key=os.path.getmtime)`**, print the resolved id and the artifact's age, and return
+  `UNKNOWN` — never "healthy" — when the freshest one is itself stale.
+- **Missing evidence and stale evidence are the same verdict.** If the probe cannot see what it needs — no
+  process visible, `Permission denied` on `/proc/<pid>/environ`, no matching log — the row is `UNKNOWN`, not a
+  pass. Measured: a liveness table printed `✅ live` for four seats while its own start-time column read
+  `not found`; every passing row was a conclusion drawn from an absent measurement.
+- **A stale-input check is a check on the INPUT, not just the output.** "Fully synced" in stdout says the run talked
+  to the server; it says nothing about whether the file other tools read is the current one.
+
 **Why this deserves its own section:** every other trap in this skill is about a system that lies. This one is
 about *you* lying to yourself with a tool that is working perfectly — and it is worse, because the evidence
 looks real. A wrong finding costs a peer a teardown and costs you their trust in your next one.
@@ -275,6 +306,31 @@ after   : <metric> at <value>            # same query, same window definition
 **Compare the process start time against the file's mtime.** `ExecMainStartTimestamp` older than the file
 you just edited means the running process is serving the previous bytes — and every behavioural probe you
 run will describe the OLD code while the disk describes the new one.
+
+### When you cannot exec into the container, make a VISIBLE STRING the change detector
+
+**The cheapest restart proof is a string you deliberately published, observed from outside.** If the old
+build emits an error/hold/banner text and the new build emits a different one, then that text changing on
+the wire proves the code loaded — no shell, no PID, no start timestamp required.
+
+```bash
+# before the restart — capture the exact string the OLD build serves
+curl -s https://host/<held-route> | grep -o '<the old message>'
+# restart …
+# after — the string must DIFFER, and the unrelated endpoints must still be green
+curl -s https://host/<held-route>   # new text
+curl -s -o /dev/null -w '%{http_code}' https://host/status      # collateral check
+```
+
+- **Choose a string that only the new bytes can produce** — version banner, hold reason, error detail.
+  A generic `200` proves nothing; an unchanged message proves the restart was a NO-OP, which is the failure
+  mode this whole section exists for.
+- **Say it as "the string changed", not "it restarted"** — the restart is the action, the changed string is
+  the evidence.
+- **When there is no such string, create one before the next deploy:** a build/version field in a health or
+  status payload. A deploy you cannot observe from outside is a deploy you cannot verify.
+- **Do not confuse it with a config read.** Config echoing the new value while the process still serves the
+  old behaviour is the common case; only the served output settles it.
 
 **An outsider changing behaviour is the strongest evidence available.** Measured: a published-surface fix
 had been staged on disk for hours and every surface *read* correctly, so file reads were uninformative. The
@@ -586,16 +642,6 @@ changed our responses from `307` to `402` — a crawler could not see a challeng
   settle plan would have cost real money to test a model that was already disproved in our logs.
 
 - **Never read `ls` of a folder root as 'there is nothing here'.**
-- **A hash quoted in a note or commit message goes stale the moment the file changes
-  again — quote the COMMIT instead.** `git show <commit>:<path>` always resolves to
-  exactly what you measured; a bare md5 cannot, and the reader has no way to tell whether
-  they are testing your revision or a newer one. Two agents can each be right and still
-  disagree, purely because the artifact moved between their measurements. When handing an
-  artifact to another seat: name the commit, state the size, and attach the blob.
-- **Before saying a peer's finding is stale, reproduce it against the revision they
-  named.** "Superseded" and "wrong" are different verdicts, and only the reproduction
-  distinguishes them. Confirm their measurement on their revision, then show it closed on
-  the live one.
 - **A hash quoted in a note or commit message goes stale the moment the file changes
   again — quote the COMMIT instead.** `git show <commit>:<path>` always resolves to
   exactly what you measured; a bare md5 cannot, and the reader has no way to tell whether

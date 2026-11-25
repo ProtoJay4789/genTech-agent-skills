@@ -130,6 +130,26 @@ right**. Make simulation-vs-formula agreement the acceptance test.
    *Tell:* when a fix is small, cheap, and mechanical, sweep the WHOLE domain in the same pass --
    two instances found apart are two incidents reported apart.
 
+12. **unrepresentable-state** -- the field's TYPE cannot express the state the caller asked for, so the
+   code silently substitutes a default and no internal rewrite can recover it. Measured: a setting
+   passed as `SyncFacilitatorOnStart: false` was ignored. The field was a plain `bool`, whose zero value
+   IS `false`, so *"not set"* and *"explicitly off"* were the same value -- and a later
+   `if !x { x = true }` defaulted the caller's explicit choice away. The reporter named a symptom line
+   (`if config.Timeout != 0`, always true because `Timeout` had been defaulted two lines above); the
+   TYPE was the defect.
+   *Rule:* **a two-state field cannot carry three-state intent.** If a caller must be able to say *off*
+   and be distinguishable from *unset*, the field needs a nullable (pointer / `Option` / `nil` sentinel),
+   a sibling presence flag, or an explicit enum.
+   *Check:* grep for fields defaulted by the zero value (`if !cfg.X { cfg.X = true }`,
+   `if timeout == 0 { timeout = D }`) and ask what a caller who set the zero value meant. The decisive
+   question is **"can the PUBLIC API construct a distinguishable `off`?"** -- if not, that is the finding,
+   and the report must say so instead of naming the symptom line.
+   *Tell:* a fix that restructures the surrounding block while keeping the original condition restates
+   the bug. Instrument the computed VALUE, not the output; see `falsifiable-tests`.
+   *Cost note:* making the field nullable is a BREAKING change to every literal that sets it. Count those
+   call sites and state the number before proposing it -- a maintainer's decision rests on that count,
+   and "it's a small fix" is false at 12 sites.
+
 ## Seam rules (where these bugs actually live)
 
 - **A guard implemented STRICTER than its purpose turns a small miss into a total outage.**

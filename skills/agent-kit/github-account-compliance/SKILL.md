@@ -111,6 +111,57 @@ Every one of the four STOP rules was broken. Full write-up:
 **The lesson is not "be careful." It's: these rules must be in front of you at the moment of action.**
 That is why this skill is loaded on GitHub work rather than filed in a handoff somewhere.
 
+## Two tokens are two ACCOUNTS — resolve the identity BEFORE every write
+
+A write does not just change a repo; **it speaks in someone's name.** Owning two token files is not two keys
+to one door, and treating them as interchangeable produces both failure modes at once:
+
+```
+<token A>  → GET /user → ProtoJay4789   push ✓ ProtoJay4789/*   push ✓ Gentech-Labs/*
+<token B>  → GET /user → GentechLabs    push ✓ GentechLabs/*    push ✗ Gentech-Labs/*
+```
+
+Note the owner names: **`GentechLabs` and `Gentech-Labs` differ by one hyphen and are different owners**, with
+completely opposite permissions. A comment posted on an org repo with the personal token does not merely
+fail — where it succeeds elsewhere it reads as *the person* speaking for the company, which nobody authorised.
+
+**Pre-flight, every write, all three steps:**
+
+```bash
+# 1 · who is this token?
+curl -s -H "Authorization: token $T" https://api.github.com/user | jq -r .login
+# 2 · may it write HERE?  (the gate, asked of the API, not assumed from the owner's name)
+curl -s -H "Authorization: token $T" https://api.github.com/repos/<owner>/<repo> | jq -r .permissions.push
+# 3 · then write, spaced, against the budget in this file
+```
+
+- **Map owner → token in code, not in your head.** One dict, keyed by the repo owner, so the identity is a
+  property of the call. A module-level `TOKEN = …` is a single-voice design that silently answers as the wrong
+  account the first time it is used outside its original repo.
+- **A permission preflight must be able to FAIL.** Ask GitHub; cache per repo; refuse before attempting. A
+  comment that 403s after a perfect-looking draft wastes the turn, and a successful write as the wrong account
+  is worse than the 403.
+- **Never let a bare chat/user id stand in for an identity.** The same reflex applies everywhere: a target, a
+  sender or a token must be qualified by its system.
+
+## Speaking to strangers: inbound is ours, outbound is not
+
+**The line is ownership of the repo, not the direction of the message.** A PR *from* a stranger *into* our repo
+is a customer question and answering it is the maintainer's job. A PR *from* us *into* someone else's repo is a
+contribution, and it stays human — their rules, their reputation, one open contribution at a time.
+
+- **Gate a reply tool on the repo owner**, as a hard refusal that names the reason, not a prompt instruction.
+- **Gate it on the claim, too.** A reply that states a fact ("we support X", "it's live", "$N/month") must
+  carry a line from something we publish; otherwise escalate it to a human with the draft attached. A bot that
+  invents a capability to a customer is a fabricated receipt pointed outward.
+- **Make it idempotent** — key a state file on the message text so a scheduled job cannot post the same reply
+  every morning.
+- **Answer the OPENING MESSAGE when there are no comments.** A thread with zero comments carries its question
+  in the issue/PR body; reading only the comments feed returns empty and reports "cannot read the thread",
+  which is a much more alarming claim than "nobody has replied yet".
+- **Publish the merge decision, don't make it.** Classify such a thread as needing a human, draft it, and say
+  so; merging a stranger's work into a company catalogue is a publication decision.
+
 ## A "200" on your own content proves nothing about public visibility
 
 **An authenticated call shows the OWNER's view — and the owner always sees their own flagged/hidden
@@ -345,3 +396,39 @@ addition so a later reader knows which rules are original and which were appende
 - `devops/github-rate-limit-scheduler` — the budget-aware scheduler that owns repo_create/fork/PR ops
 - `github/github-api-helper` — the helper's API surface and wiring pattern
 - `software-development/open-code-review-cli` — `ocr`, the second-opinion reviewer (gated, cost-aware)
+
+## Learned on arthur (merged 2026-11-24)
+
+> Promoted verbatim from the seat that learned it. Kept separate on purpose: this is a second writer's evidence, not a rewrite of the section above.
+
+### Authenticating the push — and leaving no token behind
+Two failures happen *after* a successful `POST /user/repos`, and both read like auth problems when they
+are something else. Budget the whole creation path as **three writes**: create (with the description
+inline), the push itself (**zero API quota** — git moves bytes), and one `PUT .../topics`. Do not spend a
+fourth call on a `PATCH` for the description you could have sent in the create payload.
+1. **`src refspec main does not match any` is a BRANCH NAME error, not an auth error.** `git init` can
+   still default to `master` while the remote expects `main`. Run `git branch -M main` before the first
+   push. Reading it as an auth failure sends you hunting for a token problem that does not exist.
+2. **`git -c http.extraheader="Authorization: Bearer $T" push` does NOT authenticate to GitHub over
+   HTTPS.** Git still asks for a username and dies with `fatal: could not read Username for
+   'https://github.com': No such device or address` in any non-interactive shell. **Use the token inside
+   the remote URL for the push, then reset the remote to the clean URL in the same command** and assert
+   the token is gone:
+T=$(cat "$SECRETS/github-token-<account>" | tr -d '\n\r ')
+git remote set-url origin "https://x-access-token:${T}@github.com/<owner>/<repo>.git"
+GIT_TERMINAL_PROMPT=0 git push -u origin main      # fails loudly instead of hanging a cron
+ git remote set-url origin "https://github.com/<owner>/<repo>.git"
+grep -c "x-access-token" .git/config || echo "0 token refs remain"   # must print 0
+   **The scrub is the point, not the push.** A token left in `.git/config` is a live credential on disk
+   in a directory that gets copied, archived and (for a mirror job) re-pushed — so the last step of every
+   token-authenticated push is proving the config is clean. `GIT_TERMINAL_PROMPT=0` matters for the same
+   reason: an unprompted credential read blocks a scheduled job forever rather than failing it.
+3. **Then verify visibility logged out** — the section above: an authenticated `200` is the owner's view,
+   and it is the *expected* answer for a hidden account too.
+- **`references/publishing-a-personal-repo.md`** — the PUBLIC, personal-account shape (the opposite of §9's
+  private mirror): confirming which token belongs to which identity, creating with the description inline so
+  the path costs three writes, the stranger-visibility battery, the third content scan for emails / home
+  paths / wallet addresses that a credential-shaped grep misses, and what belongs in a tree that is
+  effectively a job application. The push mechanic itself lives in §9 above — that file adds only what
+  differs when the artifact is a portfolio rather than a backup.
+

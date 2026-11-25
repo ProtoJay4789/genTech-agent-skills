@@ -106,7 +106,11 @@ returns a clean zero — which reads exactly like a verified empty result.
   Relpath first, so the root is `"."` and cannot match its own exclusion token.
 - **Sanity-check a suspicious zero against an INDEPENDENT form of the same question** before reporting
   it — a second script, `search_files (target='files')`, or anyone else's count. A zero that disagrees with an
-  independent count is an instrument fault, not a finding.
+  independent count is an instrument fault, not a finding. **The same holds across PRODUCT SURFACES of one
+  account:** a document-search endpoint returning zero results while the drive listing for the same account
+  and the same mime type returns the file is a broken instrument, not a missing file. Search the sibling
+  surface before telling the user a file does not exist, and say which surface answered — "the sheet search
+  finds nothing" and "there is no sheet" are different sentences, and only one of them is true.
 - **Name the COUNTING UNIT in the claim.** "47 empty folders" was counted at the top level only; the
   same question at any depth was 158, and 2,671 tree-wide. *Folders directly under X* and *directories at
   any depth* are different populations with a threefold gap — say which one you counted, or the reader
@@ -248,6 +252,17 @@ schedule with nothing to run. A manifest is not a backup — assert the payload,
   items from a 30,004-item catalogue is one third of one percent; a `0` found in it is not an absence, it
   is an unexamined population. Search the whole set (walk the offsets), or state plainly that the claim
   covers one page — never that it covers the catalog.
+
+  **And prove the cursor ADVANCES before counting pages as coverage.** A server that ignores `?offset=`
+  returns the identical page every time, so a loop incrementing it reports "N items scanned" while
+  re-reading one page N times: the count climbs, the population never moves, and the `0` that follows looks
+  like a completed sweep of a real catalogue. Measured: a 1,000-row page fetched at four offsets was
+  reported as 4,000 scanned; the true population was 35,206 and the searched-for member was on page 3 —
+  and the finding "we are absent from this catalogue" was sent to the user before the full scan disproved
+  it. **Falsify the cursor with the data, not the counter:** dedupe returned rows by their own id/URL and
+  require the DISTINCT count to grow with each page; the tells of a placebo cursor are `pagination.total`
+  that never changes and the same first id on every page. When a catalogue exposes a search parameter,
+  prefer filtering to it over paging the whole set — but only after the filter itself is proved to filter.
 - **Reporting a field as missing because it was absent from the nested slice you read.** A field declared
   at the item level is not absent because the sub-object you inspected (`accepts[]`, `data[]`, `meta`)
   lacks it. **Dump the whole object's keys before calling a field missing** — a "listed but unbuyable,

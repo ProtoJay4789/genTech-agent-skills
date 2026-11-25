@@ -132,6 +132,33 @@ A probe that returns `0` because the subprocess crashed has converted blindness 
 Treat a missing script, a non-zero-unexpected code, or a timeout as `UNKNOWN` with the reason attached
 — and never fold `UNKNOWN` into the passing count.
 
+### The wrapper is where the contract is most often lost
+
+**A wrapper written to make findings exit 0 will, if nobody looks, also make FAILURE exit 0** — because
+both branches usually close with the same trailing `exit 0`. Measured on five wrappers in one sweep:
+every one printed `… INSTRUMENT FAILED …` plus an explanation and then fell through to success, and one
+never captured `$?` at all. The alarm text was correct and the exit code contradicted it.
+
+**Why the code is the half that matters:** those jobs delivered to `local`, so the printed alarm landed in
+an output file nobody opens. **The exit code is the only signal that reaches health reporting.**
+
+```sh
+if [ "$rc" -ne 0 ]; then
+  printf 'X — INSTRUMENT FAILED  %s\n%s\n' "$(date -u '+%Y-%m-%d %H:%MZ')" "$out"
+  exit 3          # ✅ visible to cron health
+fi
+case "$out" in *"gaps: 0"*) : ;; *) printf '%s\n' "$out" ;; esac   # findings → print, fall to 0
+exit 0
+```
+
+- **Check `$?` FIRST, before matching on the output.** A wrapper that only pattern-matches `$out` cannot
+  tell an empty success from a crashed run that printed nothing.
+- **Audit all three states per wrapper**: clean (0, no output), findings (0, output), instrument broken (3).
+  One missing the third is a monitor that cannot go red — the failure this file exists to catch,
+  introduced by the fix for a different one.
+- **`unreadable` is not `clean`.** A probe that returns success when it could not open its input reports
+  its own blindness as a pass; that is `3`, always.
+
 ---
 
 ## 7 · A probe that fetches your own public hostname must send a real User-Agent
@@ -201,6 +228,97 @@ if status in (200, 202):
    counted as revenue for as long as the probe existed. **Give a non-event its own column**
    (`signpost`, `bot`, `self`, `unknown`) so it is subtracted from the story instead of inflating it.
    **A total that reconciles to its parts is the receipt; a total alone is a guess.**
+
+---
+
+## 9 · Separate FINDINGS from CONTEXT — a list in the output is not a fault
+
+**A probe that counts every non-empty list it produces reports a healthy system as broken.** Measured: a
+health instrument printed `findings 9` for folder structure when the real defect count was zero to one. Its
+keys were doing three different jobs:
+
+- `duplicates`, `dead_redirects` — **findings**: a human must act
+- `similar_names`, `unreferenced`, `shells` — **context**: real observations that are usually fine
+  (`00-HQ/` beside a legacy `HQ/` shares zero filenames; a 73-file `Entertainment/` is a folder, not a fault)
+
+**Keep two key sets and count only one:**
+
+```python
+FINDING_KEYS  = ("duplicates", "dead_redirects")
+ADVISORY_KEYS = ("similar_names", "unreferenced", "shells")
+findings = sum(len(d.get(k, [])) for k in FINDING_KEYS)   # what the verdict reads
+```
+
+**A permanent red light and a permanent green one are ignored identically.** Advisory output may still be
+printed — as context, under its own label — but it must not move the pass/fail number, and it should
+escalate only on CHANGE against a stored high-water mark, never on mere presence. **A backlog that is
+exactly where it should be is not news.** Same rule for anything phrased "N ideas in no handoff", "N files
+unreferenced", "N files without a title": name the population, then ask whether existing is the defect or
+only growing is.
+
+---
+
+## 10 · Scope the sweep — a finding about a BACKUP is not a finding
+
+**An unscoped text sweep finds the system's own copies of itself.** Measured: a proofread check flagged
+files under `backups/`, `memory-archive/`, `patches/`, `_repopulate-*` and a log, then reported "1,380
+files lack a title" — a number that also over-counted vendored docs, redirect stubs and generated public
+copies.
+
+**Every text sweep needs an explicit SKIP list and a stated idea of what a human actually writes:**
+
+```python
+SKIP = ("/backups/", "/memory-archive/", "/completions-archive/", "/patches/",
+        "/venvs/", "/node_modules/", "/.git/", "_repopulate-", "/logs/")
+```
+
+- **A generated or archived artifact is not authored text.** Grading it grades a copy of something you
+  already grade, at a moment you cannot fix it.
+- **Prefer narrowing the population over widening the rule.** The instinct is a bigger sweep; the correct
+  move is a stated scope. **A check that reports 1,380 defects and expects one fix is a check nobody runs
+  twice.**
+- **Accept the shapes authors actually use.** A file whose first line is a plain-text title HAS a title;
+  requiring your own markup (`# `) invents a defect. The title check should pass on either.
+
+---
+
+## 11 · A text check must not reach across a line boundary
+
+**`re.sub(r'"[^"]*"', ...)` applied to a whole document pairs an OPENING quote with the CLOSING quote of a
+later line whenever that line holds an odd number of quotes — swallowing every word in between, then
+"finding" doubled words inside the mangled remainder.** Measured: a doubled-word probe reported `the the`
+on a line that reads correctly, and the chase cost an hour.
+
+**The mechanism generalises to every check that masks spans before matching:** mask **per line**, and make
+sure what the mask leaves behind cannot *create* the pattern you are hunting.
+
+```python
+# ❌ whole-body mask: an unterminated quote eats the next paragraph
+body = re.sub(r'"[^"]*"', " ", body)
+
+for _line in body.splitlines():
+    _s = re.sub(r'"[^"]*"', "", _line)          # ✅ per line
+    _s = re.sub(r"[ \t]{2,}", " ", _s).strip()   # ✅ collapse what the removal left behind
+```
+
+⚠️ **Removing a span leaves the spaces on BOTH sides of it, and two spaces are enough for a `word \s+
+word` matcher to see a repeat that is not there.** Replace-with-one-space, replace-with-empty and
+replace-with-a-sentinel all reproduce the artefact until the whitespace is collapsed. **Collapse first,
+then judge.**
+
+### When a finding contradicts the file, READ the file — do not edit it
+
+**A probe's output is a claim; the file is the evidence.** Measured the hard way: three successive edits
+were made to "fix" a typo that lived in the probe, not the note — one of them deleted a real paragraph,
+and the "restore" was typed from memory instead of from git.
+
+1. Print the exact line the probe names with `repr()` — control characters and stray whitespace become
+   visible, and most phantoms die here.
+2. Reproduce the match on that line alone, in the same code path the probe uses.
+3. **Restore with `git checkout -- <file>`, never from memory.** A hand-typed restore is a new edit, not a
+   revert.
+4. If the probe was wrong, fix the probe and say so. **A file edited to satisfy a broken check is a
+   regression wearing a repair's clothes.**
 
 ---
 

@@ -120,6 +120,31 @@ and count. **Three calls is not a rate** — if none err, the honest finding is 
 UNMEASURED, not 0%"*, and the contract's value is stated as **a boundary, not a fix for an observed defect**.
 A guard is still worth shipping on that basis; a *claim* of a fix is not.
 
+### 7. The contract is CONTEXT — budget the tool list before you write a word of it
+
+**`tools/list` is the first call an agent makes, so every byte of it is paid before the agent knows whether it
+wants the tool at all.** A schema is not free documentation; it is a toll. Measured on our own server: 11 tools,
+9,188 bytes ≈ 2,297 tokens to describe **ten** endpoints — while a provider serving 2,500 endpoints ships the
+whole API in ~1,000 tokens using two tools (a `search()` over the spec plus an `execute()` for code). Per
+endpoint we were ~250× more expensive to discover, and none of the overage was the contract: 4,496 bytes were
+schemas, and **1,642 characters were our own prose**, including one 150-char payment note repeated on every
+tool.
+
+- **Put the MINIMUM in the list, the DEPTH behind a free catalogue call.** One line per tool (`$0.005/call —
+  Score any token before you swap`); the full pitch, parameters and examples live in a free `list`/`describe`
+  tool and on the docs page. The agent asks for depth after it has decided to care.
+- **Anything repeated per tool is multiplied by the catalogue size.** A shared parameter description belongs in
+  the free catalogue response once, not in eleven schemas.
+- **Keep the parts a checker scores**: names, titles, valid schemas, examples, and capability annotations
+  (`readOnlyHint`/`destructiveHint`). Trim prose; never trim the contract.
+- **Clip at a boundary, never mid-phrase.** Cutting prose to a limit produced `chainId: Numeric EVM chain id,
+  e.g` — shorter and *less useful* than the original. Go sentence → clause → word boundary, then strip a
+  dangling `e.g` / `i.e` / `(`.
+- **Measure before, measure after, and set a byte BUDGET in a guard** so the prose cannot creep back. The names
+  still agree when the list doubles, so no name-comparison check will notice.
+
+Full numbers, the trimming recipe and the budget check: `references/tool-list-context-budget.md`.
+
 ## Pitfalls
 
 - **Silent coercion is the defect, not the convenience.** A reader that converts `"5"` to `5` masks every

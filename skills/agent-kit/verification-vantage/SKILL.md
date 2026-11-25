@@ -115,6 +115,33 @@ output reads as "the tool crashed" rather than "I shot myself." Resolve the targ
 contain. The same shape applies to any broadcast kill/cleanup: **the cleanup step must not be able to
 select the process that is performing it.**
 
+### A loop you disabled is not a loop you measured — probe it with a stimulus
+
+**Config is read at process start, and a running process keeps the value it booted with.** Editing a
+"spawn workers" or "poll and act" flag changes the file, not the behaviour, until that process restarts.
+Measured: a spawn flag was set false and the workers kept being launched on the next tick — the file was
+false, the running process was still true, and only a restart made the file the fact.
+
+**And a quiet loop is indistinguishable from an absent one.** An idle dispatcher and a dead dispatcher
+both print zero. Reading the flag, seeing no activity, and reporting "off" is a claim about a setting,
+not about behaviour.
+
+- **Post the stimulus the loop would act on, then wait one FULL interval.** Create the thing it would
+  claim or pick up, wait longer than its tick (a 60-second tick needs more than 60 seconds, not "a few
+  seconds"), and assert **absence of effect**: no worker process, no state transition, no run record.
+  A live loop would have failed that test — that is what makes the quiet a measurement.
+- **Pair it with the state it would have moved.** The stimulus must still be sitting in its original
+  state afterwards. "Nothing spawned" alone can also mean the stimulus was invalid.
+- **Remove the stimulus afterwards and keep the result as a dated line.** A probe left in the working
+  set becomes noise the next reader has to explain away.
+- **State the scope of what the probe proved.** It proves the loop is not running. It does NOT prove a
+  second, claim-time guard is working — that layer has no live execution to test until a loop exists
+  again. Name which layer was measured and which is still unproven.
+- **Stop the workers before re-queueing anything.** A "reclaim", "release" or "retry" verb can return a
+  claimed item to the runnable state, where it is re-claimed immediately — measured: releasing eight
+  items produced eight new workers within nine seconds. Move the work to a non-claimable state first,
+  then stop the processes; the opposite order re-creates what you were trying to stop.
+
 ### An unauthenticated health endpoint is not a health check of the lane
 
 **`/health` returning `200` says a process is listening. It says nothing about whether a single authenticated
@@ -146,6 +173,11 @@ thing that mattered was dead. It was found by the peer trying to use it, not by 
   from the Introduction/quick-start page. And **a vendor's marketing site answering `403` behind Cloudflare says
   nothing about its API host**: different subdomain, different posture. Test the host you will actually call, and
   report the two separately when both were probed.
+- **The same applies to a PATH, a query and an ID.** A `404` from a path you composed is evidence about your
+  spelling, not about the catalogue. Measured: three listings were reported dead on a URL typed by hand
+  (`/v1/gas/fgas/`) while the real path answered `402` — a false accusation against a third party that survived
+  until someone re-read the probe. **Copy the URL out of the index or the manifest and re-run it verbatim before
+  writing a finding**; where the string came from must be stateable, or the finding is a claim about you.
 - **After rotating or re-pointing an endpoint, the old key stays valid-looking in every report.** A registry that
   updates the URL but not the key produces exactly this: healthy-looking lane, dead calls. Check that the
   host entry and the credential were changed in the same pass.
@@ -362,6 +394,47 @@ parameter. Crawlers read the signpost; the report booked it as a sale.
 — a catch-all handler, a crawler reading a signpost, a default page, a rotated source. If the
 answer is "a lot of things", the number is a claim about your classifier, not about demand.
 
+### A 5xx on the paid path is not proof that anyone was charged
+
+**The status-as-transaction error runs in both directions.** A `200` does not prove money moved, and a `500` does
+not prove money moved **either**. "We took the customer's payment and then failed" is a claim about a
+**settlement**, and the settlement lives in a different record than the error does.
+
+Measured: a paid route raised after verification, and the report to the user said the buyer had been charged.
+Reading the payer wallet showed **zero transfers** — the failure happened before settlement, so nothing was
+taken. The alarming version and the harmless version emit the *same* HTTP response, and only the ledger separates
+them.
+
+- **Before saying "charged", read the settlement record or the payer's balance — one query.** A payment-log
+  line, a tx hash, a token transfer: that is the evidence. The response code never is.
+- **Say what you measured, and name what you could not.** "No transfer in the last N blocks" is a measurement;
+  "it should be fine" is not. Where the rail settles asynchronously, the honest verdict is `UNMEASURED`.
+- **The ORDER of settle versus serve is the finding.** Settle-after means a broken handler costs reputation;
+  settle-before means it costs money. Read the ordering in the code and confirm it with one payment — a comment
+  saying *"verified and settled"* is a claim like any other, and it is written by the same author as the bug.
+
+## A capability declared in a registry is not a capability that exists
+
+**Membership in a list is a CLAIM; the implementation is the proof.** Measured: a route was advertised in the
+manifest, priced, readiness-checked, and present in the set of services the process serves — while the function
+it dispatched to had **never been written**. Every static check passed, because every static check asked the
+registry.
+
+- **A "servable" predicate must resolve to something EXECUTABLE, not to membership.** For an in-process route,
+  the honest test is that the handler exists and is callable — not that a set contains its key. For a proxied
+  one, it is a probe that reaches the backend and returns a body.
+- **Check the ORDER of the gates, not only their presence.** A policy or withhold gate sitting *below* a branch
+  that returns early is unreachable for every input that takes that branch. It reads as protection in the source
+  and protects nothing. Measured: a withhold list was never consulted for in-process routes because a shortcut
+  above it returned `True` first. **Put the gate before the shortcut, or the shortcut is all that runs.**
+- **The signature is a route that passes every declaration check and throws on first real use.** Same family as
+  a `health()` that only inspects file paths and a cron `script:` that names a deleted file: **a check that can
+  pass without executing the thing will eventually vouch for something that cannot run.**
+- **When it is discovered, fail closed first and fix second.** Withholding the route (an honest `503` with the
+  reason) is one commit; implementing the handler is a design task. A route that is advertised and broken is
+  worse than a route that is advertised as withheld, because the first one still takes payment attempts.
+
+
 ### A wildcard router answers 200 for paths that do not exist
 
 A site whose catch-all serves the index page for any URL makes `curl -w '%{http_code}'` return **`200` on every
@@ -574,6 +647,22 @@ fails is a quiet as a monitor that passes.
 
 - **Read the binding out of the same config the system reads**, on every run, and **report a disagreement** when
 the estate is not uniform (one seat left on an old rail must surface, not be averaged away).
+- **A retired instance left on disk is a silent fallback waiting for a bad day.** Resolving by mtime fixes the
+READING, not the risk: if the active config is ever removed or renamed, the tool reconnects the OLD instance and
+writes live state into a retired destination — with no error, because the old remote still exists. **Once the
+replacement is proven, remove or archive the retired entry** (back it up, verify the archive lists its files, then
+delete) so exactly one destination remains, and re-run the operation to prove the survivor still works. Removing a
+config is destructive, so ask first — until then, the finding is the deliverable.
+- **When a component is RE-CREATED, its old state directory stays behind and keeps looking authoritative.**
+Measured: a vault re-bound under a new id left the previous `sync/<id>/` directory in place, naming the same
+`vaultPath`; its log froze at the re-bind instant, and a consumer holding a hardcoded id read a week-old file and
+reported a week-long outage while the live instance was syncing hourly. **Resolve the ACTIVE instance by newest
+`config.json`/state dir on every run, never by a constant**, and age every log you open: older than the component's
+own cadence (an hourly job whose log is 6 hours old) is `UNKNOWN`, never `healthy` and never `blocked`. Two
+directories naming the same path are not a duplicate — the mtimes are the discriminator.
+- **Prove liveness with a stimulus that leaves a trace in the live log.** Write a probe artifact, run the real
+command, then grep the ACTIVE instance's log for that artifact's name. A status string, an exit code, and the
+absence of errors are all compatible with nothing having happened.
 - **Never let a monitor crash into silence.** Exit non-zero and say `CANNOT RUN`; a monitor whose own failure is
   indistinguishable from its success has negative value.
 - **Liveness is not capacity.** A completion proves the rail *answers*; it says nothing about remaining
@@ -638,6 +727,44 @@ SINGLE quotes is not expanded, so the fetch silently returns the previous body).
 - Deploy-specific depth — the dash-for-a-missing-key signature, fraction-vs-percent formatting, `_headers`
 survival, catch-all 404s — lives in `portfolio-deployment`. Note the overlap only; do not restate it here.
 
+**The mirror case: a clean RENDER can hide a dirty SOURCE.** The rule above says trust the rendered cells over
+the source — correct, and half the story. A page whose script overwrites placeholder nodes on success renders
+perfectly while the SERVED html still carries `Connecting…` / `Loading…` / `—`; if a fetch 404s or one line
+throws, those literals come back and the reader sees a page that looks slow rather than broken. Measured: a
+report of "zero placeholders on the page" was true of `innerText` and false of the bytes, and the defect was
+the original one returning through the failure path.
+
+- **Two questions, two instruments:** the render proves the happy path, the served source proves the failure
+  path. Assert both — `grep -c 'Loading\.\.\.' served.html` is `0` **and** the render shows no placeholder.
+- **Start such nodes EMPTY** and let the explicit unavailable state be the only thing that can appear; a
+  placeholder written in markup is a claim that the page is about to have data.
+- **Generalise it:** whenever a claim is of the form "nothing stale/placeholder/broken is left", ask which
+  layer you inspected and whether the OTHER layer could still produce the defect.
+
+### Two price fields, two readers — the catalogue is not the till
+
+**A value stored twice will disagree, and each reader reports a different truth while both are working
+correctly.** Measured: every entry in a service manifest carried `priceUsd` AND `price_usd`. The
+catalogue/docs path read `priceUsd`; the charging path read `price_usd`. A repricing that updated only
+one key left the storefront advertising `$0.01` while the `402` charged `$0.001` — a 10× gap between
+what we published and what we took, with no error, no warning, and both surfaces looking healthy.
+
+- **For anything priced, the acceptance assertion is `advertised == charged`, measured in ONE test.**
+  Checking the challenge alone proves an amount exists; checking the manifest alone proves a price was
+  written. Only the pair proves they agree — and checking one reader at a time is how both get reported
+  as "correct" an hour apart.
+- **Collapse the duplicate before trusting either value.** Read the advertised key first, fall back to
+  the legacy key, and **print a warning whenever the two disagree** so a one-key edit can never drift
+  silently again.
+- **A telemetry field that cannot record the thing you are asked about makes every answer an
+  inference.** A request ledger with no key, plan or auth column cannot support "free-tier keys or our
+  own probes" — that sentence was a guess printed as a finding. Either add the field, or answer
+  `UNKNOWN` and file the field as work.
+
+**`restart done` is a claim, not a measurement.** Re-read the served values after every restart and
+assert the NEW number. An old process answering with old values is indistinguishable from a restart
+that never happened, and the two have opposite fixes.
+
 **The general shape:** for any surface whose value matters, the acceptance assertion is on the **number the
 consumer receives**, cross-checked against a second source (a receipt, a contract endpoint, the provider's own
 object) — never on the status, the deploy result, or the presence of the new code in the artefact.
@@ -663,6 +790,26 @@ which copy won. The failure looks like "the code is wrong" and invites a fourth 
   the platform default (`0.01` where `0.003` was written) is not a stale cache — it is a lookup that missed and
   fell through, which means the entry was never loaded at all.
 
+### Verify through the CALLER's key, not the helper's alias table
+
+**An accessor that resolves several name forms will happily return the right answer for a name the real caller
+never passes — so a unit call can prove a fix that the publishing path cannot see.**
+
+Measured: a declaration table was keyed on the short URL segment (`gas`); the spec builder iterates the manifest and
+passes the manifest key (`gas_oracle`). Calling the builder helper directly with `"gas"` resolved through an alias
+table, returned the new parameter, and the fix was reported as verified. The served spec still declared **zero**
+inputs for that route after the restart, because the publishing path never used the alias.
+
+- **Re-verify at the surface that publishes AND at the surface that serves.** Build the artifact through the real
+  entry point (the route handler, the CLI subcommand, the cron's own wrapper), then fetch it over HTTP after a
+  restart. A helper call is a hypothesis; the served bytes are the behaviour.
+- **When a lookup accepts several keys, grep who calls it and with which one.** The alias table is convenience for
+  humans; the caller passes exactly one key, and that is the one your table must match.
+- **Ask "did it change?" before "is it right?"** — a value identical to the pre-fix output is a strong sign you
+  verified a path the change never touched.
+- **A fix that "verified" but did not change behaviour is the same defect as no fix at all, wearing proof.** Say
+  `MISSING` plainly rather than letting a green check stand over a stale artifact.
+
 ### Replacing a registry or manifest — prove SUPERSET, never just "it works"
 
 When the change is to **replace a whole file of records** (a service manifest, a price list, a routing table, a
@@ -682,6 +829,38 @@ present. **The risk is what the swap REMOVED or altered**, and that failure is i
 
 **Same rule for any "replace the whole tree" deploy**: the acceptance test is that everything OUTSIDE the change
 is byte-identical afterwards, and the cheapest way to prove it is to check the untouched set, not the changed one.
+
+## The mirror case: a capability the CONTRACT does not declare is absent to every machine reader
+
+**Everything above is "declared but not real". The mirror is just as silent and much harder to notice: real, and
+not declared.**
+
+Measured: a paid route emitted a valid `WWW-Authenticate: Payment …` challenge for days while the served spec's
+`x-payment-info.protocols` listed only `x402`. A catalogue discovered all of the routes correctly and refused
+registration with one line — *"None of the discovered endpoints support MPP"*. Nothing was broken. The wire spoke;
+the contract stayed silent; the reader believed the silence. The same shape twice more in one sitting: a
+path variable that is genuinely callable (`/v1/gas/{chain}`) published as a literal path therefore declared **zero**
+inputs and was reported *"paid endpoint is missing an input schema"*, and a feature flag that existed in code whose
+implementation did not.
+
+- **For every capability the wire exercises, assert the CONTRACT declares it** — protocol names, input schemas and
+  enums, and the absence of retired routes. Behaviour and declaration are two artefacts and only one is read by a
+  machine.
+- **The two readers disagree truthfully.** A human watching traffic concludes it works; a machine parsing the
+  contract concludes it does not exist. Neither is wrong, which is why "it works when I curl it" never closes this.
+- **Self-test before asking anyone else to look**, because these validators register nothing and answer the refusal
+  in advance:
+  ```
+  npx -y @agentcash/discovery@latest discover "https://your-origin"
+  npx -y @agentcash/discovery@latest check   "https://your-origin/one/paid/route"
+  ```
+  Read three things: paid routes list the protocols they really emit, none is missing an input schema, and a
+  cosmetic `FAVICON_MISSING` is clear (a catalogue row with a blank tile is an avoidable trust cost).
+- **Declaring a protocol describes the CHALLENGE FORMAT, not the settler.** Declaring it while settling through a
+  different facility is accurate. Never arm a settlement change to satisfy an index — that is a money-path edit
+  made for a listing, and the two acts are unrelated.
+- **Generated specs are rebuilt at import or startup**, so a declaration change needs a restart before any consumer
+  can see it — and a restart nobody re-fetched after is unverified.
 
 ## The test to apply before reporting anything as verified
 

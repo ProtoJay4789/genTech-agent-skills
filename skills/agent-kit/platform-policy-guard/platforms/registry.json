@@ -1,0 +1,329 @@
+{
+  "schema": 2,
+  "updated": "2026-11-20",
+  "currency": "MiB = 1048576 bytes (binary), because GitHub states its limits in MiB and a byte-based reader drifts permissive.",
+  "severity_legend": {
+    "hard": "REFUSE. preflight exits 1 and the action must not proceed — unless the operator acknowledges that exact limit id with --ack, which is printed in the record.",
+    "soft": "WARN. printed, exit stays 0."
+  },
+  "enforced_by_legend": {
+    "platform": "the platform itself blocks or penalises this. A quote is recorded.",
+    "standing-rule": "our own rule from 00-HQ/github-rule-and-reinstatement.md Part 3. The platform's remedy is discretionary suspension, so we hold the line ourselves."
+  },
+  "measure_legend": {
+    "present": "a `measure` key names a value preflight computes from the local repo, so the limit is machine-checkable.",
+    "absent": "no `measure` key — nothing local can prove it. preflight REFUSES the action until a human acknowledges that exact limit id with --ack. That is the deliberate cost of being honest about what we cannot see."
+  },
+  "platforms": {
+    "github": {
+      "display": "GitHub",
+      "accounts": [
+        "GentechLabs (org)",
+        "ProtoJay4789 (personal + private brain mirror)"
+      ],
+      "what_we_depend_on": "org repos, GitHub Pages, PRs and contributions, hackathon submissions, the private brain mirror",
+      "read_state": "verified",
+      "read_at": "2026-11-20",
+      "terms": [
+        {
+          "id": "aup",
+          "title": "Acceptable Use Policies",
+          "url": "https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies",
+          "kind": "terms",
+          "url_state": "verified-200-2026-11-20"
+        },
+        {
+          "id": "large-files",
+          "title": "About large files on GitHub",
+          "url": "https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github",
+          "kind": "limits",
+          "url_state": "verified-200-2026-11-20"
+        },
+        {
+          "id": "synthetic-media",
+          "title": "Synthetic media and AI tools",
+          "url": "https://docs.github.com/en/site-policy/acceptable-use-policies/github-synthetic-media-and-ai-tools",
+          "kind": "terms",
+          "url_state": "verified-200-2026-11-20"
+        },
+        {
+          "id": "tos",
+          "title": "Terms of Service",
+          "url": "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service",
+          "kind": "terms",
+          "url_state": "verified-200-2026-11-20"
+        }
+      ],
+      "limits": [
+        {
+          "id": "file_size_block",
+          "measure": "largest_tracked_file_mib",
+          "op": ">",
+          "value": 100,
+          "unit": "MiB",
+          "severity": "hard",
+          "enforced_by": "platform",
+          "source": "large-files",
+          "quote": "A file over 100 MiB is blocked outright by GitHub."
+        },
+        {
+          "id": "file_size_warn",
+          "measure": "largest_tracked_file_mib",
+          "op": ">",
+          "value": 50,
+          "unit": "MiB",
+          "severity": "soft",
+          "enforced_by": "platform",
+          "source": "large-files",
+          "quote": "A file over 50 MiB makes Git warn."
+        },
+        {
+          "id": "repo_git_size",
+          "measure": "git_dir_mib",
+          "op": ">",
+          "value": 1024,
+          "unit": "MiB",
+          "severity": "hard",
+          "enforced_by": "standing-rule",
+          "source": "large-files",
+          "rule_ref": "R3 — a repo that fails the measurement does not get a remote.",
+          "quote": "Repositories should remain small, ideally less than 1 GB, and less than 5 GB is strongly recommended."
+        },
+        {
+          "id": "tracked_media",
+          "measure": "tracked_media_files",
+          "op": ">",
+          "value": 0,
+          "unit": "files",
+          "severity": "hard",
+          "enforced_by": "standing-rule",
+          "source": "large-files",
+          "rule_ref": "R1 — no media in any git repository, at any time. None, not 'under 50 MB'.",
+          "quote": "Git is not designed to serve as a backup tool."
+        },
+        {
+          "id": "automated_push_cadence",
+          "measure": "commits_last_24h",
+          "op": ">",
+          "value": 1,
+          "unit": "commits/24h",
+          "severity": "soft",
+          "enforced_by": "standing-rule",
+          "source": "aup",
+          "rule_ref": "R4 — nothing is pushed on a timer. A count alone cannot prove automation; the committer names are printed so a human can.",
+          "quote": "…using our servers for any form of excessive automated bulk activity, to place undue burden on our servers through automated means…"
+        },
+        {
+          "id": "excessive_bandwidth",
+          "severity": "soft",
+          "enforced_by": "platform",
+          "source": "aup",
+          "unit": "n/a",
+          "rule_ref": "R2 — git is never a backup target. This is the clause the account was suspended under on 2026-09-16; repo_git_size and tracked_media are how we actually hold the line, because 'significantly excessive in relation to other users' is not a number we can compute locally.",
+          "quote": "If we determine your bandwidth usage to be significantly excessive in relation to other users of similar features, we reserve the right to suspend your Account, throttle your file hosting, or otherwise limit your activity…"
+        }
+      ],
+      "unmeasured": [
+        {
+          "id": "account_shape",
+          "why": "requires an authenticated API read; the local repo cannot show it",
+          "where": "agent-kit/github-account-compliance (R6 — company work in the org, personal account is the identity)"
+        },
+        {
+          "id": "history_media",
+          "why": "media deleted from HEAD still lives in .git history",
+          "covered_by": "repo_git_size — the aggregate bound is the .git directory itself"
+        }
+      ]
+    },
+    "cloudflare": {
+      "display": "Cloudflare",
+      "accounts": ["GentechLabs (zone + Pages + Workers)"],
+      "what_we_depend_on": "DNS, the Pages deployment, Workers, and TLS for every public endpoint we sell",
+      "read_state": "verified",
+      "read_at": "2026-11-20",
+      "terms": [
+        {
+          "id": "self-serve",
+          "title": "Self-Serve Subscription Agreement (contains §2.7 Acceptable Use)",
+          "url": "https://www.cloudflare.com/terms/",
+          "kind": "terms",
+          "url_state": "verified-200-2026-11-20",
+          "note": "cloudflare.com/aup — the standalone AUP URL our notes assumed — is a 404 as of 2026-11-20. The AUP now lives in §2.7 of this agreement; cloudflare.com/website-terms/ carries no acceptable-use section and is NOT the AUP."
+        }
+      ],
+      "limits": [
+        {
+          "id": "aup_s2_7",
+          "severity": "hard",
+          "enforced_by": "platform",
+          "source": "self-serve",
+          "unit": "n/a",
+          "rule_ref": "Our origin serves only our own APIs and pages — no infringing or unlawful content on a zone we control.",
+          "quote": "2.7 Acceptable Use — You agree not to, and not to allow third parties to use the Services to: (a) falsely imply any sponsorship or association with Cloudflare; (b) post, transmit, store or link to any files, materials, data, text, audio, video, images or other content that infringe on any person's…"
+        }
+      ]
+    },
+    "mcp-registry": {
+      "display": "Official MCP Registry",
+      "accounts": ["GenTech Labs (server listings)"],
+      "what_we_depend_on": "/mcp is our most-requested surface; the registry is how agents discover it",
+      "read_state": "verified",
+      "read_at": "2026-11-20",
+      "terms": [
+        {
+          "id": "about",
+          "title": "The MCP Registry — about (namespace verification and publishing rules)",
+          "url": "https://modelcontextprotocol.io/registry/about",
+          "kind": "terms",
+          "url_state": "verified-200-2026-11-20",
+          "note": "registry.modelcontextprotocol.io/ is an API landing page and carries no prose terms; the policy lives on modelcontextprotocol.io."
+        },
+        {
+          "id": "moderation",
+          "title": "The MCP Registry Moderation Policy",
+          "url": "https://modelcontextprotocol.io/registry/moderation-policy",
+          "kind": "terms",
+          "url_state": "verified-200-2026-11-20"
+        }
+      ],
+      "limits": [
+        {
+          "id": "moderation_removal",
+          "severity": "hard",
+          "enforced_by": "platform",
+          "source": "moderation",
+          "unit": "n/a",
+          "rule_ref": "A listing must not contain illegal content, malware or spam. Removal sets status=deleted and the metadata stays readable, so a takedown is permanent for that server name.",
+          "quote": "We will remove servers that contain: Illegal content, which includes obscene content, copyright violations, and hacking tools; Malware, regardless of intentions; Spam, especially mass-created servers that disrupt the registry."
+        },
+        {
+          "id": "namespace_ownership",
+          "severity": "hard",
+          "enforced_by": "platform",
+          "source": "about",
+          "unit": "n/a",
+          "rule_ref": "Publishing under a namespace we do not control is not allowed — ownership is proven by GitHub, DNS or HTTP challenge.",
+          "quote": "Publishers must verify ownership of their namespace through GitHub, DNS, or HTTP challenges, preventing arbitrary spam submissions."
+        }
+      ]
+    },
+    "circle": {
+      "display": "Circle Agent Marketplace",
+      "accounts": ["GenTech Labs"],
+      "what_we_depend_on": "Agent Marketplace listing and USDC settlement for machine payments",
+      "read_state": "verified",
+      "read_at": "2026-11-20",
+      "terms": [
+        {
+          "id": "agent-platform",
+          "title": "Agent Platform Terms of Use",
+          "url": "https://agents.circle.com/terms-of-use",
+          "kind": "terms",
+          "url_state": "verified-200-2026-11-20"
+        },
+        {
+          "id": "developer-terms",
+          "title": "Developer Terms",
+          "url": "https://console.circle.com/legal/developer-terms",
+          "kind": "terms",
+          "url_state": "verified-200-2026-11-20",
+          "note": "www.circle.com/legal/developer-terms — the URL our older notes cited — is a 404 as of 2026-11-20. The live page is on console.circle.com."
+        },
+        {
+          "id": "circle-aup",
+          "title": "Circle Acceptable Use Policy",
+          "url": "https://www.circle.com/legal/acceptable-use-policy",
+          "kind": "terms",
+          "url_state": "verified-200-2026-11-20"
+        }
+      ],
+      "limits": [
+        {
+          "id": "listing_discretion",
+          "severity": "hard",
+          "enforced_by": "platform",
+          "source": "agent-platform",
+          "unit": "n/a",
+          "rule_ref": "Listing is not a right and can be withdrawn without notice — the marketplace must never be the only place a service exists.",
+          "quote": "Circle may suspend, remove, or decline to list any Endpoint or Agent Service at any time in its sole discretion."
+        },
+        {
+          "id": "third_party_flowdown",
+          "severity": "hard",
+          "enforced_by": "platform",
+          "source": "agent-platform",
+          "unit": "n/a",
+          "rule_ref": "Routing through a third-party provider on that platform means inheriting that provider's terms too. This registry does not cover them — read them separately.",
+          "quote": "The Third-Party Providers operate independently under their own terms of service, acceptable use policies, pricing structures, privacy policies, and data handling practice, to which you will be independently bound."
+        }
+      ]
+    },
+    "8004scan": {
+      "display": "8004scan (ERC-8004 agent registry explorer)",
+      "accounts": ["GenTech agent listings"],
+      "what_we_depend_on": "discoverability of our ERC-8004 agent identity",
+      "read_state": "unread",
+      "terms": [],
+      "limits": [],
+      "candidates": [
+        {
+          "url": "https://8004scan.io/terms",
+          "probed": "2026-11-20",
+          "http": 404,
+          "note": "does not exist"
+        },
+        {
+          "url": "https://8004scan.io/legal",
+          "probed": "2026-11-20",
+          "http": 404,
+          "note": "does not exist"
+        },
+        {
+          "url": "https://8004scan.io/tos",
+          "probed": "2026-11-20",
+          "http": 404,
+          "note": "does not exist"
+        },
+        {
+          "url": "https://8004scan.io/",
+          "probed": "2026-11-20",
+          "http": 200,
+          "note": "JS app shell; no terms link in the served HTML. Honest reading: registration is an on-chain transaction, so the enforced rules may live in the ERC-8004 contracts rather than a web policy. Verify against the registry contract before treating 'no terms page' as 'no rules'."
+        }
+      ]
+    },
+    "x402-directories": {
+      "display": "x402 directories",
+      "accounts": ["GenTech x402 services"],
+      "what_we_depend_on": "PayAI facilitator Bazaar (10 entries), CDP Bazaar (1 entry), x402-list.com (1 entry, status=degraded), plus aggregators that read our /.well-known/x402-bazaar",
+      "read_state": "unread",
+      "terms": [],
+      "limits": [],
+      "candidates": [
+        {
+          "url": "https://x402scan.com/",
+          "probed": "2026-11-20",
+          "http": 200,
+          "note": "explorer; x402scan.com/terms is 404 — no published listing terms found"
+        },
+        {
+          "url": "https://www.x402.org/",
+          "probed": "2026-11-20",
+          "http": 200,
+          "note": "protocol site, not a directory's terms. x402.org/ecosystem is 404."
+        },
+        {
+          "url": "https://x402-list.com/",
+          "probed": "not yet",
+          "note": "a directory that lists us (as degraded) — its submission and removal terms matter most here and are still unread"
+        },
+        {
+          "url": "https://payapi.market/",
+          "probed": "not yet",
+          "note": "third-party catalogue; we are not listed. Terms unread."
+        }
+      ]
+    }
+  }
+}

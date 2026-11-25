@@ -265,7 +265,28 @@ which still pays a model to type it.** Their prompts announce themselves — `Sc
 `Run: python3 …`, `Run this exactly once: python3 …`. Converting them is free money and removes a
 model from the failure path: set `no_agent: true`, `script: <file>`, and keep the old prompt as
 documentation. **Verify the script's contract first** — silent-on-success, a real print path, and a
-`0/2/3` exit code — or the conversion turns a summary into raw noise.
+`0/2/3` exit code — or the conversion turns a summary into raw noise. **And check what the cron layer
+does with that code: a non-zero exit is recorded as `error`, so a script that exits `2` on findings turns
+every real finding into a crashed job.** Wrap the conversion so findings exit `0` (§11).
+
+**Check the THIRD state before converting — instrument failure — because the other two can both look
+right.** Measured across five wrappers in one pass: each printed `… INSTRUMENT FAILED …` when its
+subprocess broke and then fell through to `exit 0`, and one never captured the exit code at all.
+Silent-on-success ✅, prints-on-findings ✅, **and a broken tool reported as a clean run.** Those jobs
+delivered to `local`, so the printed alarm went to a file nothing reads — the exit code was the only
+channel reaching cron health, and it was the one lying. **A wrapper's failure branch exits `3`; the print
+is for the reader, the code is for the monitoring.**
+
+**Run each candidate and read all three, rather than reading the source and hoping:** exit `0` with
+**zero** lines is the pass shape, exit `0` with lines is a finding worth reading, and a non-zero on
+healthy input is a defect in the script you are about to promote.
+
+**Prove the conversion ON DISK, not from the tool's reply.** `hermes cron edit <id> --no-agent --script
+<file>` echoes `Mode: no-agent`, but the record is `no_agent: true` plus a resolving `script:` in that
+seat's `jobs.json` — read it back, because the reply is a claim about intent. Then `hermes cron run <id>`
+proves the new mode executes — **but it bypasses the scheduler and leaves `last_run: None`**, so report
+the conversion as verified-in-mode, never as verified-in-schedule. The scheduled run is a separate proof
+you still owe.
 
 **⚠️ Match the prompt SHAPE, not the word.** A job that *mentions* a script ("the script output is the
 live report — treat it as fact") is doing judgement **on** script output and should keep its model.
@@ -456,11 +477,208 @@ written by a fast model that flattens sourced claims.
 
 **A coworker reflection that ends in action without a measurement is a survey, not a reflection.**
 
+### 10 · The TEAM-LEADER reflection — three axes, and the leader is one of them
+
+**A self-reflection that only audits the estate is an inspector's report. The standing standard is three
+axes, and the third one is the reason the other two improve:**
+
+| axis | the question | what answers it |
+|---|---|---|
+| **Department** | is my own domain correctly configured and running? | sections 1–8 — config, cron, credentials, surfaces |
+| **Self as leader** | am I running this lane well, or merely keeping it alive? | the turn-cost and handoff evidence in section 9 |
+| **The orchestrator** | *"what can I do to help you?"* | the inputs the seat lacks — access, a ruling, a credential, a decision |
+
+**Ask the third axis explicitly, in every pass, and never skip it as rhetorical.** Jordan's framing:
+*"Because I'm the orchestrator, what can I do to help you?"* — it is a request for a specific, answerable
+ask, and a report that ends without one leaves the human's half of the work unnamed.
+
+- **Distinguish the orchestrator axis from a wish list.** *"What would you like to be given to do"* is
+  out of scope, as section 9 says. *"What input are you missing that makes your lane slow or blocked"* is
+  in scope and actionable — a missing credential, an unanswered routing question, a decision nobody made.
+  Ask for the **input**, not for the assignment.
+- **Answer it about yourself even when nobody asks you.** A leader report that lists only the department's
+  faults is incomplete; name the one thing in your own conduct you would change, measured if you can.
+  *"I edited skills twice this session and deepened the seats-vs-CORE drift"* is a self-assessment;
+  *"I think I'm doing well"* is not.
+- **A department finding and a leadership finding are different repairs.** One is a config change or a
+  script fix; the other is a change to how the lane is run. Filing the second as the first produces a
+  fixed mechanism and an unchanged habit.
+
+#### Track who ANSWERS, not only who is correct
+
+**An agent that is never wrong and never replies is a worse teammate than one that is occasionally wrong
+and always answers.** Acknowledgment is a measurable behaviour, and it decays silently because nothing in
+the system asks about it.
+
+- **Keep the count per seat: handoffs received, ACKed, answered, and ignored** — read from the handoff
+  tree, not from memory. A seat's reply is evidence; a seat's silence on a handoff addressed to it is the
+  finding.
+- **Name the seat and the artifact.** *"3 of 9 handoffs to that seat have no reply in the thread"* is
+  actionable; *"communication could improve"* is not.
+- **Feed it back as a private, specific observation, not a public score.** The purpose is a reply, not a
+  ranking.
+- **Include yourself.** If HQ sent handoffs with no named owner or no deadline and got no answer, the
+  defect is HQ's — a vague handoff that gets no reply is the sender's problem, not the recipient's.
+
+### 11 · The per-seat department reflection — each seat grades ITSELF
+
+**Sections 1–10 are run FROM HQ, on the estate. That is inspection, and it has a blind spot: no seat ever grades
+its own work.** The distinction matters — *"ask agents about the current cron jobs they run in their
+departments… get a self-reflection of that."* A seat that is only ever graded from outside has no way to notice
+its own decay between audits.
+
+**Build it as a script that runs ON the seat and reads ONLY that seat's own tree.** Two properties make it
+work:
+
+- **Derive the profile from the file's own path**, not an argument:
+  `os.path.basename(os.path.dirname(os.path.dirname(__file__)))` resolves `profiles/<seat>/scripts/…` to
+  `<seat>`. One binary, installed on every seat, no per-seat variant to drift. An argument a caller can get wrong
+  is a wrong reading waiting to happen.
+- **Same scorecard design as the rest of this file** — numeric probes, a stored baseline, print what MOVED,
+  silent when healthy. A per-seat essay is worth less than a number comparable to last week.
+
+#### ⚠️ The WRAPPER is a second copy of that decision, and it silently re-points every seat
+
+**Deriving the seat from the file's own path is correct and it is still not enough, because the cron
+wrapper is a separate script that hardcodes a path.** Measured: four seats' `dept-reflect.sh` wrappers were
+**md5-identical**, and every one of them named `/opt/data/profiles/gentech/scripts/dept-reflect.py`. The
+`.py` resolved its own path faithfully — so Treasury's job graded **Gentech's** department, printed the
+score under Treasury's name, and returned a verdict about the wrong seat. Four reflections, one subject.
+
+**Whatever derives the seat must derive it at the LAST layer before execution, from the path that is
+actually running.** In the wrapper, resolve from the wrapper's own location, never from a literal:
+
+```sh
+SEAT=$(basename "$(dirname "$(dirname "$0")")")   # profiles/<seat>/scripts/dept-reflect.sh -> <seat>
+OUT=$(python3 "/opt/data/profiles/$SEAT/scripts/dept-reflect.py" "$@" 2>&1)
+```
+
+**Verify by the seat name printed in the first line, not by "the file exists on all four seats".** Four
+identical hashes across seats is the tell when paths are hardcoded; four DIFFERENT printed seat names is
+the proof it is fixed. **A shared CORE copy makes this worse, not better: one file naming one seat is
+correct in CORE and wrong in every seat it is copied to.**
+
+#### Exit `2` is a FINDING, and the cron layer records it as a CRASH
+
+**A `no_agent` job treats any non-zero exit as `last_status: error`, and the cron-health probe counts that
+as a broken job.** So a probe that correctly exits `2` for "measured, found something" — the contract in
+`references/writing-probes.md` §6 — makes every run that finds anything look like a crash, permanently.
+Measured: three seats reported `error` on every reflection while the reflections were working perfectly.
+The findings were never reported *as findings*, so the one thing the job exists to say was invisible.
+
+**The boundary rule: the cron health signal means "the measurement ran", never "the department has work
+to do".** Convert at the wrapper, keep the distinction, keep a broken instrument loud:
+
+```sh
+printf '%s\n' "$OUT"
+[ "$RC" -eq 2 ] && exit 0     # findings are a SUCCESSFUL measurement
+[ "$RC" -eq 3 ] && exit 3     # could not measure — must stay red
+exit "$RC"
+```
+
+**And because the wrapper now swallows the code, the verdict must be in STDOUT or it is lost.** Print
+`⚠️ FINDINGS: 3 probe(s) failed — 01_cron_health, 03_memory_headroom` before the script returns 2. **A
+wrapper that converts findings to success WITHOUT a printed verdict builds a monitor that cannot go
+red** — the exact failure this file hunts, introduced by the fix for a different one.
+
+**Test by running the wrapper by hand on each seat and reading BOTH the printed seat name and the exit
+code.** That one command proves both bugs are gone. `hermes cron run <id>` can refuse a job that belongs
+to another seat's registry ("job not found"), so the scheduled run is the confirmation, not the test.
+
+#### A job that has NEVER once reported success has never been proven to run end-to-end
+
+**"It errors, but the output looks right" is not reassurance** — the output was written before the failure,
+or truncated at it. A permanent `error` means **this path has never completed**, and every green-looking line
+it produced came from a code path that did not reach its end. So: **treat a never-successful job as
+UNMEASURED, not as working-with-cosmetic-noise**, and re-run it in a state where success is possible before
+trusting a single line it emitted.
+
+The tell that this has been happening for weeks: `last_status` is `error` on **every** run while its printed
+output reads plausibly. That combination is the fingerprint of a contract bug (exit code, missing verdict
+line, a swallowed exception after the print), not of an intermittent fault — an intermittent fault produces
+*some* successes.
+- **A finding about a never-successful job outranks every finding the job carries**, because the job's own
+  subject matter is unverified while it has never completed.
+- **Do not re-baseline a never-successful instrument.** Its stored baseline is from a run that never finished;
+  saving over it makes the first honest run look like a regression.
+
+**The probe set that earns its keep (each is one file read, no model, no network):**
+
+| probe | measure | why it is the one that matters |
+|---|---|---|
+| **memory headroom** | `cap − len(text)` in **chars**, signed, both files | negative = writes already refused; this is what "forgot yesterday" looks like from inside. ⚠️ Subtracting BYTES from a char cap over-reports by ~2% and invents a file that is already over |
+| cron health | jobs whose `last_status` is not `ok` | a job that errored did not do its work |
+| cron enabled | count disabled | a disabled job looks like coverage and is not |
+| script existence | every `script:` referenced by a job resolves on disk | the same "declared but never implemented" class as a route with no handler |
+| delivery target | enabled jobs with no deliver target | a report with nowhere to go reads as a healthy silent run |
+
+- **Make the pass condition a FLOOR, not a percentage.** `headroom ≥ 200 chars` (≈ two durable facts). A probe
+  that only asks "is it above 85%?" cannot express "this file is already over its cap and refusing writes".
+- **Measure in the ENFORCER's unit, not the shell's.** `wc -c` gives bytes; the memory cap counts `len()` of the
+  joined string. A probe that subtracts bytes from a char cap reports a file at **−31 when it had +99 free**, and
+  the next hour is spent trimming a file that never refused a write. Read the enforcing code before believing the
+  arithmetic.
+- **Prove each profile is a SEAT before grading it.** `glob('profiles/*')` returns directories, not seats: a
+  leftover test artifact with a `SOUL.md`, an empty `memories/` and **no `config.yaml`** was graded and reported as
+  a finding. Require `config.yaml` — an instrument that grades clutter manufactures output that reads like a fault.
+- **A seat with no cron jobs is a FAILURE of that probe, not `n/a`.** Zero automation on a working seat is the
+  finding — it means nothing accumulates there between human requests.
+
+**Automation density is uneven, and the thinnest seat is the one that fails silently.** Measured across four
+seats: **49 / 19 / 3 / 0** cron jobs. The seat that had just been reported as *forgetting a conversation* was
+near the bottom of that list — almost nothing was watching it, and the one probe that would have caught the
+cause (memory headroom) did not exist there. **Report the per-seat job count beside the probe results**; it
+explains why two seats running the same code produce different experiences.
+
+**Schedule it for after the workday, not during it.** The files a seat grades change only when work happens, so
+a mid-day run reports a half-finished day and needs a second run to see the real one. Late afternoon, before any
+quiet window, gives one run that reflects the actual day. `no_agent` + a script means zero model cost, so
+cadence is a scheduling choice rather than a spend decision — and silent-when-healthy keeps it from becoming
+heartbeat noise.
+
+**Ship the script into the shared CORE tree, not only into each seat.** A per-seat instrument that lives only on
+the seats is lost in the rebuild that most needs it to run afterwards.
+
+**And when you repair a wrapper by hand on the seats, reconcile it against the canonical copy shipped with this
+skill (`scripts/dept-reflect.sh`) before calling it done.** A hand-typed fix is nearly always the weaker variant —
+it drops `set -u` and the missing-file guard, so all four seats run a version the next rebuild will silently
+replace. **Fix once in the canonical file, then copy that file to every seat**; four identical hashes are correct
+here, because the seat is resolved at runtime and the bytes should not differ.
+
+#### ⚠️ Unequal hashes are the MIRROR defect: the upgrade landed on one seat
+
+**Identical hashes are only the correct end state once every copy is the current one.** A wrapper that gains a
+capability on the seat its owner happens to be sitting in keeps its older, thinner form everywhere else — and
+nothing looks broken, because each seat still runs a wrapper, still exits `0`, and still prints something.
+
+Measured: one seat's memory wrapper was **2,199 bytes** (measure + propose + ACT) while the other three were
+**231 bytes** (measure only), so the step that actually changed anything existed on exactly one seat, and three
+seats kept printing proposals with no actor attached. Every report read healthy.
+
+```sh
+md5sum profiles/*/scripts/<wrapper>.sh; wc -c profiles/*/scripts/<wrapper>.sh
+grep -n '<the call that only the new copy makes>' profiles/*/scripts/<wrapper>.sh
+```
+
+- **A large SIZE GAP between copies of a file that should be identical is a shipped capability, not a variant.**
+  Identical hashes are the tell when paths are hardcoded; a 10× size gap is the tell when one copy was upgraded and
+  the rest were not. Both are bugs, in opposite directions.
+- **Verify by BEHAVIOUR after copying** — the step now happens on each seat — not by the hash alone. Four matching
+  hashes prove the bytes agree, not that the behaviour was ever exercised on a seat you were not sitting in.
+- **When a fleet-wide script takes a `--profile` filter, remember its default is every seat.** A wrapper that runs it
+  with no argument already covered the fleet, which is exactly how a seat-local defect hides: the output looks
+  complete and the one seat whose owner was awake is the one that got fixed.
+
 ---
 
 ## Reporting
 
 **Verdict first, then a scorecard, then the one thing to fix.**
+
+**Every line that reports a fault ends in an ACTION or an OWNER.** A finding phrased only as *"the seat needs to
+choose"* reads as all-clear — measured, that exact sentence printed twice a day while three files sat at 96–98%
+and nobody acted. *"ACTION: consolidate BY HAND — merge same-topic entries, push detail to the archive"* is the
+same finding and gets done. **A report that names no action gets no action.**
 
 ```
 ✅ working      what was measured and how
@@ -490,13 +708,84 @@ deletes exactly what the fleet just learned. **The bigger artifact is almost alw
 - **A recurring red on one metric is a finding about the process, not a broken probe.** Do not retire the
   probe because it keeps firing; it is reporting something that keeps happening.
 
-**Two runnable scripts carry this skill; run them before hand-writing anything new.**
+#### ⚠️ A reflection nobody scheduled is not a practice — check the SCHEDULER before the probes
+
+**The script existing is the declaration; a cron entry is the behaviour.** Measured on ourselves: a
+self-reflection script was written, committed and correct — and referenced by **zero** jobs across every
+seat's `jobs.json`. It ran only when a human asked, so for over two weeks the fleet's self-assessment was
+whatever someone remembered to request. That is the exact defect this skill hunts, one level up: **a
+capability that resolves to nothing and fails silently.**
+
+```bash
+# the reflection is PERMANENT when a job names it
+for f in /opt/data/cron/jobs.json /opt/data/profiles/*/cron/jobs.json; do
+  echo "--- $f"; grep -c 'self-reflect\|self_reflect' "$f" 2>/dev/null || echo 0
+done
+```
+
+- **Zero references is the FIRST finding of the pass, not a footnote.** Report *"the mechanism exists and
+  nothing runs it"* before reporting a single probe result, because an unscheduled probe's results are a
+  one-off measurement of a system nobody is watching.
+- **Run it by hand anyway** — the manual run is what produces the scorecard — but never let a manual run
+  stand in for a schedule. Hand-running is proof the probe works, not proof the practice exists.
+- **Then decide the cadence with the owner, and say which you chose.** On-request only, a weekly job, or
+  continuous-in-conversation are three different commitments; the fleet does not get to pick silently.
+  Continuous has a cost worth naming: it competes for the same context as the work itself.
+
+#### The DEPARTMENT WALK — three fixed questions, per-department material
+
+**The per-seat probe grades the machinery; it does not say whether the department is doing its job.**
+Jordan's distinction: *"it's pretty much saying 'hey, is our cron job working?'… it needs to be more
+department-focused… almost like the CEO walk — what are we working on, what are we improving, where are we
+going next."* Both belong; they answer different questions and neither replaces the other.
+
+**Three fixed questions. The material behind each one is per department, and that is the whole design:**
+
+| question | answered from | never from |
+|---|---|---|
+| **what are we working on** | that department's own handoff lane this week, plus inbound replies | a fleet-wide "recent activity" list |
+| **what did we improve** | its own appended completions **and** a measured delta | an impression, or another seat's wins |
+| **where are we going next** | the question that department is judged on | a generic "continue improving" |
+
+**The cron state rides under "what did we improve" as EVIDENCE, not as the subject.** `crons: 15/16 · 0 not ok`
+is one line of a department report; it is not the report. A walk whose entire body is cron health is an
+infrastructure probe wearing a department's name.
+
+**Encode "where next" as a per-department DOCTRINE TABLE in the code, not as a prompt instruction** — HQ: the
+delegation layer (who is blocked, who has not replied, what waits on Jordan); a learning department: what
+lesson is built, what is graded, what the learner still cannot do; a capital department: what is deployed,
+what is idle, what the venue gate forbids; a broadcast department: which channels carry our services, which
+are dead, what post is owed. **A prompt that says "reflect on your department" returns an essay; a table
+returns four different, comparable reports from one binary.**
+
+⚠️ **CROSS-CREDIT IS THE FIRST BUG IN EVERY DEPARTMENT WALK, and it is invisible because every report looks
+full.** A single fleet-wide `…-completions.md` read for everybody makes all N walks print the *same*
+improvement list — the learning seat credited with gateway work, the social seat with the queue migration.
+**A walk that reports another department's work as its own improvement is worse than no walk: it is a false
+attribution in the shape of a report.** Filter each line to those that name this department (and to lines
+that name *nobody* else); **an empty list is the honest answer for a department that shipped nothing**, and
+printing it is the finding.
+
+**A department reads its own row in the fleet's shared lists before it reports.** Build queue, the human's
+queue, pending, completed — the four lists already say what this department owes and what it is blocked on;
+a walk that ignores them reports only what the seat remembered to write in its own lane.
+
+**Three runnable scripts carry this skill; run them before hand-writing anything new.**
+
+**A canonical copy of the per-seat instrument ships with this skill at `scripts/dept-reflect.py`** — copy it
+onto a seat that lacks it (and into CORE) rather than rewriting it, so every seat measures with the same probes
+and the same floor. **Its cron wrapper ships as `scripts/dept-reflect.sh` and must be copied too** — the wrapper
+is where the seat path is resolved and where a findings-exit becomes a success, so a seat that gets the `.py`
+without the wrapper re-inherits both bugs.
 
 ```bash
 cd /opt/data
-python3 profiles/<seat>/scripts/self-reflect.py            # measure + diff vs the stored baseline
+python3 profiles/<seat>/scripts/self-reflect.py            # HQ-only: estate config vs baseline
 python3 profiles/<seat>/scripts/self-reflect.py --save     # store this run as the new baseline
 python3 profiles/<seat>/scripts/tool-liveness.py           # EXERCISE the tools (exit 0/2/3)
+python3 profiles/<seat>/scripts/dept-reflect.py            # ON the seat: its OWN department (§11)
+python3 profiles/<seat>/scripts/dept-reflect.py --save      # store its baseline
+sh      profiles/<seat>/scripts/dept-reflect.sh             # cron wrapper, silent when healthy
 ```
 
 **`tool-liveness.py` is the one that would have caught every fault in this file's evidence section.**
@@ -537,3 +826,7 @@ wrong**.
 | a metered label with `actual_cost_usd = 0.00` | **not a spend finding** — report the label, close the latent path, do not escalate a charge that never happened |
 | a job whose output nothing downstream reads | **wire the consumer or retire the job** — a producer with no consumer is a feature that has never run |
 | a monitor excused by a permanent out-of-service entry | **verify the excuse is still true, then give it an owner and an expiry** — a silent monitor and a correct one look identical |
+| a probe job that reports `error` every run while its output reads correctly | **the exit code, not the job** — a findings exit is recorded as a crash; convert `2`→`0` at the wrapper and print the verdict |
+| a wrapper that prints an alarm and exits `0` | **fix the failure branch to exit `3`** — a printed alarm with no code is invisible to health monitoring, and these jobs deliver to a file nobody opens |
+| a job whose `last_status` is `delivery_failed` | **report it apart from `error`** — the work happened and nobody heard it; that is a transport fault, not a broken job |
+| a per-seat instrument whose result is identical on every seat | **read the wrapper, not the script** — a hardcoded path re-points every seat at one seat |

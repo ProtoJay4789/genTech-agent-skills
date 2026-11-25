@@ -31,6 +31,24 @@ fixing things that were never broken — and how a real gap gets buried under no
 Run the tool on the same target before reading the handoff's list. A number you did not produce is a
 number you cannot defend, and reproduction is also the first check that the tool even runs.
 
+**A wrong path join produces a plausible count, not an error.** Before quoting any total, read ONE item out of
+the scan and resolve its path by hand. Measured: a job sweep reported **69 jobs whose script was missing**; the
+real number was **zero** — the script indexed the seat out of the wrong path segment
+(`path.split('/')[3]` instead of `[4]`), so every lookup pointed at `profiles/scripts/…` and every lookup
+missed. **A scan whose failures are uniform in shape is usually the join, not the fleet** — sample one hit end
+to end before the number leaves your mouth, and if it is a path-index bug, say the first number was wrong rather
+than quietly publishing the second.
+
+### 1a. When a checker contradicts the artifact it produces, the checker is the finding
+
+**A verdict of "absent" must be backed by the artifact, not by the checker's comparison key.** Measured: a
+directory's own registration endpoint reported every one of our routes `unregistered` while the public page it
+generates rendered all of them, because it matched exact URLs and the registered form carries a trailing slash.
+**Report what the artifact shows and name the disagreement** — never forward "not registered" from a checker
+whose own output disproves it. The same shape appears whenever a verdict rests on one stored field while the
+record of runs is elsewhere: prefer the run/deployment history over a `last_status` string, and say which source
+settled it.
+
 ### 2. Classify EVERY hit — before fixing anything
 
 Walk the findings and put each into exactly one bucket, naming the mechanism:
@@ -144,6 +162,13 @@ mismatch surfaces as a cluster of findings in exactly the files that were writte
   findings; the split left **12 real** and **40 that could not have been**. **Report DATA as a separate bucket and
   never let it count toward the work list** — merging the two is what makes a scan look hopeless.
 
+- **Backup-blindness — the artifact under audit keeps COPIES of itself, and the scan counts them as subjects.**
+  A prose/structure rule walking every `.md` under the tree finds the pre-change snapshots, the promoted-core
+  backups and the generated public copies beside the real files, and reports each as a defect. **A finding
+  about a backup is not a finding:** nobody is going to edit a snapshot, and it inflates the number that the
+  reader judges the corpus by. Exclude `backups/`, `*-pre-*`, `archive/`, `.git/` and vendored dependency trees
+  by path, and say in the output how many files the scope excluded — a silent filter is a second blind instrument.
+
 ### Auditing a WORK LIST, not a corpus: absence is often the assignment
 
 When the thing under audit is a to-do list, "the file it names does not exist" proves nothing on its own — a
@@ -184,6 +209,22 @@ A recurring scan that repeats the same accepted findings every run gets muted, a
 indistinguishable from a clean one. Record the accepted baseline (findings **and** declared), then speak
 only on movement: a rise is a regression, a fall is a fix. Verify the monitor's own delivery path once,
 deliberately, before trusting its silence.
+
+**Expect a majority of a health report's classes to be the instrument, and label them that way.** Auditing one
+such report class by class returned **1 real finding, 3 that were the detector, and 1 that was already stale
+data** — the honest output is a verdict per class, not a work list of five. **The question to ask each class is
+not "is this true?" but "would fixing it change anything a reader acts on?"**
+
+- **A monitor must separate state that NEEDS AN ACTION from state that is by design.** A check whose job is
+  "were these items routed?" reports a parked backlog — ideas sitting in the ideas file, which is where ideas
+  belong — as a daily defect. A backlog is not a defect; it is a queue, and it already has one. **Re-label it
+  "N awaiting a routing decision" and speak only when the count GROWS** — re-reporting an unchanged number is
+  how a reader is trained to skip the whole report.
+- **Name the owner of the fix in the finding.** "The threshold is wrong in `<script>`" is actionable by
+  whoever audits next; "9 ideas need handoffs" sends the reader to do work that was never owed. If the fix is
+  in a shared instrument, say so and say that it moves for every seat at once.
+- **When a class is real but cheap, close it during the audit and say what you did.** Measuring the item,
+  recording the outcome and quoting the number is a better report than a recommendation the next run repeats.
 
 ### Age items by a clock the measured artifact cannot reset
 
@@ -257,6 +298,33 @@ config counted three times), `dirname` applied twice so every profile reported a
 - **The tool's own display.** When a tool redacts its output, a failed string match is evidence about
 the *display*, not the file. Read the bytes before concluding the file changed.
 
+### The transform class: your own pre-processing can manufacture the finding
+
+**A rule that runs on a *derived* string reports defects that exist only in the derivation.** Quote-stripping,
+redaction, whitespace normalisation, HTML-to-text and JSON flattening all rewrite the input before the rule
+sees it — and a rewrite can create exactly the pattern the rule hunts.
+
+Measured: a doubled-word check removed quoted spans from each line before matching. `and the "one afternoon"
+the retro route promised` became `and the  the retro route promised`, and the rule reported a `the the` typo on
+a line that reads correctly in the file. Three successive repairs to the replacement string (a space, an empty
+string, a sentinel) each reproduced it, because **removing any span that sits between two identical words makes
+them adjacent.** The defect was the transform, not the sentence — and the chase cost an hour plus edits to a
+file that had nothing wrong with it.
+
+- **Read the finding in the RAW artifact first.** Open the line exactly as stored, before you open the tool's
+  source. If the raw line reads correctly and the finding persists, the instrument transformed it and you are
+auditing the transform, not the corpus.
+- **A control run on the tool's intermediate string is not a control.** Re-deriving the mangled text and
+"confirming" the defect there is how a phantom gets promoted to a fact. The control must be the original bytes.
+- **Never let a sanitiser rewrite text the rule then reads as evidence.** Blank a matched span with a sentinel
+that cannot occur in prose, or skip the span by index and match around it; do not substitute a space, an empty
+string, or a token that is later converted back into whitespace.
+- **Give the pre-processing its own planted-defect control in both directions:** the real defect still fires,
+and the clean line stays clean.
+- **The finding must be visible in the RAW line, or it is not a finding.** A tool that prints a quote may be
+  printing its own derived text; when the printed line and the stored line differ, the report is about the
+derivation, not the document.
+
 ## The behaviour-inference class: a static read cannot tell you what a job DOES
 
 Any audit that infers **runtime behaviour from source text** — "this prints every run", "this guard fires" —
@@ -320,10 +388,28 @@ and the selftest gate live in `references/secret-scanner-false-positives.md`.
 Three rules from it that apply to any shape-matching detector:
 
 - **Match the detector's own source out first.** A regex literal inside the scanner is the most embarrassing
-  false positive in this class, and it is trivially excluded by path.
+  false positive in this class, and it is trivially excluded by path — but exclude it by the **pattern**, not by a
+  hand-listed set of filenames, or the next scanner written under a new name is reported by four of its own rules.
+- **A path exclusion must be depth-insensitive.** `/(out|artifacts|cache)/[^/]+\.json$` does not match
+  `artifacts/build-info/<hash>.json`, so a rule written for generated output let the deepest, noisiest files
+  through: **127 of 343 CRITICALs were compiled bytecode** read as private keys. Once you are under a
+  generated-output directory, everything below it is generated — match the prefix, then re-severity.
+- **A mask applied before matching hides the placeholder word.** When a preview masks the middle of a value,
+  `sk-your-key` arrives as `sk-you...-key` and every placeholder pattern misses it. Match the mask as well, or
+  classify on the raw line and never on the display string.
 - **Frequency is a classifier, never a verdict.** One leaked key pasted into ten tutorials is still a leak.
+- **A HUMAN VERDICT belongs in a file the next run reads, keyed by SHAPE, never by line number.**
+  Classification inside the scanner only handles the classes it knows; the residue is "a person must open the
+  file". Once a person HAS opened it, the acquittal has to persist or the same reviewed hits re-alarm every
+  week and train the reader to skip the report. Store `repo::path::shape` (the value's hash prefix), never
+  `path:line` — line numbers move on every commit and the exception silently stops matching. Record who read
+  it and what they saw, so the acquittal can be audited instead of trusted, and consult it **first** in the
+  classifier so a cleared hit cannot be re-litigated by a later rule change.
 - **State what was suppressed.** "N findings, 0 real, suppressed by class" is auditable; a silent filter is a
   second blind instrument.
+- **Verify the fix did not go deaf.** Pair every widened exclusion with paths that MUST still be caught —
+  source files, a `.env` in a config directory, a script — and assert they still fire. An exclusion that also
+  silences real source is the original bug wearing a hat.
 
 ### Prove the CLASSIFIER before trusting its silence — selftest in both directions, every run
 
@@ -338,6 +424,33 @@ If the checker exits non-zero on findings, the scheduler records `error` for eve
 a broken audit look identical**, and the only way to tell them apart is to open the output nobody opens. Run the
 scan, then run the classifier, and let the **classifier's verdict** set the exit code: findings that survive
 classification are a failure; suppressed classes are a clean run that prints what it suppressed.
+
+## Auditing a THIRD PARTY's service: the auditor is the constructor, so its assumptions are the findings
+
+When the same checks are pointed at someone else's API, every finding that depends on a choice **you**
+made — which shape you parsed, which parameter you filled, what a free route should answer — is a
+hypothesis about the auditor, not a fact about them. Four classes, each measured against live working
+APIs that the first version accused of being broken:
+
+- **Assume no single shape exists.** Read three live implementations before writing the parser: the same
+  contract was published as a keyed map, as a list keyed `url`, and as a list keyed `resource`. Normalise
+  every shape into one route record, and when none parse, report *"no readable route list"* — never
+  *"no manifest"*.
+- **A manifest-wide price is a summary, not a per-route claim.** Comparing a global price against each
+  route manufactures a mismatch on any seller that prices per product. Compare only like with like; when
+  the price is stated only once, that is the smaller finding ("priced only globally").
+- **A parameter the audit filled itself makes the outcome the audit's.** A `404` for a substituted
+  `{address}` means the sample was invalid for that seller, not that the route is broken. Any finding
+  derived from a filled template is marked *verify by hand*; `CRITICAL` is for un-templated URLs only.
+- **A free route is allowed to answer `200`.** Expect the status the advertised price implies: a route
+  declaring zero must not challenge, and a route that claims a price must.
+
+**An unfillable template is `UNVERIFIED`, never broken** — the same rule as an unread file — and the count
+is printed separately so `0 critical` cannot be read as all-clear.
+
+**The control that catches all four:** run the audit against your own known-clean surface and require
+zero findings, then against a surface you expect to be imperfect and require every finding to be
+reproducible by hand. If your own surface fails, the auditor is wrong, not the corpus.
 
 ## Pitfalls
 
@@ -355,6 +468,15 @@ goes quiet for months.
 citation as far as the scanner is concerned; describe the pattern instead of reproducing it.
 - **Quoting the raw total in the handoff.** Report `real / false positive / declared`, plus what you
 changed in the instrument — otherwise the next reader inherits the rumour.
+- **Once a false finding has caused edits, restore from version control — never by hand.** Chasing a phantom
+  against a live document deleted a real line, and the "restore" was a hand-typed approximation of it: a second
+  edit to a file you have just proven you misread. `git checkout -- <path>` returned it byte-identical to HEAD
+  and settled the question in one command. **Check whether the artifact is under version control BEFORE the
+  first edit, not after the third** — and when a scan accuses a document, treat the document as read-only until
+  the finding is confirmed in the raw bytes.
+- **Spiralling on one finding is itself a signal.** When the third explanation of the same hit is another
+  theory about the tool, stop and read the artifact. A finding that resists two mechanisms is almost always
+  one line of source text that nobody has opened.
 
 ## Precision is part of the measurement — always state the false-positive rate
 

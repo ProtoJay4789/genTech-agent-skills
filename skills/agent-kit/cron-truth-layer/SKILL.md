@@ -702,6 +702,29 @@ connecting again" and "it is telling the truth" are two claims, and only the sec
 
 **Fix:** Before writing a provenance word (measured / actual / verified / on-chain), open the file that produces the number and read its method. State the method's real limits in the same sentence the number appears in — including what is still assumed or gross. **A measurement you cannot attribute to this row is also unrankable** (e.g. one per-tier read cannot label a row that aggregates several tiers into one) — report it as `NOT ATTRIBUTABLE` rather than borrowing a neighbouring pool's value.
 
+**The same overclaim one step further: inventing a CAUSE for a number.** A label can overstate the method
+without naming one — by attributing the value to a mechanism the data cannot see. Measured: a demand report
+printed `those 35 paid-route 200s are NOT purchases: 0 paid keys exist — they are free-tier keys or our own
+probes`. The first clause was measured (no paid key is recorded anywhere). The second was invented: the traffic
+ledger carries **seven fields and none of them is a key, plan or auth token**, so *who* was served is
+unknowable from it. The cause was also wrong in the reader's hands — it was read as a fault of the job.
+
+- **Ask which FIELD would have to exist to support the sentence.** If the answer is "none — it is inferred
+  from not being something else," the sentence is not a measurement. Print the structure of the ignorance
+  instead: `the ledger records no key per request, so WHO served them is not known`, and close with the
+  explicit refusal — `do not read them as free-tier either — unproven`.
+- **A negative is not an attribution.** "Not paid" is provable from the absence of a paid key; "therefore
+  free-tier or a probe" is a second, unsupported claim. State the first, refuse the second.
+- **Wording that reads as a job failure gets triaged as one.** The run table said `ok` while the message body
+  opened with ⚠️ and a colon-separated indictment, so the operator's first question was whether the *job* was
+  broken rather than what the *finding* was. A monitor's finding block and its failure state are different
+  vocabulary layers: a finding is a statement about the world and must not borrow the shape of an error
+  ("N is wrong", "X failed") when nothing failed. If the job ran correctly, nothing in the body should invite
+  the question.
+- **When a field is missing, file it.** The report cannot see the key because the request path never records
+  it — that hole is a build row, not a wording problem. Correcting the sentence and closing the incident
+  leaves the monitor permanently unable to answer the question it was asked.
+
 ### Anti-Pattern 10: Empty Dict Silently Filters All Data
 
 **Bug pattern:** A script has a filter dict (`KNOWN_SERVICES`, `ALLOWED_SOURCES`, `TRACKED_WALLETS`) populated at declaration time but never updated. The main processing loop only handles items that match the dict — but since the dict is empty (or stale), **all data is silently discarded**.
@@ -1159,6 +1182,31 @@ Rules that follow:
 **Generalisation:** *a verifier that cannot fail is worse than no verifier, because its green is trusted.*
 When reviewing any verification code, the first question is not "does it find the bug?" but "what would it
 have to see to say RED — and can its pattern actually match that?"
+
+#### The false red: an incomplete reference table, or a default that hides the gap
+
+AP17 is the instrument that cannot match and reports green. Its twin **reports red for something that is not
+wrong**, because its own lookup table is missing an entry. Measured twice in one surface audit: a parity check
+compared a published list of service names against an internal name→key map that lacked one entry, so a
+surface that was **correct** was reported as advertising one service short; and the generator that builds the
+same surface fell through to a title-cased default for the unmapped route, publishing a name in a form the
+comparison could never match. Two failures that read as one defect on the surface, and both are defects in the
+map.
+
+- **A comparison between two sets needs both mapping tables proved complete first.** An unmapped member on
+  either side renders as a disagreement that does not exist, and it is indistinguishable in the output from a
+  real one. Print the unmapped names (`names not in MAP: [...]`) as their own finding, separate from the set
+  difference — the two need different repairs.
+- **A generator must fail on an unmapped key, not title-case it.** `MAP.get(k, (k.title(), ""))` turns a
+  missing entry into a plausible-looking value, which is worse than a crash: the surface stays wrong silently
+  and only a downstream comparison can see it. Enumerate the map's keys against the source of truth in the
+  same run.
+- **When a monitor says a surface is wrong, check the monitor's map before editing the surface.** Rewriting
+  the surface to satisfy an incomplete map makes the surface agree with a bug, and the next correct value
+  trips the same check.
+- **Prove both directions after the fix:** the real disagreement must still go RED (un-map the entry again and
+  confirm the failing exit code), and the clean run must go silent. A check repaired by weakening it is
+  indistinguishable from one deleted.
 
 ### Anti-Pattern 18: The Check Answers an Easier Question Than the One Asked
 

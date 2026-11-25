@@ -98,8 +98,24 @@ the exact outage this ordering prevents. Pin the ordering with a test that asser
 `PAUSED_BROKEN` return before the heal call site.
 
 **Rule: every deliberate pause must declare its reason.** A pause with no reason is a bug report
-waiting to happen. Write the reason into the job's metadata (`pause_reason`) or registry entry at
+waiting to happen. Write the reason into the job's metadata (`paused_reason`) or registry entry at
 the same moment you pause it; a reason added afterwards is indistinguishable from a cover-up.
+
+**Triage an unexplained pause by its FAILURE RECORD, not by its timing.** `hermes cron pause` accepts a job id
+and nothing else (rule 2d), so **every** CLI pause lands reasonless by construction — a blank reason is the
+interface's defect, not evidence that something rogue paused the job. The field that settles whether it paused
+*because it failed* is `failure_streak` beside `last_error`: **a streak of 0 on a job whose last run was `ok`
+refutes every failure-triggered explanation**, and a theory that predicts a streak where there is none is dead.
+
+- **A vanished instance cannot settle a hypothesis — find the surviving ones.** When the reported job no longer
+exists, the same state on other jobs is the evidence, and it is stronger than the original.
+- **Resolve each one to a DECISION and write it in** — *superseded by a named job*, or *waiting on a named
+gate*. "Blocked" alone is not a status; the next reader cannot tell what would move it.
+- **State the limit of the fix.** If the interface still cannot record a reason, say so and turn the gap into an
+**audit** on `paused_reason: None` rather than promising the next pause will be documented.
+
+**Rule: every deliberate pause must also declare its reason** is only half a rule without the second half —
+the audit that finds the ones written blank.
 
 **A PAUSE IS A REQUEST, NOT A GUARANTEE — verify it LATER, and DELETE a duplicate instead.**
 `hermes cron pause <id>` rewrites `jobs.json`, but the **running scheduler holds its own copy in memory and
@@ -299,6 +315,96 @@ that every layer above it then repeats.**
   only single-line patterns, so the count is a **lower bound** — say so. A clean scan is not a clean fleet, and
   claiming otherwise is the same false-clean this rule exists to stop.
 
+**The MIRROR image, and it is just as invisible: a FINDINGS path that exits non-zero is a false failure.**
+Rule 2b says a reporting job exits `0` when it has something to say. Violating it is easy to write and hard to
+notice, because **the run's output is completely correct** — a finished sweep, a real report, a clean exit
+value that lies about a job which did its work.
+
+Measured: a closing sweep returned `1` whenever it had findings — deliberately, using the same code it uses to
+recognise a child audit's findings — so a fully successful night was delivered as
+`⚠️ Cron '<job>' failed: Script exited with code 1`. It happened every night there was news, which is most
+nights, so the channel's one reliable alarm became routine noise. It also broke the file's own docstring, which
+advertised a `2` meaning that no code path could ever produce.
+
+**Audit it as a question about the path, not about the code:**
+
+```bash
+grep -n 'return 1\|sys.exit(1)' <script>    # FINDINGS path, or COULD-NOT-RUN path?
+```
+
+Then prove **three** cases, because two will pass on the broken version: clean run → `0`; run with findings →
+`0`; a deliberately unreadable instrument (point one audit at a nonexistent file) → `2`. **The third case is the
+one that makes the fix honest** — a script whose every non-zero exit means "I found something" has no way to
+distinguish itself from one that crashed, so its alarm carries no information.
+
+- **Aggregating child exit codes needs the same care as producing them.** A wrapper that maps child `1` →
+  "finding" must map its OWN exit separately; inheriting the child's code is how a reporter ends up claiming
+  failure on success.
+- **Convert at the WRAPPER, not inside the script — the `0/2/3` distinction is worth keeping.** A probe's
+  `2 = measured, found something` is correct and useful to anything that calls it deliberately; cron is the
+  only caller that misreads it. So leave the script honest and translate in the `.sh` the job actually runs:
+  ```sh
+  OUT=$(python3 "$SCRIPT" "$@" 2>&1); RC=$?
+  printf '%s\n' "$OUT"
+  [ "$RC" -eq 2 ] && exit 0     # findings are a SUCCESSFUL measurement
+  exit "$RC"                     # 3 (could not measure) stays loud
+  ```
+  **⚠️ Because the wrapper now swallows the code, the verdict MUST be in stdout or it is lost.** Print
+  `⚠️ FINDINGS: 3 probe(s) failed — <names>` before the script returns 2. **A wrapper that converts findings
+  to success without a printed verdict builds a monitor that cannot go red** — the very failure this standard
+  exists to prevent, arriving through its own fix. Test all three cases: clean → `0`, findings → `0` **with a
+  visible verdict line**, unreadable instrument → non-zero.
+- **A job that has never once reported success has not been proven to run end-to-end.** `last_status: error`
+  on EVERY run while its printed output reads plausibly is the fingerprint of a contract bug (exit code, a
+  swallowed exception after the print), not an intermittent fault — an intermittent fault produces *some*
+  successes. Treat such a job as UNMEASURED until one successful run exists, and do not let its own output
+  stand as evidence of anything.
+- **A docstring that documents an exit code the code cannot emit is a defect in the docstring AND a tell.** If
+  the promised code is unreachable, the promise was never tested — and the paths that were never tested are
+  exactly the ones carrying the bug.
+
+### 2f. THE MONITOR MUST NOT BE THE THING IT MONITORS — five mechanisms
+
+**A self-reflection job is the hardest case: it grades the department that contains itself.** Every rule below
+comes from that shape, and each one produced a green that was wrong in the comfortable direction.
+
+**1. NEVER SHARE THE ONLY DELIVERY RAIL WITH WHAT YOU MONITOR.** If a monitor's single delivery path is the
+channel it watches, a broken channel silences its own alarm — and the failure is *recorded loudly* in the log
+while nobody is told. Prove a second, independent rail exists (a different transport, or a peer seat's inbox
+that survives a chat outage) and **report the rail count**, not the rail's configuration. A transport that is
+merely *available* (an importable mail library, no credentials) is not a rail: report it `NOT CONFIGURED — missing
+<vars>` and refuse, rather than sending on the primary and claiming redundancy.
+
+**2. A RUN CANNOT GRADE ITS OWN EXECUTION ROW — it does not exist yet.** The row is written *after* the script
+exits, so a run that queries its own job id in `executions.db` reads the **previous** run and reports a failure
+**about itself**. Exclude the in-flight row, and identify it by **age** (a latest row that started within the run
+window is the row about to be written), not by a job-id env var — verify the scheduler actually exports one
+before relying on it, because an unset variable makes the exemption silently inert and every run then blames
+its predecessor.
+
+**3. A BROAD `except: return None` CONVERTS AN EXCEPTION INTO A GREEN.** A read helper that swallows its error
+returns *"no data"*, the caller falls back to a weaker source, and the probe prints a pass. Symptom to hunt for:
+a source label in the output that is not the one you expect (`[jobs.json (no run history)]` when the DB exists and
+is populated). Return the error, and have the probe print `UNMEASURED — <source> unreadable (<error>)`. **Never let
+a fallback be silent: a weaker source is a different measurement, not a retry of the same one.**
+
+**4. THREE STATES PER JOB, NOT TWO — and a completed one-shot is neither broken nor switched off.**
+`ran and delivered` · `ran and delivered nowhere` (blind) · `did not run`. A one-shot that ran, delivered and
+retired is **done**, not disabled; a job that has never run is **untried**, not a miss. Classifying either as a
+failure creates a red that can never clear, and an unclearable red teaches the reader to ignore the channel —
+the same end state as too many alerts.
+
+**5. A GUARD THAT HAS NEVER BEEN SHOWN TO FAIL IS DECORATION.** Ship a two-scenario fixture as a script: a clean
+profile that must come out all-green **rc 0**, and a sabotaged one (a failed last-status, a failed
+`delivery_outcome`, a scheduled-but-disabled job) that must come out **red on those specific probes, rc 2**, each
+naming its job. Run both on every change. Point the fixture at a throwaway root (`DEPT_PROFILE`-style env var) so
+the live state is never touched, and delete it afterwards.
+
+**Corollary — the wrapper, not the script, is where findings become success (rule 2e), so the wrapper is also
+where the guard must run.** Put the falsifiability check *before* the score in the `.sh` that cron executes, and
+print its verdict even when `--quiet` was passed. Silence is for "nothing changed", never for "the instrument is
+damaged".
+
 ### 3. ALERT ONCE PER DISTINCT PROBLEM, RE-ARM ON SUCCESS
 
 **Rule: a monitor that reports the same unresolved failure on every tick trains its reader to
@@ -331,6 +437,34 @@ This is a first-class requirement of the standard, not an implementation detail:
   when this standard landed.)
 - **THE DEBOUNCE STATE IS SHARED AND ATOMIC.** The state file is read-modify-written under
   `flock`; the claim is what makes "first one wins" true rather than racy.
+
+### 3b. A COUNT IS NOT A VERDICT — a declared withdrawal is not a drop
+
+**A monitor that counts appearances — listings, indexed endpoints, catalogue rows, tools — cannot distinguish a
+deliberate removal from a broken one.** Both read as the number going down, and the alarm is identical.
+
+Measured: a route was withheld on purpose (it could not serve), two surfaces correctly stopped listing it, and the
+presence job reported two 🔴 `DROPPED` lines. **Both were true and both were noise.** The alarm was answering a
+question that had already been settled by hand.
+
+- **Keep a declarations map of `key → reason` in the script, beside the surface list.** A route or entry we removed
+  on purpose is declared once, with why, at the moment it is removed.
+- **Match on the surface KEY, never on a prose field.** A surface's `note` or description is written for humans and
+  will not contain the identifier you are grepping for — a declaration keyed on prose matches nothing and looks
+  identical to one that works, because the drop still prints.
+- **A declared drop reports as a fact with its reason, on the same line as the count** — `… withdrawn by policy
+  (10 → 9) — <reason>`. It stays auditable, and it stops being an alarm.
+- **An undeclared drop still shouts, and the COUNT is the guard:** if more disappeared than the declarations
+  explain, it is a drop. Prove both directions on a fixture — declared one gone → quiet, two gone with one
+  declared → red.
+- **Never declare away an unexplained drop.** The list is for decisions you made, not surprises you did not want to
+  read. An entry added for something undiagnosed switches the alarm off exactly where it is needed, and the next
+  real regression arrives wearing the same silence.
+
+**Why this is a rule and not a nicety:** an alarm that fires for chosen behaviour teaches its reader to ignore the
+channel, and the cost is paid later — on the night something breaks that nobody chose. The same reasoning drives
+rule 2b (a reporter that always speaks cannot report an anomaly) and rule 3 (a repeated alert trains the reader);
+this is that failure arriving through *accurate* readings rather than noisy ones, which is why it survives review.
 
 ### 4. QUIET HOURS APPLY TO THE SENTINEL TOO
 
@@ -504,6 +638,74 @@ python3 …/cron_health_fleet.py --no-debounce          # once
 python3 …/cron_health_fleet.py --reset-state          # forget everything
 ```
 
+## Pipelines — stringing jobs together (Hermes ships four primitives we do not use)
+
+**Measured 2026-11-22 across 84 jobs on 4 seats: `context_from` used 0 times, `monitor_script` 0 times.**
+Every job was an island. The same scan also showed the suspicion was WRONG that six jobs re-derive the
+same facts — only one file is read by more than one scheduled script, and it is a credential. **So wiring
+jobs together is a new capability, not a cleanup. Do not go looking for mass duplication to fix.**
+
+| Primitive | Mechanism | Use it for |
+|---|---|---|
+| `context_from: [job_id]` | that job's latest output is injected into the prompt (8,000-char cap) | chaining — A collects, B processes |
+| `monitor_script` / `monitor_url` | cheap source runs before the agent each tick; **identical bytes suppress the run**, changed bytes inject `MONITOR CHANGE DETECTED` | gating — wake only when something moved |
+| `{"wakeAgent": false}` as the last stdout line | agent skipped entirely: no LLM run, no delivery | cost — a tick that says nothing |
+| `continuity: true` | the job's own previous output in its own prompt | dedupe — don't report it twice |
+
+**`monitor_script` is incompatible with `no_agent`** — a gate can only guard an agent run. The CLI
+(`hermes cron create`) has no `--context-from`; use the `cronjob_manage` tool, whose `context_from` and
+`monitor` parameters are the only way in.
+
+**Call it a PIPELINE, not an "intelligent cron".** A pipeline is dumb and ordered — producer emits data,
+consumer has one fixed job, gate decides if the consumer runs at all. "Intelligent" invites the belief
+that the job decides things, which is precisely the property you cannot audit.
+
+### The rules
+
+1. **The producer must not know who reads it.** A job that writes *for* a consumer becomes two jobs that
+   must change together.
+2. **The gate must be byte-stable.** One timestamp in the output turns the gate into a job that always runs.
+   Prove stability by running it twice and comparing `md5sum`, not by reading it.
+3. **The consumer must be able to refuse.** A pipeline with no refusal path is an autopilot.
+4. **A deterministic step writes; a model only proposes.** If a model's output is applied unverified, the
+   pipeline is a coin flip with a receipt. Require a machine-checkable contract — see the coverage map below.
+5. **If both jobs read the same file, do not chain them.** Two readers of one number will eventually
+   disagree about it; that is worse than duplication.
+6. **Name the contract in the consumer's prompt.** The producer's output shape is an API — if it changes,
+   the consumer breaks silently.
+
+### The one working example (2026-11-22)
+
+```
+e51346809d3b  Memory Dietician      15 12,17 * * *  no_agent   producer: measures, proposes, writes nothing
+0be4588b6090  Memory Consolidator   45 12,17 * * *  AGENT      consumer: monitor gate + context_from
+```
+
+**Why a model is correct here and wrong almost everywhere else:** `USER.md` holds facts about the user, and
+"facts about the user are not a size decision" — no regex can merge them. `MEMORY.md` already had a
+deterministic hand (`memory-relieve.py`); `USER.md` had none and sat at 96% of cap.
+
+**The guard is a COVERAGE MAP, and it is arithmetic, not trust.** The model returns which input entry
+indices merged into which output entry; every index 1..N must appear in exactly one entry.
+
+```
+{"target": ".../USER.md",
+ "entries": [{"from": [1,2], "text": "merged..."}, {"from": [3], "text": "kept..."}]}
+```
+
+`/opt/data/scripts/memory-merge-apply.py` refuses a gap (`indices [3] appear in NO output entry`) and
+refuses a duplicate (`index 1 appears in entry 0 AND entry 1`). **A silent deletion cannot pass, because
+the indices stop adding up before anything is written.** It then backs up, archives the pre-merge text,
+ledgers before/after hashes, and rolls back if the post-write re-read disagrees.
+
+### Anti-patterns for pipelines
+
+- **Chaining two jobs that read the same source.** Coupling without a removed problem.
+- **A gate whose output includes a timestamp or a duration.** It fires every tick and the gate is decorative.
+- **Applying a model's merge without a coverage contract.** You get a shorter file and a silent fact loss.
+- **Reading the producer's prose as if it were data.** Ask for JSON with a fixed shape, or the consumer
+  parses a paragraph.
+
 ## Anti-patterns (each one cost real time)
 
 - **Counting `status: failed` as "broken jobs".** The recorder writes an alerting non-zero exit and a real
@@ -529,7 +731,7 @@ python3 …/cron_health_fleet.py --reset-state          # forget everything
 - **A new file not in the sync manifest** never reaches the executed copy; it looks written and
   does nothing. Enrol the tool, the wrapper and the registry together, then verify md5.
 - **Skipping disabled jobs blindly** — `enabled: false` hides both deliberate retirement AND a
-  broken job we paused in panic. Distinguish them by `pause_reason`; report the latter as
+  broken job we paused in panic. Distinguish them by `paused_reason`; report the latter as
   `PAUSED_BROKEN`.
 - **Moving the classification checks below the heal call** — a refactor that reorders `is_self()`
   or `PAUSED_BROKEN` after `heal()` can re-fire a paused or non-idempotent money job. Pin the

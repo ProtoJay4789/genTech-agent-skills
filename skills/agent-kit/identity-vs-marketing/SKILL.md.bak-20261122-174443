@@ -1,0 +1,90 @@
+---
+name: identity-vs-marketing
+description: "Use when renaming or publishing a product, service, endpoint or agent. Name changes must not move identity."
+version: 1.0.0
+author: Gentech
+tags: [naming, metadata, identity, catalogues, x402, api, registries]
+---
+
+# Identity vs marketing — a rename must never move an identity
+
+**Learned the hard way, 2026-11-21.** We renamed ten services for search-friendliness — `Treasury Defender` →
+`Token Risk Score` — and the surface guard went red with **`10 ≠ 10`**: the same count, a different set.
+
+Nothing was broken in production. **The rename had silently become a re-identification**, because the check
+resolved display names through a hardcoded map and a miss fell through to slugifying the new name.
+
+---
+
+## The rule
+
+**Three fields, three jobs, and they must never be the same string.**
+
+| field | holds | who may change it | what breaks if it changes |
+|---|---|---|---|
+| `name` | the **company** | almost never | external references that quote the org |
+| `id` (or `routePrefix`, `slug`) | the **identity** | **never** | routes, cache keys, billing, other systems' records |
+| `description` / display `name` | the **search text** | whenever a better phrase is found | nothing — this is the point |
+
+**A product's display name is marketing. Its identity is its route/slug/key.** If both live in one string,
+**a rename is a migration**, and nobody will treat it as one.
+
+---
+
+## The publish checklist
+
+1. **Every service object carries a stable `id`** alongside its display name. If it does not, add one before
+   renaming anything.
+2. **Every consumer reads `id` first**, then any legacy key, then the display name as a last resort.
+3. **One resolution function, used everywhere.** We needed `_native` stripped from `gas_oracle_native` in
+   *two* places — the builder and the checker — and only one had it. **A rule implemented twice drifts.**
+4. **Regenerate from the source, never edit published surfaces.** Five surfaces, one generator.
+5. **Verify after, with a checker that compares SETS, not COUNTS.** `10 = 10` is not agreement; the guard
+   that reported our bug compared the actual members and named the diff.
+6. **Check the name that appears in a SEARCH, not the one you like.** A company pitch as the product name
+   matches no query: *"GenTech Labs — Agentic Treasury + x402 Rail"* could never surface for *"score a token
+   before you swap."*
+
+---
+
+## Never let a display name be a lookup key
+
+```python
+# WRONG — the map is a second source of truth, and a miss is silent
+key = DISPLAY_TO_KEY.get(name.lower(), name.lower().replace(" ", "_"))
+
+# RIGHT — the stable key is published, so it is always available
+key = svc.get("id") or svc.get("routePrefix") or slugify(svc["name"])
+```
+
+**A hardcoded display→key map works until someone renames something**, which is exactly what a map like that
+invites. **The fix is not a longer map — it is publishing the key.**
+
+---
+
+## What a rename actually touches
+
+**Enumerate before editing. The list is always longer than expected:**
+
+- the generator's name table (the one place to change)
+- every published surface it produces — manifest, registry metadata, bazaar copy, tool list, `llms.txt`
+- **any consumer that matched on the old string** — a guard, a monitor, a report, a test
+- **external catalogues that cached the old name** — they refresh on their own schedule, so a brief
+  disagreement between your surfaces and theirs is expected, not a regression
+
+**Then verify with the set-comparison guard and confirm silence.** Silence is the pass.
+
+---
+
+## The trap this belongs to
+
+**A count is not an equality.** Two sets of ten different things both count ten. **Any check that reports a
+number and stops has the same defect as a monitor that cannot tell *clean* from *blind*** — the family of bugs
+this fleet spent a week killing:
+
+- a probe that exited `2` on findings, filed as a crash
+- a wrapper that printed `INSTRUMENT FAILED` and exited `0`
+- a job that ran and delivered nowhere, recorded as `ok`
+- **a rename that kept the count and changed the members**
+
+**Compare the members. Always.**

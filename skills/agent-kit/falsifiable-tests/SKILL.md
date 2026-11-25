@@ -23,7 +23,57 @@ was examined*. The result looks identical to health, and that identity is the wh
 3. **Unreadable input** — delete a source, break a permission. Must NOT read as clean. *"Unverifiable"*
    and *"drift"* are different words for a reason; both must fail.
 
+### A guard that compares SETS is blind to VOCABULARY
+
+**Two surfaces can name the same ten things and publish entirely different words for them.** A check that
+maps each published name to a key and compares key SETS passes in both cases — so a surface that still sells
+retired product names reports **✅ agrees**, and the stale vocabulary survives every run.
+
+Measured: a rename propagated to five surfaces while one prose file kept every old product name; the checker
+reported agreement because each retired name mapped to a perfectly valid key. Both spellings pointed at the
+same service, and only one of them was the name a buyer searches for.
+
+- **Add a WORD-level tripwire beside the set comparison: a list of retired strings that must never appear.**
+  Keep it in the same file as the current names, so a rename updates one table and the tripwire still guards
+  the old vocabulary.
+- **Prove the tripwire by doctoring a copy of the real artifact** — swap one current name for a retired one and
+  confirm the check names BOTH the missing and the stale value. A tripwire never seen to fire is a decoration.
+- **Report the two failures separately** (`missing ['X'] · retired ['Y']`) so the reader knows whether the fix
+  is to publish something or to stop publishing something else.
+- **A generated surface needs the same check as a hand-written one** — generation stops drift at the source,
+  not in the artifact, and the artifact is whatever the last deploy uploaded.
+
+### To falsify a "wrong vs right" pair, CONSTRUCT the input that separates them
+
+When a test proves an anti-pattern is a bug — the naive packer, the proximity parser, the greedy
+allocator — a randomly-chosen input usually does not trigger it, and the test then reports PASS on a
+claim it never checked. **Derive the input from the boundary between the two implementations instead
+of sampling.**
+
+Measured: a budget test wanted to show that a naive "sum the parts" packer overflows while an
+array-measuring one fits. Two attempts failed to fire: a budget at 75% of the list (the naive packer
+stopped early anyway, and happened to fit), then a subset taken from a differently-ordered list (so the
+constructed budget corresponded to nothing the packer would actually do). Both runs printed a clean
+PASS. The third worked because it took the subset **in the same order the packer walks** and set the
+budget to `sum(chosen) + 1` — the sum clears by one character, the array does not.
+
+- **Solve for the input, do not search for it.** Pick the naive implementation's own choice, compute the
+  quantity it ignores (array overhead, adjacency, ordering cost), and set the input to `its_sum + 1`.
+  That value exists by construction; a random probe finds it only by luck.
+- **Match the implementation's ORDER and SCOPE when building the probe.** A subset assembled in a
+  different order than the code iterates is a different input, and the boundary never lands.
+- **A "could not demonstrate the anti-pattern" outcome is a FINDING, not a pass.** Give it its own
+  branch that exits non-zero, or the missing demonstration is silently scored as success — which is
+  how a test that proves nothing reports green twice.
+
 ### Pitfalls that produce a fake green
+
+- **A broad `except` turns a NameError into a reading.** A guard whose inner block references a variable that
+does not exist in that scope crashes, the enclosing `except Exception` catches it, and the harness reports
+  `UNREADABLE (<Type>)` — which reads as a blind instrument rather than a bug in the guard you just wrote.
+  **When a checker reports UNREADABLE on the first run after you edited it, reproduce the block in isolation
+  under a bare `try` that re-raises.** A crash disguised as a measurement is the same defect class as a
+  finding rendered as a zero.
 
 - **A half-planted failure passes.** If you plant a broken flag but leave the line's own `RESOLVED`
   annotation beside it, the tool correctly says clean and your test proves nothing. **When the planted
@@ -85,6 +135,27 @@ A label that a near-total failure can satisfy is worse than no label: it is publ
 will trust it. **Ask of every threshold: what is the worst system state that still passes this?** If
 the answer is "almost total failure with zero of one specific error", the threshold is an absence test
 wearing a health verdict's name.
+
+## A CLOSING LINE is a claim — derive it from the run, never print it
+
+A script's final line (`✅ complete`, `verified`, `ready for review`) is read as the verdict by the user and
+by every later reader. **If that line is a string literal, it is decoupled from the work**: the run can raise
+on every path and still end in green.
+
+Measured: a demo printed two `ModuleNotFoundError` tracebacks and then `✅ Demo complete. Live quotes
+verified above.` The success line was hardcoded, so the artifact advertised a proof it had never performed —
+and because the demo *looked* honest (it printed the tracebacks too), nobody read them.
+
+- **Collect failures as you go, then compute BOTH the closing line and the exit code from that list.**
+  `if failures: print("❌ INCOMPLETE — …"); return 2` — the closing claim and the exit status come from the
+  same value, so they cannot disagree.
+- **A demo that exits 0 while printing a traceback is worse than no demo**, because someone will trust it and
+  the next person will have to disprove it.
+- **Falsify in both directions, on the artifact a reader wields:** the clean run exits 0 with the success
+  line; break a dependency on purpose (rename the endpoint, blank the binary) and require a non-zero exit, an
+  `INCOMPLETE` line, and no optimistic sentence anywhere in the output.
+- **Same rule for every `N/N verified` summary:** count the successes and print the count, never assert the
+  total. A summary that cannot show a denominator cannot be falsified.
 
 A test earns its place by being able to go RED for the right reason and GREEN for the right reason.
 **A test that fails on CORRECT code costs as much as one that passes on broken code** — it sends you
@@ -352,6 +423,26 @@ identical refusals looked like eight successful refusals.
 **Assert the harness can produce a KNOWN-GOOD case before asserting it refuses the bad ones.** Give the
 test its own section for this. If every input path yields one verdict, the harness is broken, not the
 code.
+
+## A test that will not COMPILE is a setup failure, not a red
+
+**A compile error and a failing assertion both exit non-zero with a wall of output, and a summary line
+cannot tell them apart** — so an environment problem reads as a defect in the code under test, and the
+first hour goes into debugging working code.
+
+Measured: a repo pinned a language version in its manifest that the host's default toolchain did not
+satisfy. The test "failed" on the UNTOUCHED upstream tree too — which is the tell: **a red that
+reproduces on pristine source is not a test result at all.**
+
+- **Build the version the manifest demands before writing test code** — the `go` directive in `go.mod`,
+  `rust-toolchain.toml`, `engines` in `package.json`. Install that exact toolchain rather than working
+  around it; a workaround silently changes the thing under test.
+- **The baseline is a clean build of untouched upstream**, not a green suite. If upstream does not build,
+  every later red is uninformative — and every later green is unearned.
+- **Read the FIRST error, not the last.** Compiler output ends with a count (`N errors`) that reads like a
+  verdict; the actionable cause is at the top and names a missing tool or type, not your logic.
+- **Record the exact toolchain version beside any test output you publish**, so a reader reproducing it
+  does not land on a different compiler and conclude your result was wrong.
 
 ## A harness built from the PATCH's own constants cannot find what the patch missed
 
@@ -665,6 +756,32 @@ That showed the regression test was not just a restatement of the fix; it died w
 **Do not mutate the real source to plant the defect.** A test killed between plant and restore leaves
 the defect live. A throwaway copy is the only safe way to prove the control.
 
+## A fix that reproduces the SAME failure has restated the bug
+
+**When the failing test is still failing after the patch, the patch is a suspect before the test is.**
+The usual form is a rewrite of the offending block that keeps its original condition — shorter, tidier,
+logically identical.
+
+Measured: the defect was a flag overriding an explicit `false`. The first fix restructured the
+surrounding `if` and kept `if !syncOnStart && facilitator != nil { syncOnStart = true }` — the same
+override with fewer lines. The test failed identically, and that was the correct verdict; the tempting
+next move (adjust the test) would have shipped the bug.
+
+- **Instrument the VALUE the fix computes, not the output it produces.** One debug print of the internal
+  variable (`syncOnStart=true` under the patch) identifies a restated bug in a single run; re-running
+  the suite only re-confirms the red you already have.
+- **Diff the PREDICATES, not the formatting.** If every input that satisfied the old condition also
+  satisfies the new one, it is the same defect wearing new indentation.
+- **Do not loosen the test to meet the patch.** A red that survives a fix means a wrong diagnosis or a
+  wrong patch; the third option, a weakened assertion, converts a caught defect into a shipped one.
+- **Then ask whether the state is representable at all.** When no value of the input can express what
+  was asked for, no internal rewrite fixes it — the TYPE is the defect (`bug-class-self-audit`,
+  *unrepresentable-state*).
+- **The red→green receipt is TWO runs, in this order:** the failing test against **pristine upstream**
+  (proves the defect exists AND that your test detects it), then the same test against the patch. A green
+  on the patched tree alone proves nothing about whether the bug was ever there — and it is the receipt a
+  maintainer is owed when the fix is a contribution.
+
 ## A check that RECORDS while it CHECKS consumes evidence a later step still needs
 
 A check that writes state while deciding whether to refuse can burn a token that a later step then needs.
@@ -861,6 +978,54 @@ sends you to fix working code.
   Keep the branches distinct in the output AND in the words: `CUSTOMER` vs `UNATTRIBUTED — status UNKNOWN`,
   because the operator acts differently on each and cannot act at all if they read the same.
 
+## A check aimed at SOMEONE ELSE'S service must never MANUFACTURE a critical
+
+Everything above assumes the subject is ours. Point the same guard at a stranger's live API and the risk
+inverts: **the failure that costs most is not a missed defect, it is a confident accusation against working
+software.** Four assumptions produced four false CRITICALs in one build, each against a service that was
+fine:
+
+| assumption | what it produced | the rule |
+|---|---|---|
+| one manifest shape | "no services block" on two working APIs | **Read every shape you observe before judging any.** Normalise `services{}`-keyed, `resources[url]` and `resources[resource]` alike; test the SUBSTANCE (is there a callable route with a price and a challenge), never the schema you expected. |
+| one price model | "manifest says $0.01, charges $0.005" ×2 | **A manifest-wide price is a summary, not a per-route claim.** Compare price→challenge only when the ROUTE states the price; a global figure is a lesser finding ("priced only globally"), not a mismatch. |
+| parameters you filled yourself | their correct `404` reported as a broken route | **A 4xx on a URL you constructed is YOUR sample's fault.** An invented `{address}` that the seller does not index is a correct refusal. Report it as unverified-with-reason, and keep CRITICAL for the un-templated URL only. |
+| every paid route challenges | a free index route answering `200` called "expected 402" | **Expect the status the declared price implies.** Price `0` may answer `200`; only a route that CLAIMS a price must challenge. |
+
+**The discriminator is provenance of the input, not severity of the output.** Ask of every finding: *did I
+control and understand every input that produced this?* If the answer is no — a substituted parameter, an
+assumed schema, a global default — the finding is at most `UNVERIFIED`. **An audit that accuses a working
+API is worse than no audit, because the buyer acts on it.**
+
+- **Prove the tool discriminates by running it on a known-good target first.** Clean on our own artifact is
+the positive control; if the same build also emits several criticals at strangers, suspect the assumptions
+before the strangers.
+- **Print the request that produced each finding** (URL, method, status). A finding without its request
+  cannot be reviewed, and a reviewer who cannot see the request will assume the worst of the seller.
+- **Keep the refusal honest in the tool's own exit codes:** `0` clean, `2` findings, `3` BLIND — never let
+  "could not read the target" render as "clean", which is this skill's opening rule applied outward.
+
+## An artifact that QUOTES live numbers must re-verify them at BUILD time and refuse to build
+
+A generated document, video, slide or report that prints figures read from a live system **is a claim with a
+long tail**: it outlives the moment it was measured, and nothing in it says when it stopped being true.
+
+**Give the generator a verification pass over every figure it is about to print, and make a drifted claim a
+refusal rather than a warning.** Measured pattern: the renderer re-read the live API, re-ran the audit and
+asserted route counts, tool counts and the response size before the first frame; a mismatch exits non-zero
+with the specific drift named. The artifact therefore cannot quietly become a lie — the build fails first.
+
+- **Assert the numbers as a contract with named expectations**, not as "it ran": `routes != 10 → refuse`,
+  `audit_rc != 0 → refuse`. A renderer that only checks its own encoder has verified the video, not the
+  claim inside it.
+- **Ship a `--no-verify` escape hatch that says loudly the output is UNVERIFIED**, so a manual cut is
+  possible without pretending it was checked.
+- **Then read the artifact back anyway** — extract a still per claim-bearing frame and transcribe it. The
+  build gate proves the inputs matched; only reading the pixels proves the output says what you intended.
+  **Name which channel you verified:** a clean build plus legible frames still says nothing about narration.
+- **A count mismatch found by reading is the gate working late, not a nuisance:** fix the claim, rebuild,
+  re-read. Never edit the number in the description and leave the artifact alone.
+
 ## Pitfalls
 
 - **An expression used as a boolean can return a VALUE, and comparing it to `True` fails on correct code.**
@@ -917,3 +1082,19 @@ sends you to fix working code.
   a control. Prefer a fixture swap plus a restore-by-hash over a hand-edited subject: if turning the
   fix back into the bug takes one block move, the next reader will actually do it, and the control
   stays alive. Snapshot the refs first, run, restore from the hash, and assert the restore.
+
+## Learned on gentech-treasury (merged 2026-11-24)
+
+> Promoted verbatim from the seat that learned it. Kept separate on purpose: this is a second writer's evidence, not a rewrite of the section above.
+
+- **A comparison variant that DROPS the mechanism is a different trade, not a worse model — and it
+  manufactures a dramatic fake gap.** When pricing the same event under competing models (stop price vs
+  gap-open vs bar close), every variant must model the same event and differ ONLY in the quantity under
+  test. Measured: an "open-fill" variant was written as `next_bar_open` unconditionally, so on any bar that
+  opened ABOVE the stop it booked an unlevered open instead of the stop — printing −0.05% against the
+  correct −2.00%. Once that variant applied the stop in the off-branch, the two agreed to the cent and the
+  195 bp "finding" vanished. **Before reporting a disagreement, ask what each variant does on the branch
+  where it is NOT the mechanism under test** — if the answer is "something else entirely", the gap is your
+  bug. Print a per-branch comparison, not only the aggregate, so a divergence localises instead of arriving
+  as a clean total that looks like a result.
+

@@ -1055,7 +1055,7 @@ Four classes, and **the second is the one that fools people**:
 1. **KEY MATERIAL** — PEM blocks, 64-hex appearing with private-key language, **a bare 64-hex alone on a
    short line**, mnemonic wordlist runs.
 2. **CREDENTIAL ASSIGNMENTS** — `NAME=value` where NAME is credential-shaped and the value is real.
-   **A sha256 in a doc is fine; an ASSIGNMENT is not.** Placeholders (`${…}`, `<REDACTED-STRIPE-KEY>`, `xxx`,
+   **A sha256 in a doc is fine; an ASSIGNMENT is not.** Placeholders (`${…}`, `<REDACTED>`, `xxx`,
    `your_`, `getenv`, `_env$`) are excluded — or the gate cries wolf and gets ignored.
 3. **KNOWN TOKEN SHAPES** — `github_pat_`, `gh[pousr]_`, `sk-`, `sk-ant-`, `AIza`, `xox[baprs]-`,
    `AKIA`, JWTs, `sk_live_`.

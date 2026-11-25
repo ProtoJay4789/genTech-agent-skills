@@ -181,7 +181,7 @@ record must show all three separately: what the author claimed, what the peer ch
 
 | | |
 |---|---|
-| **when** | weekly, low-traffic hour |
+| **when** | **Monday morning, after the Sunday council** — the meeting reads the week the council just closed, and lands before the new week starts |
 | **who** | every seat; HQ chairs |
 | **delivery** | file to `11-Mess Hall/self-reflect/`; **chat only if a seat did not answer or a probe went red** |
 | **escalation** | ACK in the session it is read · answer within 2 days · escalate on day 3 (the Colleague Rule) |
@@ -189,6 +189,16 @@ record must show all three separately: what the author claimed, what the peer ch
 **Run the first one by hand.** The questions are new and they will misfire somewhere — and a meeting that has never
 been chaired should not be scheduled before it has been read once by a human. *(Measured: the first manual run is
 what produced the four findings above; an unattended first run would have shipped the same questions unchecked.)*
+
+**Open the DEPARTMENT intent with the seat's own INSTRUMENT output, not with its recollection.** Where a seat runs a
+department reflection, its last scorecard is the evidence base and the meeting asks what to do about it. The
+operator's question is *"are the jobs working, what needs to change, what needs fixing"* — a seat answering that
+from memory is guessing at numbers it could have read, and the guess will be flattering.
+
+**Keep the instrument and the meeting as two different jobs on two different cadences.** The instrument runs often,
+is a script, costs nothing, and grades one seat against a stored baseline. The meeting runs weekly, is a
+conversation, and decides. **Collapsing them produces a meeting that is a status report, or a probe that thinks it
+has authority to change policy.**
 
 ---
 
@@ -239,6 +249,13 @@ python3 profiles/<your-seat>/skills/<path>/<the-script>; echo "exit=$?"
   all. The independent run is the finding, and it costs one command.
 - **A count of `0` on a seat is not "no drift" — it is "this seat cannot do the thing".** Treat a missing rule as a
   delivery failure, never as a variant.
+- **Check presence at the depth skills actually live, or you will report an installed skill as absent.** Skills sit
+  at `skills/<category>/<name>/SKILL.md`, so `ls profiles/<seat>/skills/<name>` finds nothing for anything nested one
+  level down — a false "not installed" that reads exactly like a real gap. Use
+  `find profiles/<seat>/skills -name SKILL.md -path '*/<name>/*'`, and confirm the load path rather than the directory.
+- **This test applies to the meeting's own format first.** A seat that cannot load THIS skill is answering a
+  questionnaire it has no format for, and will answer in prose instead of the three intents. Install it on every
+  seat and prove the load before the first scheduled meeting fires.
 - **After the sync, re-run the instrument on the real input and require the NEW exit code.** Presence in a file
   is not behaviour; the guard has to fire where it lives.
 - **`TOTAL DRIFT: N` from a fleet-wide checker is not a work list of N items.** It counts per-seat copy

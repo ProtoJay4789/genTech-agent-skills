@@ -97,6 +97,31 @@ not (wording, tone, language), count the symptom in each seat's OWN message stor
 model return 0 and one returns 13, **the model is not the variable and the config diff is**. A per-seat count
 turns "it sometimes does X" into a named seat, a named window, and a before/after you can re-run.
 
+## Measure USE, not just load — the tool mix is a log readout, not an opinion
+
+"Are the agents actually using the skills and tools we gave them?" is answerable in one pass from each
+seat's `logs/agent.log`, and the answer is usually three different answers per tool class:
+
+```bash
+# per seat: what actually ran, ranked (the completion marker, not the word)
+grep -oE '(\w+) completed \(' logs/agent.log | sed 's/ completed (//' | sort | uniq -c | sort -rn | head -14
+```
+
+- **Count the COMPLETION marker, never the bare tool name.** A tool's name appears in prompts, skill
+  bodies and error text; `grep -c skill_view` counted a *higher* number than the real calls because it was
+  matching prose. `skill_view completed (` is the invocation.
+- **State the window.** The log covers one session's lifetime (or whatever rotation is configured), so report
+  "N calls over these dates", never a bare count that reads as all-time.
+- **Report the mix as a ratio, and interpret each class separately.** A high `skill_view` share with a low
+  `web_search` share is not one story: skills loading often means the index is doing its job, while a near-zero
+  web count means either the answers come from measured commands (good) or the destinations block this host
+  (a gap, not a habit) — say which, because the same number supports both readings.
+- **The per-turn cost of the shelf is the INDEX, not the library:** `sum(len(name) + len(description))` over
+  every skill ≈ what is injected before the first turn. Quote that number, not the total bytes of all
+  `SKILL.md` files (which load only on demand) — and not the count, which says nothing about cost.
+- **Cross-seat comparison needs the same window per seat**, and a quiet seat is not a broken one: the newest
+  seat will show a fraction of the calls. Rank by rate, not by total.
+
 ## Failure classes (each with its rule)
 
 **A rule that loads but is WRONG is worse than a rule that is missing.** A stale memory entry is injected

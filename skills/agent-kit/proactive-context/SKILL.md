@@ -88,3 +88,32 @@ The Mess Hall (`11-Mess Hall/`) is for:
 - Session handoff notes
 
 Don't wait until end of session. Log as you go.
+
+## Notes written WITHOUT an instruction — two tiers, and no third
+
+"Log as you go" answers *when*. This answers *where*, and the distinction is the one that decides whether the
+note outlives the session. Every note written on your own initiative goes to exactly one of two places:
+
+| tier | lives in | contract |
+|---|---|---|
+| **DURABLE** | the vault (`00-HQ/`, `11-Mess Hall/`, the owning project folder) | indexed, discoverable by someone else, dated, current until superseded |
+| **SCRATCH** | `profiles/<seat>/cache/scratch/` | disposable, never cited as evidence, assumes nobody else will read it |
+
+**A note that is neither is the failure state**, and it is the common one: analysis written into a scratch file,
+concluded from, quoted in a reply — and then left where no index points and no cleanup reaches. The conclusion has
+no home, and the next session re-derives it from raw data, which is the expensive way to learn something we already
+knew.
+
+- **State the tier in the note's first line.** A one-line header (`# SCRATCH — not indexed` or a real vault title)
+  makes the difference visible to whoever finds it later, including you.
+- **Promote before you conclude.** The moment a scratch file's finding is used in a report, a decision, or a
+  skill, the finding must be promoted to a durable note — the report is transient, the vault is the record.
+- **Never cite a scratch path to the user as the record.** Give them the durable note; keep the scratch path for
+  your own tool calls. A path under `cache/` reads as an artifact until the reader learns it is pruned.
+- **Write → index → route → open.** A durable note with no pointer from the index does not exist for the next
+  reader. Add the pointer in the same change, not "later".
+- **Scratch has no expiry by default — give it one.** Directories under `cache/` that nothing prunes accumulate
+  until someone audits them, and a stale scratch file that looks like analysis is worse than no file.
+
+**The test for which tier:** *could someone else find this next week, and would they know whether it is still
+current?* Yes → durable, and make both halves true. No → scratch, and say so at the top.

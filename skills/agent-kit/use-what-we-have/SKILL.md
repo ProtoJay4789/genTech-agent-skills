@@ -42,6 +42,28 @@ metadata:
 | **4** | **The brain** (the vault) | **Prior research, prior verdicts, prior decisions — including decisions to STOP** |
 | **5** | **The fleet** | Another seat may already own this lane |
 | **6** | **The DEPLOYED estate** | **A live deployment that left no local trace — ask the platform, not the filesystem** |
+| **7** | **The SHARED tree outside any profile** (`/opt/data/scripts/`, `/opt/data/skills/`) | **A fleet-canonical instrument. A profile-scoped search will NEVER find it.** |
+
+**Place 7 is the one that manufactures a duplicate that looks original.** `/opt/data/scripts/` is where a
+fleet-wide instrument lives so every seat runs the same code; `/opt/data/profiles/<seat>/scripts/` is where a
+per-seat wrapper lives. **A search rooted at your own profile returns only the wrappers**, so the canonical tool
+is invisible and the rebuild looks like a genuine gap.
+
+```bash
+# the shared tree FIRST when the subject is fleet-wide
+ls -1 /opt/data/scripts/ | grep -i '<topic>'
+grep -rn 'answer\|purpose\|WHY THIS EXISTS' /opt/data/scripts/*.py | head -20
+# then your own profile, which holds wrappers rather than instruments
+ls -1 <profile>/scripts/ <profile>/tools/ | grep -i '<topic>'
+# then every seat's cron for a job that already runs it
+for p in /opt/data/profiles/*/cron/jobs.json; do python3 -c "import json,sys;d=json.load(open('$p'));j=d if isinstance(d,list) else d.get('jobs',[]);print('$p',[x.get('name') for x in j if isinstance(x,dict)])" ; done | grep -i '<topic>'
+```
+
+**Measured:** a memory-trimming tool was written from scratch after grepping the seat's own `tools/` and
+`scripts/`, which held no such thing. **The fleet already owned one** in the shared tree — measuring every
+profile, reading each seat's configured caps, and running twice a day from another seat's cron. The rebuild
+duplicated a working instrument and, worse, re-implemented a *design the fleet had deliberately abandoned* (see
+the next rule). **The search root was the defect, not the search.**
 
 **The brain is the one that gets skipped most, and it is the most expensive to skip — but the ENGINE is the
 one that costs the most to miss, because missing it means hand-building infrastructure that already exists.**
@@ -77,6 +99,24 @@ property the shipped feature already solved.
 - **Check the shipped feature's LIMITS as carefully as its features.** A capability that is single-host, or
   single-profile, may cover part of the fleet and none of the rest — say which seats it actually reaches
   instead of adopting it wholesale.
+
+## A symptom that invites a mechanism redesign IS a build — inventory before you design
+
+**When the user reports misbehaviour — "messages get skipped", "this doesn't queue", "the list is out of
+sync" — the instinct is to design a better mechanism. That design is a build, and it is inventory-gated like
+any other**, even though nothing in the request says "build". The engine answer is usually already shipped and
+sometimes already correct.
+
+- **Read the runtime's own source for the function the symptom maps to, before describing any mechanism.** The
+docstring of the call that handles the case states what the behaviour actually is, in one sentence.
+- **A shipped behaviour that turns out to be correct is the better finding.** "The transport is fine; I was
+  mis-handling your message" is a real answer, and it is cheaper and truer than new infrastructure — say it
+  plainly instead of defending the design you were about to propose.
+- **Check the feature's live STATE, not just its configuration.** A toolset enabled in config with a database
+  that holds **zero** rows is a feature that was installed and never used — that gap *is* the finding, and it
+  is worth more than the mechanism you were about to write.
+- **Prove it end to end on the real thing before recommending it.** Create one row, read it back, remove it.
+  A configured-but-unused feature is a hypothesis until an artifact moves through it.
 
 ## ⚠️ An UPDATE invalidates your inventory — re-check the engine on a cadence
 
@@ -217,6 +257,14 @@ curl -s -H "Authorization: Bearer $CF" "https://api.cloudflare.com/client/v4/acc
 - **`dns_records` is a catalogue of intentions, not of contents.** A hostname with a record can still be
   serving `404`; a hostname with no record can be the one that matters. Read both the record set and a real
   request per name.
+- **A DIRECTORY `404` is not an absence — probe the artifact URL.** Static hosts serve no index for a folder
+  unless one was written, so `https://host/DeFi/` returning `404` says nothing about `DeFi/panel.html` sitting
+  there. Measured: that directory `404` was read as "the page is not live" while the page itself answered
+  `200` one path segment deeper — one command away from building a second copy of a working dashboard.
+  List the deploy tree (`ls deploy/<site>/<area>/`), then fetch each **file** URL, not its parent folder.
+- **A redirect is a live page.** Static hosts commonly answer `308` and land on an extensionless route
+  (`/page.html → /page`), so a bare status check reads as broken. Follow it: `curl -sL -o /dev/null -w
+  '%{http_code} %{url_effective}'`.
 - **"Deployed" and "routed" are two different states.** A project can be live on its platform subdomain while
   its custom domain answers `404`. Check the custom names you actually publish, not only the default one.
 - **Then diff, and prefer update over rebuild.** A live target turns the job from *create a home* into
@@ -285,6 +333,11 @@ reported the job "gone" while two working artifacts sat in the recovery snapshot
 2. **Search every ROOT, including archive and recovery trees** (`recovered-*`, `10-Archive/`, `_archive/`).
 3. **A new record that starts at ZERO beside an existing one is a REGRESSION, not progress.** Print the existing
    rows and state the delta before creating a ledger, register or index.
+4. **Grep the VENDOR / DATA-SOURCE name across `scripts/` before writing any client.** Integrations are named
+   after the third party, not after the feature: a new `flow-desk`/`client.py` will not match, but
+   `ls scripts/*<vendor>*` and `grep -ril '<vendor>' scripts/` find the client that already talks to it.
+   Measured: a second API client was written for a provider whose working, live-verified client had sat in
+   `scripts/` for two days — the vendor-name grep would have returned it in one line.
 
 **Depth — the four other ways a negative gets invented (wrong namespace, truncated slice, stale status table,
 remembered path): `references/false-absence-searches.md`.**
@@ -358,6 +411,31 @@ def write(...):                    # add ONLY the new rule
 **The check before writing a new helper: does something already perform this exact job? If yes, the new file is
 probably a patch, not a module.**
 
+### A refused overwrite IS the inventory check firing — read the file, do not work around it
+
+**When a write is refused because the target already exists, that refusal is the cheapest inventory result you
+will ever get: it names the thing you were about to rebuild.** The reflex is to route around it — pick a new
+filename, write to a scratch path, add a suffix. Every one of those turns a caught duplicate into a live one.
+
+**Read the existing file instead, and expect it to be better than your draft.** Measured: a cost model was
+about to be written for the third time; the refused overwrite pointed at the file, and it already held the same
+arithmetic *plus* the operator's own recorded rule for when the answer should be WAIT — a rule the draft did not
+know existed and would have contradicted. The draft was not a worse tool, it was a tool missing the one thing
+that made the existing one trustworthy.
+
+**How to read the refusal:**
+
+1. **`read_file` the target, whole.** Not the head — the header docstring is where the tool states the question
+   it answers and the decisions it refuses.
+2. **Look for the NEGATIVE clauses.** `does NOT`, `never`, `deliberately` — those are verdicts from a previous
+   session and they outrank your idea for the same reason a written protocol does.
+3. **Then choose: EXTEND, MERGE, or a genuinely new instrument.** Writing beside it is only correct when the
+   existing tool answers a *different question*; say which, in one sentence, before you create anything.
+4. **If you do write a second file, name the authoritative one** in both docstrings, so the next agent imports
+   the right thing without reading two files.
+
+**A guard that stops you is not an obstacle between you and the work. It is the work, arriving early.**
+
 ### Before adding an INSTRUMENT, list the QUESTIONS the existing ones answer
 
 **Monitors, checkers and reporters are the worst place to skip the inventory**, because two of them can do
@@ -380,6 +458,32 @@ also been working correctly the whole time; the new one added one genuine surfac
 **The one-sentence test, before writing any instrument:** write the sentence *"this job answers: ___"*.
 If an existing instrument's header contains that sentence, **it owns the question** — extend it, do not
 create a rival.
+
+### ⚠️ "We deliberately do NOT do X" in an existing header is a DECISION, not a gap
+
+**A docstring that names an abandoned behaviour is the most expensive sentence to skip, because it reads like
+an absence and is actually a verdict.** When an instrument says *"the original did X and was replaced because
+X destroyed something"*, **rebuilding X is not an improvement — it is a regression with a clean conscience.**
+
+**Read the negative clauses, not only the positive ones.** A good header carries both: what the tool does, and
+what it refuses to do and why. The refusal is usually the part someone learned the hard way.
+
+**Measured:** a rebuild auto-trimmed a record by *score* — a numeric proxy for the position of an entry in the
+file. The existing fleet instrument's own docstring said, in as many words, that it **never rewrites the file**
+because *"the original trimmed by position … the cut lines are exactly the ones the agent would have kept"*.
+The rebuild was that original, rewritten by someone who had not read the sentence. It then deleted
+user-preference entries the fleet's written protocol listed as **never delete** — the exact failure the existing
+design existed to prevent.
+
+**Three checks before writing any tool that MODIFIES durable state:**
+
+1. **Grep the existing instruments for `NEVER`, `does not`, `deliberately`, `refuses`.** Those lines are the
+   design contract; violating one is not a feature.
+2. **A rebuild that changes WHO decides is a different product**, not a better version. If the existing tool
+   deliberately leaves a judgement to a human, an automated replacement has removed a human, not added speed.
+3. **Diff your proposed deletion rule against the written protocol's protected categories** (preferences,
+   corrections, identity, wallet rules). If your scoring can rank a protected category last, your scoring is
+   the defect — a protection that a heuristic can outvote is not a protection.
 
 **When you find a partial overlap, the answer is neither "keep both" nor "replace":**
 
@@ -411,3 +515,26 @@ filename remembered.**
 - `pre-change-impact-assessment` — the wider "before a big change" pass.
 - `proving-a-negative` — how to state an absence honestly.
 - `name-resolution` — verify the name before reasoning from it.
+
+## Learned on gentech (merged 2026-11-24)
+
+> Promoted verbatim from the seat that learned it. Kept separate on purpose: this is a second writer's evidence, not a rewrite of the section above.
+
+## A task waiting on the USER is a claim about their state — check it before re-serving it
+**The sibling of the question rule, and it costs the user's attention rather than yours.** An item in their
+queue asserts *"you still have to do this."* If nobody has checked, it gets re-copied into every report and
+hardens into fact.
+**Measured:** "register with vendor X — needs your email and name" was carried on the pending list across two
+reports, and it had already been done: the catalogue held **17 of our rows**. The registration had happened, the
+name and email were used, and the only thing that survived was the note. The user had to ask *"didn't I already
+give you that?"* — which is the whole cost.
+- **Check the third party's own record, not our note about it.** A catalogue, account page or API answers
+  *"is this done?"* in one call; the note answers only *"did someone once think it was needed?"*
+- **A queue item that names an ACTION is verifiable; one that names a MISSING THING is not the same claim.**
+  "Needs their email" is testable against their own listing; "needs better positioning" is not, and should not be
+  filed in the same list.
+- **When you find a queue item already done, say so and close it — do not silently drop it.** The record that a
+  task was thought open and turned out closed is what stops it being re-filed next week.
+- **The inverse also holds:** a task marked done by our own note is a claim about *our* side, and the same check
+  decides it. Both directions are one lookup.
+

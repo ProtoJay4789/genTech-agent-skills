@@ -118,6 +118,57 @@ Rules:
 
 ---
 
+## Failure 2c — The mirror that is an ACTUATOR (verify before you write the first row)
+
+Generating the mirror is right (`Failure 2b`). Choosing **a kanban board** as the mirror changes the
+class of risk, because a Hermes board with the shipped defaults **spawns workers**:
+
+```
+kanban.dispatch_in_gateway      true   ← the gateway process ticks every 60s and spawns
+kanban.auto_decompose           true   ← a worker per claimable card (cap ≈ MemTotal/512MiB, ≤8)
+```
+
+**Measured:** syncing 65 open items produced 8 concurrent autonomous workers within seconds, which
+then made real writes — edited public repo metadata, rewrote the queue file, and modified
+key-handling code — before anyone decided they should run. Nothing was destructive; everything still
+had to be audited after the fact, which is the cost.
+
+**Rules, in this order:**
+
+1. **Check the actuator before creating the first card** — `hermes config get kanban.dispatch_in_gateway`,
+   `pgrep -af kanban_worker_client`. A card is a work request, not a row.
+2. **Verify the board's semantics, not just its verbs.** `create`/`comment`/`archive` all working proves
+   the CLI is healthy and proves nothing about whether a task executes. The dispatcher is a separate
+   mechanism in a separate file.
+3. **Create ONE card and inspect it before bulk-loading.** `--dry-run` counts what would be created and
+   says nothing about what will run.
+4. **To stop a fleet, `block` — never `reclaim`.** `reclaim` releases the claim and returns the card to
+   `ready`, so the next tick spawns a fresh worker. Blocking parks it; the reason goes in the comment
+   thread where the next reader sees it.
+5. **An autonomous writer inherits the queue's write invariants, and will not honour them.** A worker
+   that "marks items shipped" re-serialised the whole JSON (indent and unicode escapes changed), which is
+   exactly the one-field-edit rule in the two traps below. Treat every worker write-back as a diff to
+   review, not a status to trust.
+6. **Make the sync INCAPABLE of dispatching — never rely on a flag being remembered.** Create every card
+   in **`triage`, never `ready`**, and set `kanban.dispatch_profiles: []` (the engine's own fail-closed
+   allowlist: *an empty list claims nothing*, refused at claim time rather than read at startup).
+   `triage` is the not-dispatchable column — inert while `auto_decompose` is false — so **moving a card out
+   of triage is the human approval gate**, and it is one command (`promote` / `unblock`). A sync that
+   creates runnable work is a fuse, not a mirror.
+7. **Prove the dispatcher is dead with a CONTROL, not with a config read.** Zero workers proves nothing
+   when no card is claimable — idle and disabled look identical. Create one card in `ready` deliberately,
+   wait ~90s, then read the DB: `workers=0`, the card still `ready`, `task_runs` count `0`. A live
+   dispatcher would have claimed it. That single probe is the difference between a setting and a behaviour.
+
+**The generalisable rule:** a mirror you generate is safe only if it **cannot act**. If the target has an
+actuator, turning it on is a decision a human makes — and the sync script must be able to run with that
+actuator off and prove it.
+
+Concrete mechanics (flag order, the body-marker dedupe index, block/reclaim semantics, per-run audit
+queries): `references/kanban-sync.md`.
+
+---
+
 ## Failure 3 — The queue with no completion timestamp
 
 If items carry no `completed_at`, then **"what shipped recently?" is unanswerable** — and the
@@ -130,9 +181,47 @@ the easy one:
 build_queue_query.py ship "<substring of the item name>"
 ```
 
+### Closed is a STATUS; completion is an EVIDENCE claim
+
+When someone asks *"verify what is closed and what is completed"*, counting statuses answers a
+different question than the one they asked. Measure the evidence instead, and report both numbers:
+
+```
+closed rows                    57
+  done-status (shipped/closed/completed)  44   of which WITH evidence  12
+  decision-status (dropped/rejected/…)    13   of which WITH a reason  11
+```
+
+**A `done`-status row with no evidence field, and no matching entry in the completion store, is
+unverifiable — and a closed item nobody can check is indistinguishable from one quietly abandoned.**
+Do not call those rows fake; say what is true: *the work may well have happened, but nothing lets a
+future reader confirm it.*
+
+Cross-check the two stores by title similarity and **print the match score**, so a weak-match verdict
+can be argued with rather than trusted:
+
+```python
+from difflib import SequenceMatcher
+best = max(((SequenceMatcher(None, norm(row["name"])[:80], norm(e["title"])[:80]).ratio(), e)
+            for e in registry_entries), key=lambda x: x[0])
+proven = best[0] >= 0.72 and (best[1].get("proof") or "").strip()
+```
+
+Three outcomes, each reported separately: **proven by the row**, **proven by the store**, **no proof
+anywhere**. A store that matches zero retired rows is normal (it usually starts harvesting after the
+old rows were closed) — that absence is itself the finding, because it means the queue and the
+completion store never shared a key.
+
+
 ---
 
 ## Working an item — the process once you take one
+
+**Pick order: DEADLINE first, then easiest → hardest.** A hard external deadline dominates difficulty — an
+item that closes on a date goes ahead of a smaller one that never does, and say the deadline out loud when
+you report the order so the choice is checkable. With no deadline in play, sequence easiest → hardest: the
+small items clear the deck and the hard one gets the time that is left, rather than the reverse. A queue
+digest that prints only difficulty is not an ordering, it is a list.
 
 Work comes from the **group view** (`next --group <group>`), not routed through one central team and
 back. Once an item is taken it runs five steps, and these rules are the part that is actually worth
@@ -273,6 +362,36 @@ json.dumps(items, indent=2, ensure_ascii=True) + "\n"   # round-trips byte-ident
 **Check:** a one-field edit must show **~2 changed lines**. A huge diff means you re-encoded —
 revert and redo.
 
+**A generated writer round-trips, it does not re-serialise.** `json.dump(dict)` over a parsed file
+silently changes indent, separators and every `\uXXXX` escape in one pass — a cosmetic rewrite that
+looks like a content change in review and hides the one field that moved. Any tool that edits the
+queue must load the text, splice the field, and re-emit the **original** serialisation settings; then
+assert the diff is small before it exits 0.
+
+**But do not trust the line count alone — a long-lived queue is often already inconsistent.** Items
+appended by different writers sit at different indents inside the same array, so normalising the file
+produces a whole-file diff **even when not one field changed**, and a re-encode and a real edit are
+indistinguishable by size. When the diff is large, prove the content instead of arguing about it:
+
+```python
+old = json.loads(subprocess.run(["git","show",f"HEAD:{path}"],capture_output=True,text=True).stdout)
+new = json.load(open(path))
+olds = {str(i["id"]): i for i in old}; news = {str(i["id"]): i for i in new}
+for k in news:
+    if k in olds:
+        diff = [f for f in set(olds[k]) | set(news[k]) if olds[k].get(f) != news[k].get(f)]
+        if diff: print(k, diff)          # every row whose CONTENT moved, and which field
+```
+
+**The verdict is the field list, not the diff size.** A few rows with named fields is a real edit; the
+same rows with zero field differences is pure formatting. Print *items added / removed / rows with any
+content change*, and quote those three numbers when you report the write.
+
+**A one-time normalisation is allowed — and only with that proof attached.** If the file has drifted
+into mixed indentation, one deliberate reformat makes every future diff readable again; the commit
+message must carry the field-by-field result ("2 rows changed content; 0 added; 0 removed") so the next
+reader knows the 1,000-line diff was formatting. Doing it twice means somebody is re-serialising.
+
 ---
 
 ## Design rules
@@ -282,6 +401,11 @@ revert and redo.
   mixes them reports a backlog nobody can action.
 - **Blocked must name its gate.** "Blocked" alone is not a status, it is a shrug — the next reader
   cannot tell what would move it. Flag gated items that carry no gate as a defect.
+- **A gate that names a CREDENTIAL must be verified against the live secret store before it is repeated.**
+  A row saying *blocked on an API key* sends the operator to a signup form that may already be finished;
+  measured, a key had sat on disk for two days while the queue still quoted the application as the critical
+  path. Check the secret path, make one real call with it, then rewrite the gate with the measurement.
+  **A cleared gate left in the row is worse than no gate** — the next reader trusts it and waits.
 - **Distinguish "empty" from "excluded."** A filter that matches nothing should say *why*, not
   return a calm blank.
 - **Verify a negation-aware check.** A check that greps for a name will match the name inside its

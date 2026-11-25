@@ -64,6 +64,25 @@ stack, and fixing one leaves the integration just as dead as before — so resol
 the integration dead. Probe v3 *after* any version fix, or the retry looks identical to the first
 failure.
 
+### The fourth failure state: platform CONNECTED, toolkit UNLINKED — and it answers zero, not an error
+
+**A toolkit that was never linked does not fail. It returns an empty result set**, which is
+indistinguishable from "this account genuinely has none". Measured: a Sheets search returned zero results for
+every query while the SAME Google account listed the very file being searched for through Drive — one toolkit
+linked, the other not, both reporting success.
+
+- **Before reporting an empty result, prove the toolkit is linked for the account you are calling.**
+  `composio connections list`, filtered to the toolkit AND the alias/`ca_` id used in the call. `ACTIVE` for
+  `googledrive` says nothing about `googlesheets`.
+- **Prove the rail with a known-present object.** Search for something you know exists before you search for
+  what you want. A query returning zero on an item you can name is a LINKAGE finding, not a data finding.
+- **Each product is its own toolkit and its own consent** — Drive, Gmail, Sheets, Calendar, Docs. Linking one
+  is not linking the family, so "Google is connected" is wrong in the most expensive direction: it reads as
+  done and sends nobody back to finish it.
+- **Say which world you are in.** "The account holds no such file" and "Sheets is not linked, so I cannot see
+  anything" lead to opposite next actions. Returning a calm blank for the second is the failure this whole
+  skill exists to prevent — an absence you did not measure is not an absence.
+
 ```bash
 KEY=$(cat /opt/data/shared-secrets/composio_api_key)
 curl -s -o /dev/null -w "v1 %{http_code}\n" -H "x-api-key: $KEY" https://backend.composio.dev/api/v1/connectedAccounts
@@ -121,10 +140,22 @@ Then `PATH="$HOME/.local/bin:$PATH"` for the install.
 ### 2. Authenticate — browser flow, never an agent identity
 
 ```bash
-composio login --no-wait --yes     # prints a URL; exits without opening a browser
-composio login --poll              # completes it once the human clicks
+composio login --no-wait --yes --no-skill-install   # prints a URL; exits without opening a browser
+# hand the URL to the human, then:
+composio login --poll                               # completes once they click; polls ~10 min
 ```
 
+**⚠️ A rejected API key is NOT a reason to ask the user for another key.** Measured: a key the user had
+just created was refused by REST (`APIKey_InvalidAPIKey`, three endpoints, both header styles) and by the
+CLI (`Invalid or revoked user API key`) — and the fix had nothing to do with keys. A browser login
+succeeded immediately on the same host, resolved the organization, and `whoami` returned a real human
+identity. **A browser session supersedes the key entirely:** it carries the human's own identity and
+selects the org, which is what an org-scoped key rejection usually is. Ask for a new key only after a
+browser login has ALSO failed — otherwise you spend the user's round trip on the wrong object, and the
+"your key is dead" verdict you stated with confidence turns out to have been a scope or org story you
+told twice.
+
+- `--no-skill-install` avoids the Claude-plugin step, which fails on any host without a coding agent.
 - **The pending session expires in MINUTES.** Across a chat round-trip it will often be dead. Generate the
   link and have the human click inside the same minute; expect to retry two or three times.
 - **`composio login --agent` exists and must not be used when a human is present.** It creates a throwaway
@@ -153,6 +184,21 @@ behind, so a host with no browser produces a second `INITIALIZING` account each 
 `link --no-browser --no-wait` **once**, hand over the URL, and then poll `connections list` — do not re-link
 while one is already pending. Removal is interactive, so that clutter is effectively permanent.
 
+**A second account on the SAME toolkit requires `--alias`** — the CLI refuses the link without it
+("Required when creating an additional account for the same toolkit/auth config"). The alias is also how
+you address the right account later, so make it say which one:
+
+```bash
+composio link gmail --alias second-google --no-browser --no-wait
+```
+
+**The consent screen silently re-authorises whichever account the browser is already signed into.**
+Linking a second Google account from a browser session that is logged into the first yields a second
+`ACTIVE` connection pointing at the SAME mailbox — and two `ACTIVE` rows cannot tell you that. Tell the
+user to open a private window or choose "Use another account" *before* they click, and afterwards prove
+the accounts are actually different by executing a read on each connection and comparing the returned
+data. Counting `ACTIVE` rows is not a check; it is the appearance of one.
+
 ### 4. Find, inspect, then execute
 
 ```bash
@@ -166,6 +212,40 @@ JSON under the schema's own file field instead of using the flag.
 
 **Schema key names are CamelCase per API, not snake_case** — `fileId`, not `file_id`. Passing the wrong
 name returns a validation error listing the correct keys; read it rather than guessing twice.
+
+**Never derive a tool slug from a name pattern — the tool set is not guessable.** A slug invented to mirror a
+REST verb (`GMAIL_MODIFY_MESSAGE`, modelled on the real `GMAIL_ADD_LABEL_TO_EMAIL`) does not exist, and the
+failure is charged PER CALL: a 55-message batch spent 55 round trips learning one missing name, all of them
+reporting the same "Tool not found". Discover the slug instead —
+
+```bash
+composio search "modify labels on gmail messages"   # take the slug it returns
+```
+
+— and expect the real verb to be the plural batch form (`GMAIL_BATCH_MODIFY_MESSAGES`, camelCase fields, many
+ids per call). **A wrong slug is the cheapest mistake to make and the most expensive to repeat.**
+
+**`composio execute <slug> --help` is NOT the tool's schema.** It prints the CLI's own generic `execute` help
+and reads as authoritative while telling you nothing about the tool's parameters. The schema is
+`--get-schema`. Measured: `--help` was read twice in one session and both times the answer was about
+`--parallel` and `--data`, not about the tool.
+
+**A large result is spilled to a file, not returned inline.** `composio execute` answers with
+`{"successful":true,"storedInFile":true,"outputFilePath":"…/TOOL_OUTPUT_….json"}` once the payload is
+big — measured: 142 KB for a three-message Gmail fetch. Parse `outputFilePath` and pull the fields you
+need. Reporting the execute response itself hands the user a path where they asked for data.
+
+**The spilled file wraps the payload AGAIN — read `["data"]`, not the file root.** The file is itself
+`{"successful":true,"data":{"messages":[…]}}`, so `json.load(f)["messages"]` is `None`, which is
+indistinguishable from a genuinely empty result. Measured: that mis-read reported "0 inbox messages" for
+a mailbox holding 8,857. Unwrap every result the same way — CLI stdout → `outputFilePath` → `["data"]` →
+the collection — and treat `successful:false` or a missing key as the ONLY evidence of "no data".
+Writing `list(d.get("messages") or [])` against the wrong level silently converts a parse bug into a
+finding, which is the most expensive kind of wrong answer.
+
+**A broad query fails with "payload too large" instead of returning a page.** Adding `max_results` makes
+it worse. Pass `verbose:false` (measured ~75% smaller) and narrow with a `query` filter; the error text
+names this remedy. Only treat the failure as data-missing if the same call fails after that.
 
 **Replacing a file's contents is a different tool from uploading one.** A corrected local file uploaded again
 creates a *second* remote copy with a new id, so the link already handed to the user keeps serving the old
@@ -181,6 +261,17 @@ user's shared link is the artifact — if it still shows the old bytes, the fix 
 
 ### 5. Verify by read-back, never by the write response
 
+**Two ACTIVE connections to the same toolkit are not proof of two accounts.** Linking a second Google
+account from a browser already signed into the first silently re-authorises the SAME mailbox: both rows
+read `ACTIVE`, both have distinct `ca_…` ids, and the only way to tell is to ask each one who it is.
+
+```bash
+composio execute GMAIL_GET_PROFILE --account <alias|word_id|ca_id> -d '{}'
+```
+
+Compare `emailAddress`, `historyId` and `messagesTotal` — identical values mean one mailbox under two
+connections. Do this before reporting a second account as linked; a distinct id proves nothing.
+
 A successful upload response is not proof the file is there, correct or complete. Read it back and compare:
 
 ```bash
@@ -188,6 +279,15 @@ composio execute GOOGLEDRIVE_GET_FILE_METADATA -d '{"fileId":"<id>","fields":"id
 ```
 
 Check the returned `size` against the local file byte count. **Only then report success.**
+
+**Verify the effect in the user's own units, not the API's.** A batch of accepted writes is a receipt for
+the calls, not for the outcome: removing a label from messages that never carried it succeeds and changes
+nothing measurable. After any bulk mutation, re-run the query the user would run and report before/after.
+
+**Never silently exceed the scope the user approved.** If the real count comes out materially larger than
+the number you got a "go" for, stop and say so with the evidence before running it — a reversal of the
+same action at 3× the size is still not the action that was authorised. Cheap, reversible operations do
+not exempt you: the approval was for a quantity, and the quantity changed.
 
 ## Before asking for a new key: is there a first-party path ALREADY on the host?
 
@@ -224,6 +324,19 @@ that is the moment to move down the list, and to say why.
 
 ## Pitfalls
 
+- **The installer ends on a `💥 Error` that is not a failed install.** Measured 2026-11-19 on a host with no
+  coding agent installed: the CLI installs, then the optional plugin step tries to spawn `claude` and prints
+  `💥 Error • ENOEXEC,unknown error, posix_spawn 'claude'` followed by `agent plugin setup failed`. The binary
+  is fine — verify `composio --version` (0.6.2 at the time) before re-running anything. The suggested retry
+  (`composio setup --target auto --yes`) only relates to the plugin step, not to whether you can use the CLI.
+- **Confirm a dead key with BOTH surfaces before asking for another.** The REST probe and the CLI disagree in
+  ways that matter: `composio login --user-api-key "$KEY"` answers `Invalid or revoked user API key`, while
+  REST v3 answers `APIKey_InvalidAPIKey`. Two independent systems agreeing is a credential verdict you can
+  state with confidence; one alone is still worth a second probe.
+- **Key LENGTH is not a truncation test on this platform.** Measured: every stored key on the host was 23
+  chars and cached doc examples ranged 13-21, so a 23-char `ck_…` key is the normal shape. Do not tell the
+  user their key was cut off — check the error text, which echoes the key masked (`ck_**-sni`) and therefore
+  proves the full value arrived.
 - **Do not claim a platform cannot do something because your catalog omits it.** Probe for 401 vs 404.
 - **Do not use `--agent` login with a human present** — you would authorise the wrong identity.
 - **Never type a password or approve OAuth yourself.** The consent click belongs to the account owner.
@@ -241,11 +354,16 @@ that is the moment to move down the list, and to say why.
 - **A rejected key is not always a truncated key.** If the same 23-character string arrives twice, it is
   invalid, not mis-copied — say so instead of asking for it a third time.
 - **Scope to the ask.** Linking Drive does not mean touching Gmail.
+- **Zero results is not zero data until the toolkit is proven linked.** An unlinked toolkit returns an empty
+  set rather than an error, so a clean blank is the one answer that must never be reported without a
+  `connections list` check — and a per-toolkit check, never a per-provider one.
 - **Rate your own report.** "It uploaded" from the tool's response is a claim; from a metadata read-back it
   is a receipt.
 
 ## Related
 
+- `references/gmail-tool-operations.md` — Gmail at volume: payload unwrapping, opaque label ids, batch
+  archive semantics, why there is no unsubscribe action, and the bulk-delete safety walls.
 - `agent-tool-contracts` — the same boundary discipline for tools that take generated arguments.
 - `secret-handling-in-chat` — the paste-redaction protocol used above.
 - `host-access-delegation` — when the missing thing is root, not a credential.

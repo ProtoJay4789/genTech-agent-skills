@@ -221,6 +221,52 @@ path — the setting simply produced nothing.
      Editing the known path with a backup is more auditable than a CLI whose profile resolution you have not
      confirmed — and it leaves a diff a reviewer can read.
 
+9. **A control read at STARTUP keeps acting on its OLD value — "not yet in use" understates it.** Step 4 is
+   about a setting that has not been read; the worse case is a setting the consumer read once at boot and
+   will not re-read until it restarts. The file says `false`, the running process takes the `true` branch on
+   every tick, and **the behaviour continuing is not evidence your read was wrong — it is evidence the reader
+   never reloaded.** Name which of the two you verified; a config file and a running process are different
+   estates.
+   - **Sample the observable across at least one full interval of its own tick.** A count that drops to zero
+     between ticks and climbs back is not a stop, and a single read at the wrong moment proves the opposite of
+     what it looks like. Where the interval is unknown, `search_files` the default beside the field that sets it.
+   - **When you cannot restart the consumer, STARVE THE INPUT instead of fighting the control.** Park or drain
+     the thing it acts on, then prove the absence of claimable input rather than the absence of the process —
+     an actuator with nothing to claim is stopped even while it keeps ticking, and that proof does not decay
+     between ticks.
+   - **Never report the config value as the fix.** The fix is the observable's state; the value is a note to
+     the next start. Saying "it is off" while the old value is still running is the same false receipt as
+     reporting a restore that was never wired.
+   - **A cleanup can re-arm the thing you just stopped.** Removing child records, completing parents, or
+     clearing a queue is a *state change the actuator reacts to* — check what it promotes before you archive,
+     or the tidy-up is a launch.
+
+### One value, TWO SPELLINGS, two readers — the declaration and the behaviour can disagree INSIDE one file
+**The dangerous schema is one that accepts both `priceUsd` and `price_usd`.** The entry carries the same
+value under both names, and **different code paths read different names** — the catalogue/report path reads
+one, the enforcement path reads the other. Nothing errors, because both lookups are valid and both keys exist.
+
+Measured: the published catalogue advertised **$0.01** while the payment challenge charged **$0.001** — a 10x
+gap between the price shown and the price taken, from one file, with no warning anywhere. A repricing that
+updated only the key the *docs* read made the divergence worse and still looked like a successful change.
+
+- **Assume every camelCase/snake_case pair is TWO fields until proven one.** Grep the whole consumer set for
+  both spellings and list which code path reads which — not whether each path "seems to work".
+- **Test DECLARED against ENFORCED in a single probe.** The failing audit pattern is two separate readings
+  ("the config says 0.01" / "the endpoint works"), because both can pass while disagreeing. One test must
+  fetch the advertised value and the enforced value and compare them numerically, per item, and print the
+  mismatch count. A parity test that can only pass is not a parity test.
+- **Fix the read, then the data, then add the alarm.** Point the enforcement path at the key the declaration
+  writes (prefer the published one, since that is what a buyer was promised), sync the stale key, and print a
+  startup warning whenever the two disagree — otherwise the next one-key edit silently re-opens the gap.
+- **Values loaded at import are not deployed by editing the file.** Proving that claim takes one call: change
+  the file, re-read the live surface, and if the live value did NOT move, the process predates the edit. Keep
+  the three states separate — on disk / loaded / proven — and never report the first as the second.
+- **Check the UNIT before calling a figure wrong.** A price in micro-units (`1000` = `0.001` USDC at 6dp) reads
+  as an extra-or-missing zero to anyone expecting dollars. Confirm the scale factor from the code that builds
+  the number, then judge magnitude — a real 10x error and a correct six-decimal value look identical as raw
+  integers.
+
 **❌ Calling a feature "configured" because the config key exists.** The key is a declaration;
 step 2 is the behaviour.
 
@@ -262,6 +308,49 @@ Measured, twice in one estate, in two different file types:
   Where the fix changes what the system does — what the backup carries, what answers 410 — **flag it and get
   the owner's word**; where it only makes the code match a promise already made to users, fix it.
 
+### Comparing PARSED VALUES is not comparing WORDS — a rename passes every key-set check
+
+**The membership test above asks "is the right literal in the set?". This one is one layer out: the audit
+parses each surface into normalized keys and compares the SETS. That passes while the surface publishes
+vocabulary nobody should be using any more**, because a name→key map accepts the old name and the new name
+alike — both resolve to the same valid key, so the comparison sees one service and no disagreement.
+
+Measured: a rename propagated to five surfaces and the sixth kept publishing **nine retired product names**
+while the checker printed a green tick for it. Every retired name was a legal entry in the map. **A checker
+that compares sets is structurally blind to a rename; only a comparison against the raw text sees it.**
+
+- **Keep a `RETIRED_NAMES` list and substring-match it against the surface's raw body**, independently of the
+  parsed result. That is the only check that survives a mapping that accepts both spellings.
+- **Never let the retired list live only in the human-readable report.** It belongs beside the comparison, as
+  a second assertion in the same probe, or the next reader reintroduces the old words believing the surface
+  was checked.
+- **When a surface passes, say WHICH axis passed.** "10/10 names present" and "0 retired names found" are two
+  different receipts; printing only the first reads as full coverage.
+- **⚠️ A map that accepts an old name is a compatibility shim, and shims hide renames.** Grep the map for the
+  retired vocabulary whenever a rename is declared done — the map is the place a rename goes to look finished.
+
+**❌ Reporting a surface as agreeing because its parsed key set matches.** The parse is the half that cannot
+see the words; the words are what a customer reads.
+
+### A crash inside the reader is not an unreadable surface — print the exception
+
+**A broad `except Exception` around a read turns a code defect into a data finding.** Measured: a patch
+referenced a variable that did not exist in that scope, the block's handler caught the `NameError`, and the
+report said `UNREADABLE (NameError) — not zero, unknown` — **true to the contract and completely misleading:
+the surface was fine and the instrument was broken.** The next hour goes into the wrong file.
+
+- **Distinguish the two failure classes in the output**: a parse/transport failure is `UNREADABLE`, an
+  exception raised *inside your own code* is `INSTRUMENT BROKEN` with the line. Anything unexpected means the
+  checker is wrong until proven otherwise.
+- **Never `except Exception` around a block you just edited without re-reading the exception type.** The
+  handler you wrote to be forgiving is exactly what conceals your own typo.
+- **Prove the new assertion fires before believing the green tick.** Feed the checker a fixture containing
+  the defect it is meant to catch (`rc=2`, the finding printed), then the clean fixture (`rc=0`). A check added
+  and never falsified is decoration — see `falsifiable-tests`.
+
+**❌ Closing a defect because the checker went quiet after an edit.** Quiet can mean fixed, and it can mean the
+checker no longer runs that branch.
+
 ## A RENDERED section is not a GATE — trace the display to the decision's INPUTS
 
 **The most expensive version of this defect class: a report that renders N layers, and a decision that
@@ -301,6 +390,36 @@ posture for. The fix was not to reformat the display; it was to add the fourth p
 
 **❌ Reporting "the layer is wired" because the section renders.** Rendering is the display path; wiring is
 whether the value reaches the branch. They are separate paths and only one of them was checked.
+
+## Repair the class, not the instance — ATTEST the rail at boot and refuse to start
+
+**A flag that can be set is not a capability, and the durable fix is to make the two impossible to disagree
+in silence.** Auditing finds the divergence once; the next deploy re-creates it. So when a code path is
+gated by an env flag whose implementation may be absent (committed in a branch, dropped in a refactor,
+behind an SDK version that never landed), add a **startup attestation**:
+
+```python
+# before bind(), print one line naming what will actually settle/route/run
+print(f"[settlement] base → {'DEXTER (armed)' if _use_dexter and _has_dexter else 'CDP'} facilitator")
+if _use_dexter and not _has_dexter:
+    print("ERROR: X402_USE_DEXTER is set but verify_proof_via_dexter() is absent in this build — refusing to start.")
+    raise SystemExit(3)
+```
+
+- **Assert the PAIR (flag set AND callable resolves), never the flag alone.** The whole failure is a
+  truthy env var standing in for a function that does not exist; a check that reads only the variable
+  reproduces the original defect inside the guard.
+- **Fail loudly on the dangerous half, and print the resolved state on the safe half.** Exit non-zero when a
+  declared capability is missing; when it is absent by design, say which path *is* live so the next reader
+  greps one line instead of assuming.
+- **Attest into the boot log, not into a doc.** A README ages; a startup line is regenerated on every deploy
+  and is the only statement that cannot drift from the build it describes.
+- **Verify the guard by triggering it** — boot once with the flag set and the implementation absent and
+  confirm the non-zero exit, then boot normally and read the line. An untriggered guard is decoration (see
+  `falsifiable-tests`).
+
+**❌ Deleting the dormant code path as the tidy fix.** It removes the evidence of the divergence and leaves the
+flag settable; attestation costs a dozen lines and survives the next refactor.
 
 ## Pitfalls
 

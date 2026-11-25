@@ -65,6 +65,15 @@ Memory has a fixed character budget, checked **only on the final state** of a ba
 
 - **Batch your changes.** Add + remove in ONE call — the limit is evaluated after the whole batch, so a
   batch that frees space and adds a fact succeeds where an add alone would be rejected.
+- **Order the batch: `remove` BEFORE `patch` when the patch would restate text another op matches on.** Ops apply
+  in order against evolving state, so a `patch` that expands an entry to include a phrase already present in a
+  second entry makes a later `remove` match **two** entries — and the batch is atomic, so the whole thing is
+  rejected and nothing is written. Remove first, or give each `old_text` something unique to its entry.
+- **A merge is where a fact disappears.** Before removing an entry as "duplicate of X", enumerate **every sentence**
+  in it. Measured: a consolidation dropped a standing capital rule (the cousin's Tier-2, recommend-only, no
+  capital moves without his word) because it lived in the second half of a sentence about something else. Re-read
+  the merged result **against the removed text**, not against your memory of it — that is the same verify-the-
+  rewrite pass this file already requires, applied to a one-line merge.
 - **Do the ARITHMETIC before composing the batch, not between attempts.** A batch is atomic: a rejection applies
   NOTHING, so guessing costs a full round-trip and leaves the file untouched. Compute
   `current + Σ(adds) + Σ(patch deltas) − Σ(removes) ≤ cap` first, then trim to a margin of 30–50 characters in
@@ -77,6 +86,57 @@ Memory has a fixed character budget, checked **only on the final state** of a ba
   paths) — never the standing rules, and never a value you have not re-read from its source.
 - **When it fills, cut — don't skip.** Write cut lines to a vault archive, not to `/dev/null`. The
   archive is the point: *"memory is the buffer, the vault is the system of record."*
+
+### An over-cap file presents as FORGETTING, not as an error
+
+**A memory file can be PAST its cap and still sit on disk, and from that moment every write is refused with
+no signal to anyone.** The file does not corrupt, the tool does not crash, and nothing appears in the
+transcript — the seat simply stops accumulating what it is told.
+
+**⚠️ Measure in the unit the ENFORCER uses — characters, never bytes.** `wc -c` reports BYTES; the cap counts
+`len()` of the joined text (`memory_tool_store.py`: *"budgets are in chars (model-independent)"*,
+`len(ENTRY_DELIMITER.join(entries))`). A file dense in `—`, `§`, `→`, `≠` costs 2–3 bytes per glyph but **1 char**, so
+a byte reading over-reports by ~2% — and in the alarming direction. Measured: a seat was reported at
+`USER.md 1,831/1,800 (−31, already over)` from `wc -c`; the enforced figure was **1,701/1,800 (+99 free)** and it had
+never refused a write. **Read the number from the enforcing code before calling a file over-cap** — the correction
+cost two minutes; acting on the byte figure cost a rewrite of a file that was never full.
+
+**The external symptom is a colleague forgetting a conversation, not a memory error.** If a seat "forgot what
+we discussed yesterday", measure the file before investigating the session, the retrieval, or the model.
+
+- **Measure HEADROOM IN CHARACTERS — signed — and report the tighter file.** `3200 - size` / `1800 - size`;
+  a **negative** number means writes are already being refused, which no percentage display shows once it
+  rounds to `100%`. Do not compare raw byte counts across the two files: the caps differ.
+- **A probe that only reports "near the cap" misses the past-the-cap state entirely.** Make the pass condition a
+  floor (e.g. ≥200 chars free ≈ two durable facts), so over-cap is a failure rather than a rounding artifact.
+- **A GREEN AT LOW HEADROOM IS A WARNING — use two tiers, not one.** Measured 2026-11-23→24 on this seat:
+  `USER.md` sat at **294 bytes free**, the nightly probe read ✅, and it was at **34** the next evening. The
+  failure was visible for a full day and looked like health. Below ~400 free, carry the warning **in the text a
+  human reads** (`· ⚠️ THIN — trim before it fails`), keeping the hard fail at 200. A binary pass/fail cannot
+  distinguish "has room" from "has not failed yet".
+- **Measure in BYTES, not `len(str)`.** `3200 - os.path.getsize(p)`: a character count under-reports by ~22 B on
+  a file with em-dashes, en-dashes and `§` separators — enough to turn a green into a fail when you are near
+  the line.
+- **Trim by VERIFYING FACTS, not by eye.** Back the file up, rewrite compactly, then assert every fact survives
+  with a substring checklist (measured: **46/46 kept, 1,766 → 1,514 bytes**). A trim that drops one fact is
+  worse than no trim, because nobody re-reads a file they believe is fine.
+- **When a fact must leave, MOVE IT AND LEAVE A POINTER — verify the destination ranks before you shrink the
+  source.** Two notes written to vault memory (career lane, games lane), each searched by its own phrase to
+  confirm it comes back **#1** (`score 63.8` and `52.9`), and only then was `USER.md` cut from **1,514 → 1,145
+  B (286 → 655 free)**. The pointer line names the exact search phrase and the instruction (*"read the matching
+  note BEFORE advising"*) — a pointer that merely says "see vault" is a broken link in practice.
+  - **Keep the judgment rules in the every-turn block, move only the detail.** "Exit Amazon ASAP judges every
+    initiative" stays (it changes every recommendation); the SOH2 shift times go (they only matter when
+    scheduling). Test each fact: *would this change what I do on an unrelated task?*
+  - **Verify BOTH directions after the split:** the 22 facts that stayed are present (22/22) **and** the pointer
+    phrases are present (3/3), then run the probe. A trim verified only in one direction cannot tell you which
+    half broke.
+- **More frequent runs do not fix it, and that is the question users actually ask.** If the instrument's rules
+  never fire on the file's shape, raising cadence multiplies the same null output — see *A proposal-only
+  instrument will always read as broken* above. The bottleneck is the **decision** (or a different mechanism),
+  not the sampling rate; answer the cadence question with that distinction instead of rescheduling.
+- **The cap is per-file and silent, so make it a scheduled probe on every seat**, not a manual pass. One probe
+  that prints signed headroom for both files, run per seat, converts "why did it forget" into a number.
 
 **What belongs in memory:** facts that apply to *every* session — who the user is, environment facts,
 standing conventions with no task home.
@@ -93,6 +153,11 @@ that hardcodes the default keeps reporting `2196/2200 (100%)` after the limit mo
 arithmetic on a fiction, and the reader concludes the seats are full when they are at 68%. Measured: eight
 files across four seats were "at 100%" against a limit none of them had. **Resolve the cap per profile; print
 the cap beside the reading so a stale limit is visible.**
+
+**⚠️ And it must prove each profile is a SEAT, not just a directory.** `glob('profiles/*')` returns directories;
+a leftover test artifact with a `SOUL.md`, an empty `memories/` and **no `config.yaml`** was graded as a seat and
+reported as a finding for a full day. Require `config.yaml` — every profile Hermes can actually run must have one —
+so an instrument cannot manufacture output from clutter.
 
 ## Make the fill VISIBLE to the agent, not only to a checker
 
@@ -136,7 +201,13 @@ Audit for these three shapes whenever memory is near its limit:
 | **denial of a live mechanism** | "X is gone / nothing does Y" | the mechanism that would fix X is the one being denied |
 | **another seat's path or ID** | a rule naming `profiles/<other-seat>/…`, another seat's cron id, another seat's room | it was copied as a fact, and it is *true* — just not here |
 | **a superseded value** | an old limit, address, price, or endpoint, with no receipt | re-reading memory confirms it; nothing compares it to today |
+| **a pointer with no target** | "detail → `<path>`" where the file was never written or has moved | the pointer reads as *the detail is safe elsewhere*, so nobody opens it; it occupies the space and hides a truncation |
 
+- **Open every pointer that memory cites, once per audit.** Measured: three entries named `00-HQ/memory-detail.md`
+  as their detail page and **the file did not exist**, possibly for weeks — a silent truncation wearing a citation.
+  `search_files (target='files')` each target: a missing one means the entry is stale (fix the path) or was never
+  true (write the note, then
+  re-point). Do this **before** a trim, or the trim compacts entries whose detail nobody can reach.
 - **Check every "gone" and "still does" claim against the filesystem and the job list before trusting it.**
   `search_files (target='files')` for the script and ask the scheduler — both are one call, and the memory entry is a claim like any other.
 - **Measure growth as chars/hour with the file's own samples**, and read the *shape* of the jump: a step in one
@@ -320,8 +391,73 @@ rewrite, not one line changed by design.
   history, duplicate keys) return `NO RULE FIRED` on dense declarative facts every run — **a checker with the same
   output on 100% of its inputs is measuring nothing**, and the honest fix is fewer rules or a different mechanism
   (the PORTABLE/FLOOR split above), not more regex.
+- **End a null result with the ACTION, never with a shrug.** `NO RULE FIRED … so this needs the seat to choose`
+  reads as *nothing to do*; measured, that exact line printed twice a day while three seats sat at 96–98% and
+  nobody acted. The same finding plus *"ACTION: consolidate BY HAND — merge same-topic entries, push detail to the
+  archive; a rule cannot decide which facts matter"* gets acted on. **A report that names no action gets no action.**
 - **Every message that names a path must point at a live one.** A report instructing seats to trim "per
   `01-HANDOFFS/memory-trim-protocol.md`" is worse than no instruction when only an archived copy exists.
+
+### The actuator must land on EVERY seat, and it must refuse more often than it acts
+
+**Giving the instrument a write path fixes the seat you are on. The other seats keep the copy that only proposes.**
+Measured: after a relief step was added to the memory wrapper, that wrapper was **2,199 bytes** while three other
+seats ran a **231-byte** copy of the older one — one seat in four could act, the rest still printed the same
+proposals twice a day, and every report read healthy because each wrapper exited `0` and printed something.
+
+- **Ship the wrapper to every seat and verify by what each one INVOKES, not by the file existing:**
+  `grep -n 'relieve\|--execute' profiles/*/scripts/memory-dietician.sh`. A size gap across copies that should be
+  identical is the tell that one seat was upgraded.
+- **Relieve `MEMORY.md` only, never `USER.md`.** A fact about the user is not a size decision; a relief pass that
+  can reach the user file will eventually delete a preference to save forty characters.
+- **One entry per over-cap file per run, verbatim, into a dated archive, ledgered.** A pass that empties a file to
+  hit a target deletes the judgement the file exists to hold.
+- **It must be able to refuse.** When every entry is load-bearing, the correct output is a refusal that says so —
+  that is the honest answer for a seat whose file is dense with standing rules, and an actuator that always finds
+  something to cut is cutting the wrong things.
+- **Verify by the ARCHIVE, not by the number.** The moved text must be readable in the archive file, with a header
+  saying only its location changed, before the memory size is reported as improved. A size that drops without an
+  archived counterpart is a deletion wearing an improvement.
+- **Relief is a floor, not a diet.** It returns a file to breathing room; it does not reach a percentage target.
+  Say which of the two the user asked for — most asks for "keep it from filling" are answered by the floor, while
+  "get these to 40%" needs the PORTABLE/FLOOR split above, not more frequent relief.
+
+### An alarm at one threshold and an actuator at another leaves a band nobody can act in
+
+**Read the two numbers out of the two scripts before believing a report.** If the nightly report speaks at 85%
+while the actuator only acts at 90%, every file in that five-point band generates a warning that nothing on the
+box can resolve — and the reader learns the warning is noise, which is how a real fill gets ignored.
+
+- **Make the report's threshold and the actuator's trigger the SAME constant**, or state the band in the report
+  (`over 85%, actuator acts at 90%`) so the reader knows why nothing moved. A warning without a hand is worse than
+  silence: it spends the reader's attention and returns nothing.
+- **Check which files the hand can actually reach, and say so when a file has none.** A relief pass restricted to
+  `MEMORY.md` will never touch `USER.md` — correctly, because a fact about the user is not a size decision. The
+  consequence must be printed: *"USER.md at 96% — relief will not touch it; a seat must consolidate by hand."*
+  Without that sentence the output reads `NO RULE FIRED` and the reader has to discover the exclusion themselves.
+  **A file with no hand is a defect in the SYSTEM, not in the file.**
+
+### When the hand must be a model, the applier must be deterministic — a COVERAGE MAP is the contract
+
+**The user file has no rule that can merge it: two entries that make the same point about a person have to be
+fused by reading them.** That is a legitimate place for a model — and the only safe shape is *the model proposes,
+a script writes*.
+
+- **Require a machine-checkable coverage map, not prose.** Every input entry index must appear in exactly one
+  output entry (`{"target": "…", "entries": [{"from": [1,2], "text": "…"}]}`). A gap is a refusal; a duplicate
+  is a refusal. **A silent deletion cannot pass, because the indices stop adding up before anything is written** —
+  arithmetic, not trust.
+- **The applier backs up, archives the pre-merge text verbatim, ledgers before/after hashes, and rolls back if a
+  post-write re-read disagrees.** Reference implementation: `/opt/data/scripts/memory-merge-apply.py`
+  (`--dry-run` / `--execute`); exit `0` applied, `2` refused, `3` instrument error.
+- **Fixture the refusal paths before letting it run on a live file.** Complete map applies; a dropped index and a
+  duplicated index both refuse with the missing index named; a 1:1 map round-trips **byte-identical** (proves the
+  rewrite is lossless). An applier tested only on the happy path is an applier that deletes quietly.
+- **Gate the model run on a byte-stable probe.** A monitor script that prints the over-cap files (no timestamps —
+  prove it by running it twice and comparing `md5sum`) suppresses the agent entirely while nothing crosses, so the
+  consolidation costs nothing on the days it is not needed. Pipeline mechanics: `cron-health-standard` §Pipelines.
+- **Never let the model retry with a looser map after a refusal.** A refusal means the map was wrong; report it.
+  Loosening until it passes converts the guard into decoration.
 
 ## Spilling beats deleting — and it needs a two-sided instrument
 
@@ -393,3 +529,19 @@ left image generation with no provider at all. Neither produced a single error.
 
 **So: validate against the schema (the source list), not against intuition. And test the credential —
 a commented-out key matches a naive search exactly like a live one.**
+
+## Learned on gentech-treasury (merged 2026-11-24)
+
+> Promoted verbatim from the seat that learned it. Kept separate on purpose: this is a second writer's evidence, not a rewrite of the section above.
+
+- **A cap alarm is often a DUPLICATION alarm — search for the second copy before cutting a fact.** Measured: a
+  USER file went 81% → 93% → 98% inside a day while gaining **no new information about the user** — the same rule
+  had been written twice, in two sessions, each time looking like a fresh fact. Merge same-subject entries (keep
+  every distinct clause), and drop anything `SOUL.md` already carries as non-negotiable; that is the cheapest cut
+  and it loses nothing. Report which entries changed meaning, not just the byte drop.
+- **An archive named `…REVERTED` is not evidence a revert happened — read the LIVE file.** Measured: a trim
+  archived three entries to `<seat>-memory-trim-REVERTED.md` whose header says *"every entry below was REMOVED
+  from live memory"*; the accompaniment was restored, the memory file was not, and the missing set included the
+  freshest, highest-stakes entry. `grep` the live file for one distinctive string per archived entry, and
+  `md5sum` the archive against a pre-trim copy. The archive's NAME is a claim like any other.
+

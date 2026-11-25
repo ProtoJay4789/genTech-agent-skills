@@ -42,6 +42,12 @@ every session, attended or not:
 It executes in one call, survives a timeout, and **the file is left behind as the instrument** — which is
 what lets a later session re-run the identical probe instead of re-deriving one.
 
+**And never nest a shell heredoc inside the code that issues it.** A `python3 - <<'EOF' … EOF` block wrapped
+inside the same string that reaches the tool collapses on the quoting: the terminator gets consumed, the body
+is cut mid-statement, and the failure arrives as `SyntaxError: unterminated string literal` or as a `KeyError`
+from a half-written script. **The traceback names your script; the defect is the wrapping** — so the next
+attempt gets "fixed" by editing good code. Anything longer than one line goes through the file, written once.
+
 ## Rule 2 — Read-only by construction, and accumulate as you go
 
 - A probe **never writes to the system it measures.** No restarts, no fixes, no "while I'm here" edits —
